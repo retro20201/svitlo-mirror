@@ -32,18 +32,19 @@ jobs:
           node tools/mirror/probe.mjs --selftest
           node tools/mirror/probe.mjs
 
+      # The key is written to a file rather than passed inline because
+      # GOOGLE_APPLICATION_CREDENTIALS takes a path, not the JSON itself. It lives in
+      # RUNNER_TEMP for the length of one step and is deleted whatever happens.
       - name: Write service account
         if: steps.mirror.outputs.changed == 'true'
-        run: |
-          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/service-account.json"
+        run: printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/service-account.json"
         env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KOLY_SVITLO }}
 
       - name: Deploy to Firebase Hosting
         if: steps.mirror.outputs.changed == 'true'
-        run: npx --yes firebase-tools@latest deploy --only hosting --project "$FIREBASE_PROJECT" --non-interactive
+        run: npx --yes firebase-tools@latest deploy --only hosting --project koly-svitlo --non-interactive
         env:
-          FIREBASE_PROJECT: ${{ secrets.FIREBASE_PROJECT }}
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
 
       - name: Remove service account
