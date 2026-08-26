@@ -12,9 +12,9 @@ on:
         type: boolean
         default: false
       test_push:
-        description: 'Region id to send a test push to, e.g. kyiv. Leave empty for none.'
+        description: 'Send a test push to this topic suffix (e.g. general). Empty = none.'
         type: string
-        default: ''general
+        default: ''
 
 concurrency:
   group: mirror
