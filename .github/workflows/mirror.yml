@@ -11,6 +11,10 @@ on:
         description: 'Deploy even when no schedule changed (for testing or a manual re-publish)'
         type: boolean
         default: false
+      test_push:
+        description: 'Region id to send a test push to, e.g. kyiv. Leave empty for none.'
+        type: string
+        default: ''general
 
 concurrency:
   group: mirror
@@ -58,6 +62,14 @@ jobs:
         if: steps.mirror.outputs.notify != ''
         continue-on-error: true
         run: node tools/mirror/send-push.mjs "${{ steps.mirror.outputs.notify }}"
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
+
+      # Proves the credentials and the FCM role work without waiting for a real schedule change.
+      # "general" is a topic nothing subscribes to, so a test cannot wake anyone by accident.
+      - name: Test push
+        if: inputs.test_push != ''
+        run: node tools/mirror/send-push.mjs "${{ inputs.test_push }}"
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
 
