@@ -1,0 +1,10 @@
+.DS_Store
+node_modules/
+service-account.json
+probe-report.json
+
+# The Firebase CLI writes OAuth access tokens into its debug logs in plaintext.
+*.log
+firebase-debug.log
+firebase-debug.*.log
+.firebase/

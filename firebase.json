@@ -1,0 +1,18 @@
+{
+  "hosting": {
+    "public": "firebase/public",
+    "ignore": ["**/.*", "**/node_modules/**"],
+    "headers": [
+      {
+        "source": "/v1/*.json",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=300, stale-while-revalidate=1800"
+          },
+          { "key": "Access-Control-Allow-Origin", "value": "*" }
+        ]
+      }
+    ]
+  }
+}

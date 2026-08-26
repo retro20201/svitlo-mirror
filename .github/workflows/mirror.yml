@@ -1,0 +1,51 @@
+name: Mirror outage schedules
+
+on:
+  schedule:
+    # Every 10 minutes. Operators revise the day's schedule during the day, and a phone that
+    # checks in with a 5-minute cache should never be more than ~15 minutes behind them.
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Fetch and validate
+        id: mirror
+        run: node tools/mirror/mirror.mjs
+
+      # Reports when a seasonal region starts publishing again, so its adapter gets written
+      # against real markup instead of guesswork. Never blocks the mirror.
+      - name: Probe seasonal regions
+        continue-on-error: true
+        run: |
+          node tools/mirror/probe.mjs --selftest
+          node tools/mirror/probe.mjs
+
+      - name: Write service account
+        if: steps.mirror.outputs.changed == 'true'
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/service-account.json"
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Deploy to Firebase Hosting
+        if: steps.mirror.outputs.changed == 'true'
+        run: npx --yes firebase-tools@latest deploy --only hosting --project "$FIREBASE_PROJECT" --non-interactive
+        env:
+          FIREBASE_PROJECT: ${{ secrets.FIREBASE_PROJECT }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
+
+      - name: Remove service account
+        if: always()
+        run: rm -f "$RUNNER_TEMP/service-account.json"
