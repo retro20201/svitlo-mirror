@@ -16,6 +16,7 @@
  */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { affectsSchedule } from './lib/notify.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REGIONS } from './regions.mjs';
@@ -54,6 +55,8 @@ async function main() {
 
   let changed = 0;
   let failed = 0;
+  /** Regions whose published schedule moved — pushed after the deploy, never before. */
+  const notify = [];
   const index = [];
 
   for (const region of REGIONS) {
@@ -91,8 +94,16 @@ async function main() {
         continue;
       }
 
+      // Decided before the write, while `previous` still holds what phones currently have.
+      const worthWaking = affectsSchedule(previous, snapshot);
+
       snapshot.mirroredAt = new Date().toISOString();
       await writeFile(file, JSON.stringify(snapshot), 'utf8');
+
+      // Only recorded here. The push must not go out until the new file is actually being
+      // served — a phone woken before the deploy refetches the old schedule and goes back to
+      // sleep believing it is current.
+      if (worthWaking) notify.push(region.id);
       const days = Array.isArray(snapshot.fact?.data) ? 0 : Object.keys(snapshot.fact.data).length;
       console.log(
         `[write] ${region.id}: ${queues} queues, ` +
@@ -141,7 +152,11 @@ async function main() {
 
   if (failed === targets.length && targets.length > 0) process.exit(1);
   if (process.env.GITHUB_OUTPUT) {
-    await writeFile(process.env.GITHUB_OUTPUT, `changed=${changed > 0}\n`, { flag: 'a' });
+    await writeFile(
+      process.env.GITHUB_OUTPUT,
+      `changed=${changed > 0}\nnotify=${notify.join(',')}\n`,
+      { flag: 'a' }
+    );
   }
 }
 

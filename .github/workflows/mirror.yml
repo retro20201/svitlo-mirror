@@ -25,6 +25,15 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Test the push decision
+        run: node --test tools/mirror/notify.test.mjs
+
+      # Lives in RUNNER_TEMP for the length of the job and is deleted whatever happens.
+      - name: Write service account
+        run: printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/service-account.json"
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KOLY_SVITLO }}
+
       - name: Fetch and validate
         id: mirror
         run: node tools/mirror/mirror.mjs
@@ -37,18 +46,18 @@ jobs:
           node tools/mirror/probe.mjs --selftest
           node tools/mirror/probe.mjs
 
-      # The key is written to a file rather than passed inline because
-      # GOOGLE_APPLICATION_CREDENTIALS takes a path, not the JSON itself. It lives in
-      # RUNNER_TEMP for the length of one step and is deleted whatever happens.
-      - name: Write service account
-        if: steps.mirror.outputs.changed == 'true' || inputs.force_deploy
-        run: printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/service-account.json"
-        env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KOLY_SVITLO }}
-
       - name: Deploy to Firebase Hosting
         if: steps.mirror.outputs.changed == 'true' || inputs.force_deploy
         run: npx --yes firebase-tools@latest deploy --only hosting --project koly-svitlo --non-interactive
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
+
+      # Strictly after the deploy: a phone woken before the new file is served would refetch
+      # the old schedule and believe it current until the next background refresh.
+      - name: Announce changed regions
+        if: steps.mirror.outputs.notify != ''
+        continue-on-error: true
+        run: node tools/mirror/send-push.mjs "${{ steps.mirror.outputs.notify }}"
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
 
