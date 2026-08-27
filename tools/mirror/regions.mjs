@@ -10,7 +10,13 @@
  *               Out of season the page is an address-lookup form with nothing to parse, so an
  *               adapter cannot be written *or verified* until schedules return. `probe.mjs`
  *               watches these and reports the moment one starts publishing.
- *   blocked   — the operator's site refuses automated access (403 even to a real browser)
+ *   blocked   — the operator deliberately blocks automated access. Verified 2026-08-27 with
+ *               Playwright: headless, headed, and a real Chrome driven over CDP all get
+ *               Cloudflare's "Sorry, you have been blocked" — a hard block, not a JS challenge
+ *               that waiting solves. Getting in would mean defeating an anti-bot measure the
+ *               operator put up on purpose, on their bandwidth. Not a scraping problem: the way
+ *               in is asking them for access, the same conclusion reached about the aggregator's
+ *               disallowed API.
  *   noFeed    — the operator does not publish a machine-readable queue schedule at all
  *               (PDF/XLSX/images only, or address lookup instead of queues)
  *   occupied  — no schedule exists to publish
