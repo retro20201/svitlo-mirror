@@ -12,9 +12,13 @@ on:
         type: boolean
         default: false
       test_push:
-        description: 'Send a test push to this topic suffix (e.g. general). Empty = none.'
+        description: 'Send a test push to this topic suffix (e.g. kyiv). Empty = none.'
         type: string
         default: ''
+      test_push_visible:
+        description: 'Make the test push show a banner — the only way to confirm delivery to a device.'
+        type: boolean
+        default: false
 
 concurrency:
   group: mirror
@@ -69,7 +73,12 @@ jobs:
       # "general" is a topic nothing subscribes to, so a test cannot wake anyone by accident.
       - name: Test push
         if: inputs.test_push != ''
-        run: node tools/mirror/send-push.mjs "${{ inputs.test_push }}"
+        run: |
+          if [ "${{ inputs.test_push_visible }}" = "true" ]; then
+            node tools/mirror/send-push.mjs --visible "Коли Світло|Перевірка доставки" "${{ inputs.test_push }}"
+          else
+            node tools/mirror/send-push.mjs "${{ inputs.test_push }}"
+          fi
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
 

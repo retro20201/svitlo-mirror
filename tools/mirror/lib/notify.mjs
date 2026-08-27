@@ -68,7 +68,14 @@ export function affectsSchedule(previous, next) {
   return fact(previous) !== fact(next);
 }
 
-export async function notifyRegion(regionId, { credentialsPath, dryRun = false } = {}) {
+/**
+ * @param {object} [options]
+ * @param {{title: string, body: string}} [options.visible] Adds a user-visible alert. Only for
+ *   proving delivery by hand: production pushes are silent, because the phone decides what to
+ *   say from the schedule it holds. A visible test push is the one way to confirm the
+ *   FCM → APNs → device leg without reading the device log, which needs root.
+ */
+export async function notifyRegion(regionId, { credentialsPath, dryRun = false, visible } = {}) {
   const topic = topicFor(regionId);
   if (dryRun || !credentialsPath) {
     console.log(`[push] would notify ${topic}`);
@@ -80,12 +87,24 @@ export async function notifyRegion(regionId, { credentialsPath, dryRun = false }
     message: {
       topic,
       data: { type: 'schedule', region: regionId },
-      apns: {
-        // Silent: no alert, no sound. `content-available` is what gets the app woken to refetch,
-        // and `apns-priority: 5` is required for it — a silent push sent at 10 is rejected.
-        headers: { 'apns-priority': '5', 'apns-push-type': 'background' },
-        payload: { aps: { 'content-available': 1 } }
-      }
+      apns: visible
+        ? {
+            headers: { 'apns-priority': '10', 'apns-push-type': 'alert' },
+            payload: {
+              aps: {
+                alert: { title: visible.title, body: visible.body },
+                sound: 'default',
+                'content-available': 1
+              }
+            }
+          }
+        : {
+            // Silent: no alert, no sound. `content-available` is what gets the app woken to
+            // refetch, and `apns-priority: 5` is required for it — a silent push sent at 10
+            // is rejected.
+            headers: { 'apns-priority': '5', 'apns-push-type': 'background' },
+            payload: { aps: { 'content-available': 1 } }
+          }
     }
   };
 

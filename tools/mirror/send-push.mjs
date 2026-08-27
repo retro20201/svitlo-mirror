@@ -11,7 +11,18 @@
  */
 import { notifyRegion } from './lib/notify.mjs';
 
-const regions = (process.argv[2] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+// `--visible "Title|Body"` makes the push show a banner. Delivery to a device cannot otherwise
+// be confirmed without reading its log, which needs root. Never used by the cron.
+const args = process.argv.slice(2);
+const visibleIndex = args.indexOf('--visible');
+let visible;
+if (visibleIndex !== -1) {
+  const [title, body] = (args[visibleIndex + 1] ?? '').split('|');
+  visible = { title: title ?? 'Тест', body: body ?? '' };
+  args.splice(visibleIndex, 2);
+}
+
+const regions = (args[0] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 if (regions.length === 0) {
   console.log('[push] nothing to announce');
   process.exit(0);
@@ -22,7 +33,8 @@ for (const region of regions) {
   try {
     await notifyRegion(region, {
       credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS,
-      dryRun: process.env.PUSH_DRY_RUN === '1'
+      dryRun: process.env.PUSH_DRY_RUN === '1',
+      visible
     });
   } catch (error) {
     // A push that does not go out costs freshness, not correctness — the app still refetches on
