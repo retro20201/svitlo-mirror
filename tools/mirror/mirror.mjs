@@ -27,7 +27,14 @@ const OUT_DIR = join(HERE, '..', '..', 'firebase', 'public', 'v1');
 
 const ADAPTERS = {
   dtek: () => import('./sources/dtek.mjs'),
-  mykolaiv: () => import('./sources/mykolaiv.mjs')
+  mykolaiv: () => import('./sources/mykolaiv.mjs'),
+  kharkiv: () => import('./sources/kharkiv.mjs'),
+  zaporizhzhia: () => import('./sources/zaporizhzhia.mjs'),
+  cherkasy: () => import('./sources/cherkasy.mjs'),
+  ternopil: () => import('./sources/ternopil.mjs'),
+  'ivano-frankivsk': () => import('./sources/ivano-frankivsk.mjs'),
+  zhytomyr: () => import('./sources/zhytomyr.mjs'),
+  rivne: () => import('./sources/rivne.mjs')
 };
 
 async function readExisting(file) {
