@@ -62,7 +62,6 @@ export const REGIONS = [
   { id: 'crimea',        title: 'АР Крим',             subtitle: 'автономна республіка', operator: '—',                                   source: null, status: 'occupied' }
 ];
 
-export const LIVE_REGIONS = REGIONS.filter((region) => region.status === 'live');
 
 export function regionById(id) {
   return REGIONS.find((region) => region.id === id) ?? null;

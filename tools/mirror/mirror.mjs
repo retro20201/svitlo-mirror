@@ -88,6 +88,13 @@ async function main() {
       entry.hasWeeklyPreset = Object.keys(snapshot.preset?.data ?? {}).length > 0;
       entry.hasSchedule = hasSchedule(snapshot);
 
+      // Coverage follows what the operator is actually publishing, not a hand-set flag. Out of
+      // season the tables are empty, and a region offered as `live` then reports "no outages
+      // scheduled" where it means "no data" — the one confusion this app exists to prevent.
+      // When restrictions resume the same check turns the region back on with no code change.
+      if (entry.hasSchedule) entry.status = 'live';
+      else if (region.status === 'live') entry.status = 'seasonal';
+
       if (previous && fingerprint(previous) === fingerprint(snapshot)) {
         console.log(`[same]  ${region.id}`);
         index.push(entry);
