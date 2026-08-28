@@ -1,4 +1,11 @@
 /**
+ * `note` is rendered to the user in the picker INSTEAD of the per-status explanation, so it must
+ * read as a fact about the operator, not as a implementation detail. Anything technical belongs in
+ * a comment here. Sources, for the record: Харків/Запоріжжя/Черкаси come from the operators' own
+ * Telegram channels, Тернопіль from api-poweron.toe.com.ua, Івано-Франківськ from the daily XLSX
+ * archive. Кіровоград serves its schedule only over POST, which Cloudflare challenges; Херсон's
+ * schedule page answers 200 with an empty body out of season.
+ *
  * Registry of every region the app can offer, and where its schedule comes from.
  *
  * `status` is published to the app in `index.json`, so a region can be switched on without an
@@ -34,7 +41,7 @@ export const REGIONS = [
 
   // --- planned: publishes a queue schedule, adapter still to write
   { id: 'lviv',          title: 'Львівська область',   subtitle: 'область',          operator: 'ПрАТ «Львівобленерго»',        source: null, status: 'seasonal', probe: 'https://poweron.loe.lviv.ua/shedule-off' },
-  { id: 'kirovohrad',    title: 'Кіровоградська область', subtitle: 'область',       operator: 'АТ «Кіровоградобленерго»',     source: null, status: 'seasonal', probe: 'https://kiroe.com.ua/energy' , note: 'дані лише через POST, який оператор закриває captcha Cloudflare' },
+  { id: 'kirovohrad',    title: 'Кіровоградська область', subtitle: 'область',       operator: 'АТ «Кіровоградобленерго»',     source: null, status: 'seasonal', probe: 'https://kiroe.com.ua/energy'  },
   { id: 'zhytomyr',      title: 'Житомирська область', subtitle: 'область',          operator: 'АТ «Житомиробленерго»',        source: 'zhytomyr', status: 'seasonal', probe: 'https://www.ztoe.com.ua/' },
   { id: 'sumy',          title: 'Сумська область',     subtitle: 'область',          operator: 'АТ «Сумиобленерго»',           source: null, status: 'seasonal', probe: 'https://www.soe.com.ua/' },
   { id: 'rivne',         title: 'Рівненська область',  subtitle: 'область',          operator: 'АТ «Рівнеобленерго»',          source: 'rivne', status: 'seasonal', probe: 'https://www.ez.rv.ua/grafiky-pogodynnyh-vidklyuchen/' },
@@ -42,19 +49,19 @@ export const REGIONS = [
   // --- blocked: the site 403s every automated request, browser headers included
   { id: 'vinnytsia',     title: 'Вінницька область',   subtitle: 'область',          operator: 'АТ «Вінницяобленерго»',                   source: null, status: 'blocked' },
   { id: 'volyn',         title: 'Волинська область',   subtitle: 'область',          operator: 'ПрАТ «Волиньобленерго»',                  source: null, status: 'blocked' },
-  { id: 'ivano-frankivsk', title: 'Івано-Франківська область', subtitle: 'область',  operator: 'АТ «Прикарпаттяобленерго»',               source: 'ivano-frankivsk', status: 'seasonal', note: 'добовий XLSX-архів оператора' },
-  { id: 'ternopil',      title: 'Тернопільська область', subtitle: 'область',        operator: 'АТ «Тернопільобленерго»',                 source: 'ternopil', status: 'seasonal', note: 'відкритий API оператора poweron.toe.com.ua' },
-  { id: 'kharkiv',       title: 'Харківська область',  subtitle: 'область',          operator: 'АТ «Харківобленерго»',                    source: 'kharkiv', status: 'seasonal', note: 'ГПВ з офіційного Telegram-каналу оператора' },
+  { id: 'ivano-frankivsk', title: 'Івано-Франківська область', subtitle: 'область',  operator: 'АТ «Прикарпаттяобленерго»',               source: 'ivano-frankivsk', status: 'seasonal' },
+  { id: 'ternopil',      title: 'Тернопільська область', subtitle: 'область',        operator: 'АТ «Тернопільобленерго»',                 source: 'ternopil', status: 'seasonal' },
+  { id: 'kharkiv',       title: 'Харківська область',  subtitle: 'область',          operator: 'АТ «Харківобленерго»',                    source: 'kharkiv', status: 'seasonal' },
   { id: 'chernivtsi',    title: 'Чернівецька область', subtitle: 'область',          operator: 'АТ «Чернівціобленерго»',                  source: null, status: 'blocked' },
   { id: 'chernihiv',     title: 'Чернігівська область', subtitle: 'область',         operator: 'АТ «Чернігівобленерго»',                  source: null, status: 'blocked' },
   { id: 'zakarpattia',   title: 'Закарпатська область', subtitle: 'область',         operator: 'АТ «Закарпаттяобленерго»',                source: null, status: 'blocked' },
 
   // --- noFeed: nothing machine-readable to parse
   { id: 'khmelnytskyi',  title: 'Хмельницька область', subtitle: 'область',          operator: 'АТ «Хмельницькобленерго»',                source: null, status: 'noFeed', note: 'черги лише у PDF/XLSX' },
-  { id: 'cherkasy',      title: 'Черкаська область',   subtitle: 'область',          operator: 'АТ «Черкасиобленерго»',                   source: 'cherkasy', status: 'seasonal', note: 'ГПВ з офіційного Telegram-каналу оператора' },
-  { id: 'zaporizhzhia',  title: 'Запорізька область',  subtitle: 'область',          operator: 'АТ «Запоріжжяобленерго»',                 source: 'zaporizhzhia', status: 'seasonal', note: 'ГПВ з офіційного Telegram-каналу оператора' },
+  { id: 'cherkasy',      title: 'Черкаська область',   subtitle: 'область',          operator: 'АТ «Черкасиобленерго»',                   source: 'cherkasy', status: 'seasonal' },
+  { id: 'zaporizhzhia',  title: 'Запорізька область',  subtitle: 'область',          operator: 'АТ «Запоріжжяобленерго»',                 source: 'zaporizhzhia', status: 'seasonal' },
   { id: 'poltava',       title: 'Полтавська область',  subtitle: 'область',          operator: 'АТ «Полтаваобленерго»',                   source: null, status: 'noFeed' , note: 'оператор публікує лише кількість черг, без таблиці підчерг' },
-  { id: 'kherson',      title: 'Херсонська область',  subtitle: 'область',          operator: 'АТ «Херсонобленерго»',                    source: null, status: 'seasonal', note: 'сторінка графіків порожня поза сезоном' },
+  { id: 'kherson',      title: 'Херсонська область',  subtitle: 'область',          operator: 'АТ «Херсонобленерго»',                    source: null, status: 'seasonal' },
 
   // --- occupied
   { id: 'donetsk',       title: 'Донецька область',    subtitle: 'область',          operator: 'ДТЕК Донецькі електромережі',             source: null, status: 'occupied' },
