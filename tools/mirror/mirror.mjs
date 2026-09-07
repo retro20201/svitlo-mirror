@@ -34,7 +34,8 @@ const ADAPTERS = {
   ternopil: () => import('./sources/ternopil.mjs'),
   'ivano-frankivsk': () => import('./sources/ivano-frankivsk.mjs'),
   zhytomyr: () => import('./sources/zhytomyr.mjs'),
-  rivne: () => import('./sources/rivne.mjs')
+  rivne: () => import('./sources/rivne.mjs'),
+  khmelnytskyi: () => import('./sources/khmelnytskyi.mjs')
 };
 
 async function readExisting(file) {
@@ -99,7 +100,11 @@ async function main() {
       // season the tables are empty, and a region offered as `live` then reports "no outages
       // scheduled" where it means "no data" — the one confusion this app exists to prevent.
       // When restrictions resume the same check turns the region back on with no code change.
-      if (entry.hasSchedule) entry.status = 'live';
+      // A picture is not a schedule the app can reason about: no countdown, no alerts, no widget.
+      // Publishing it as `live` would promise all three, so it gets its own status and the app
+      // says plainly what it can and cannot do there.
+      if (snapshot.meta?.sheetBased && entry.hasSchedule) entry.status = 'image';
+      else if (entry.hasSchedule) entry.status = 'live';
       else if (region.status === 'live') entry.status = 'seasonal';
 
       if (previous && fingerprint(previous) === fingerprint(snapshot)) {

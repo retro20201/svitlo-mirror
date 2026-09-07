@@ -79,7 +79,8 @@ export function hourStateFromHalves(first, second) {
  * @param {string|null} [input.update]  the operator's own timestamp, shown verbatim
  */
 export function buildSnapshot({
-  regionId, title, queues, preset = {}, fact = {}, todayEpoch = null, update = null, source
+  regionId, title, queues, preset = {}, fact = {}, todayEpoch = null, update = null, source,
+  sheets = [], sheetBased = false
 }) {
   return {
     regionId,
@@ -99,7 +100,15 @@ export function buildSnapshot({
       data: preset,
       updateFact: update
     },
-    meta: { schemaVersion: '1.0.0', source }
+    // Some operators never publish a machine-readable table — only a picture of one. Showing
+    // their own dated image beats showing nothing, but nothing can be computed from it: no
+    // countdown, no alerts. Kept as a separate field so a phone on an older build simply ignores
+    // it rather than failing to decode.
+    ...(sheets.length ? { sheets } : {}),
+    // Declared by the adapter, not inferred from the payload: out of season a picture-only region
+    // has no sheets *and* no queues, and inferring the mode from emptiness would make it
+    // indistinguishable from a parser that had simply stopped working.
+    meta: { schemaVersion: '1.0.0', source, ...(sheetBased ? { sheetBased: true } : {}) }
   };
 }
 
@@ -128,6 +137,7 @@ export function kyivDayStart(date = new Date()) {
  * `validate` so a healthy quiet source is never mistaken for a broken one.
  */
 export function hasSchedule(snapshot) {
+  if ((snapshot.sheets ?? []).length) return true;
   const preset = snapshot.preset ?? {};
   if (Object.keys(preset.data ?? {}).length > 0) return true;
   const factData = snapshot.fact?.data;
@@ -144,7 +154,10 @@ export function validate(snapshot) {
     problems.push('preset missing');
     return problems;
   }
-  if (Object.keys(preset.sch_names ?? {}).length === 0) problems.push('no queues');
+  // A picture-only region has no queue list to offer: the queues live inside the image. Requiring
+  // one here would reject exactly the snapshots this field exists for.
+  const sheetOnly = snapshot.meta?.sheetBased === true;
+  if (!sheetOnly && Object.keys(preset.sch_names ?? {}).length === 0) problems.push('no queues');
   if (Object.keys(preset.time_zone ?? {}).length !== 24) problems.push('time_zone is not 24 rows');
 
   for (const [queue, byDay] of Object.entries(preset.data ?? {})) {
