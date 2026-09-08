@@ -12,6 +12,13 @@
   "built": 2670,
   "addresses": 50177
  },
+ "kyiv-region": {
+  "shape": "nested",
+  "settlements": 1190,
+  "streets": 25364,
+  "built": 25364,
+  "addresses": 628600
+ },
  "odesa": {
   "shape": "nested",
   "settlements": 939,
