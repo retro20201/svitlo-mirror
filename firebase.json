@@ -1,8 +1,24 @@
 {
   "hosting": {
     "public": "firebase/public",
-    "ignore": ["**/.*", "**/node_modules/**"],
+    "ignore": [
+      "**/.*",
+      "**/node_modules/**"
+    ],
     "headers": [
+      {
+        "source": "/v1/addr/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=86400, stale-while-revalidate=604800"
+          },
+          {
+            "key": "Access-Control-Allow-Origin",
+            "value": "*"
+          }
+        ]
+      },
       {
         "source": "/v1/*.json",
         "headers": [
@@ -10,7 +26,10 @@
             "key": "Cache-Control",
             "value": "public, max-age=300, stale-while-revalidate=1800"
           },
-          { "key": "Access-Control-Allow-Origin", "value": "*" }
+          {
+            "key": "Access-Control-Allow-Origin",
+            "value": "*"
+          }
         ]
       }
     ]

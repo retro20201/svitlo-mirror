@@ -1,0 +1,22 @@
+{
+ "dnipro": {
+  "shape": "nested",
+  "settlements": 1149,
+  "streets": 18273,
+  "built": 18273,
+  "addresses": 472195
+ },
+ "kyiv": {
+  "shape": "flat",
+  "streets": 2670,
+  "built": 2670,
+  "addresses": 50177
+ },
+ "odesa": {
+  "shape": "nested",
+  "settlements": 939,
+  "streets": 14311,
+  "built": 14311,
+  "addresses": 381863
+ }
+}
