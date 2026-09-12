@@ -1,0 +1,23 @@
+{
+  "conditions": [],
+  "parameters": {
+    "promo_banner_json": {
+      "defaultValue": {
+        "value": "{\"isEnabled\":false,\"id\":\"tg-2026-10\",\"title\":\"Наш телеграм-канал\",\"subtitle\":\"Сповіщення про зміни в графіках\",\"btn_yes_text\":\"Підписатися\",\"url\":\"https://t.me/kolysvitlo\"}"
+      },
+      "description": "Смуга під графіком. isEnabled має бути саме true. url можна прибрати — тоді банер нічого не відкриває (так робиться повідомлення про тех. роботи). Закриття запам'ятовується по id: новий id показується знову.",
+      "valueType": "JSON"
+    },
+    "promo_popup_json": {
+      "defaultValue": {
+        "value": "{\"isEnabled\":false,\"id\":\"newapp-2026-10\",\"title\":\"Бензин Поруч\",\"subtitle\":\"Де є пальне поруч із вами\",\"btn_yes_text\":\"Встановити\",\"btn_no_text\":\"Пізніше\",\"url\":\"https://apps.apple.com/app/id0000000000\",\"show_after_sec\":15,\"frequency\":\"once\"}"
+      },
+      "description": "Вікно по центру, через show_after_sec секунд після появи графіка (за замовчуванням 10). frequency: once — після закриття не повертається; session — показується щозапуску. Перед вмиканням заміни id0000000000 на справжній App Store id.",
+      "valueType": "JSON"
+    }
+  },
+  "parameterGroups": {},
+  "version": {
+    "description": "Промо-банер і попап: рычаги созданы, оба выключены"
+  }
+}

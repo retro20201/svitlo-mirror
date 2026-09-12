@@ -8,3 +8,4 @@ probe-report.json
 firebase-debug.log
 firebase-debug.*.log
 .firebase/
+.metadata_never_index
