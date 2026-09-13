@@ -37,7 +37,12 @@ export const REGIONS = [
 
   // --- seasonal: the API answers, but out of season it returns queue names with no hours,
   //     so the app must not offer it as a working region until schedules come back
-  { id: 'mykolaiv',      title: 'Миколаївська область', subtitle: 'область',         operator: 'АТ «Миколаївобленерго»',                  source: 'mykolaiv', status: 'seasonal' },
+  // Checked 2026-09-13: while no queue schedule is published, people here are still switched off —
+  // for the pre-winter repair campaign, street by street. Those lists go out daily and only as
+  // photos in the operator's channel, so they are neither mirrored nor parsed. The picker renders
+  // `note` as plain text, so the channel is named for search rather than linked.
+  { id: 'mykolaiv',      title: 'Миколаївська область', subtitle: 'область',         operator: 'АТ «Миколаївобленерго»',                  source: 'mykolaiv', status: 'seasonal',
+    note: 'графік публікують лише під час обмежень; планові ремонтні відключення за адресами — щодня в Telegram-каналі оператора @mk_energy_ua' },
 
   // --- planned: publishes a queue schedule, adapter still to write
   { id: 'lviv',          title: 'Львівська область',   subtitle: 'область',          operator: 'ПрАТ «Львівобленерго»',        source: null, status: 'seasonal', probe: 'https://poweron.loe.lviv.ua/shedule-off' },
