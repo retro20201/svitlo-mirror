@@ -6,6 +6,13 @@
   "built": 18273,
   "addresses": 472195
  },
+ "khmelnytskyi": {
+  "shape": "nested",
+  "settlements": 135,
+  "streets": 3050,
+  "built": 3050,
+  "addresses": 61437
+ },
  "kyiv": {
   "shape": "flat",
   "streets": 2670,

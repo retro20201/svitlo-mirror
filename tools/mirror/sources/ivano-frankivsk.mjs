@@ -1,4 +1,4 @@
-import { inflateRawSync } from 'node:zlib';
+import { sheetGrid } from '../../lib/xlsx.mjs';
 import { getText } from '../lib/http.mjs';
 import {
   buildSnapshot, hourStateFromHalves, kyivDayStart, queueNames, NATIONAL_QUEUES
@@ -41,96 +41,6 @@ const MAX_DAYS = 2;
 const FIRST_SLOT_COLUMN = 2;
 const SLOTS_PER_DAY = 48;
 
-const XML_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
-
-function decodeXml(text) {
-  return text.replace(/&(?:#(\d+)|#x([0-9a-f]+)|(\w+));/gi, (whole, dec, hex, name) => {
-    if (dec) return String.fromCodePoint(Number(dec));
-    if (hex) return String.fromCodePoint(parseInt(hex, 16));
-    return XML_ENTITIES[name] ?? whole;
-  });
-}
-
-/** "AW" → 49. */
-function columnIndex(letters) {
-  let index = 0;
-  for (const letter of letters) index = index * 26 + (letter.charCodeAt(0) - 64);
-  return index;
-}
-
-/**
- * Pulls one entry out of the .xlsx zip.
- *
- * The central directory is read rather than the local headers because a writer that streams its
- * output leaves the local header's sizes zeroed and puts the real ones in a trailing data
- * descriptor — only the central directory can be trusted to say how long an entry is.
- */
-function readZipEntry(buffer, wanted) {
-  let eocd = -1;
-  // The end-of-central-directory record is last, but a trailing comment can push it back by up to
-  // 64 KiB, so it has to be searched for rather than read from a fixed offset.
-  for (let at = buffer.length - 22; at >= 0 && at > buffer.length - 65558; at--) {
-    if (buffer.readUInt32LE(at) === 0x06054b50) { eocd = at; break; }
-  }
-  if (eocd < 0) throw new Error('not a zip archive');
-
-  const entries = buffer.readUInt16LE(eocd + 10);
-  let at = buffer.readUInt32LE(eocd + 16);
-  for (let n = 0; n < entries; n++) {
-    if (buffer.readUInt32LE(at) !== 0x02014b50) throw new Error('bad central directory');
-    const method = buffer.readUInt16LE(at + 10);
-    const compressedSize = buffer.readUInt32LE(at + 20);
-    const nameLength = buffer.readUInt16LE(at + 28);
-    const extraLength = buffer.readUInt16LE(at + 30);
-    const commentLength = buffer.readUInt16LE(at + 32);
-    const localOffset = buffer.readUInt32LE(at + 42);
-    const name = buffer.toString('utf8', at + 46, at + 46 + nameLength);
-
-    if (name === wanted) {
-      // The local header repeats the name and extra field at its own lengths, which need not match
-      // the central directory's, so the data offset is computed from the local header.
-      const localNameLength = buffer.readUInt16LE(localOffset + 26);
-      const localExtraLength = buffer.readUInt16LE(localOffset + 28);
-      const start = localOffset + 30 + localNameLength + localExtraLength;
-      const data = buffer.subarray(start, start + compressedSize);
-      return method === 0 ? data : inflateRawSync(data);
-    }
-    at += 46 + nameLength + extraLength + commentLength;
-  }
-  throw new Error(`${wanted} missing from workbook`);
-}
-
-/**
- * `sheet1.xml` → `grid[row][column]` of trimmed cell text, 1-based on both axes.
- *
- * These sheets carry no `sharedStrings.xml`; every value is an inline `<is><t>`. Cell references
- * are honoured where present and a running column cursor covers writers that omit them.
- */
-function parseSheet(xml) {
-  const grid = [];
-  const rows = /<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g;
-  for (let row; (row = rows.exec(xml)); ) {
-    const rowIndex = Number(/\br="(\d+)"/.exec(row[1])?.[1]);
-    if (!rowIndex || row[2] === undefined) continue;
-
-    const cells = [];
-    let nextColumn = 1;
-    const cellPattern = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
-    for (let cell; (cell = cellPattern.exec(row[2])); ) {
-      const reference = /\br="([A-Z]+)\d+"/.exec(cell[1])?.[1];
-      const column = reference ? columnIndex(reference) : nextColumn;
-      nextColumn = column + 1;
-
-      const body = cell[2] ?? '';
-      const inline = [...body.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((m) => m[1]).join('');
-      const value = inline || /<v>([\s\S]*?)<\/v>/.exec(body)?.[1] || '';
-      cells[column] = decodeXml(value).trim();
-    }
-    grid[rowIndex] = cells;
-  }
-  return grid;
-}
-
 /**
  * "X" is the operator's only documented mark and means the power is off for that half hour.
  *
@@ -164,7 +74,7 @@ function queueLabel(cell) {
  * that an added queue is picked up instead of being silently dropped at row 15.
  */
 export function parseDaySheet(buffer) {
-  const grid = parseSheet(readZipEntry(buffer, 'xl/worksheets/sheet1.xml'));
+  const grid = sheetGrid(buffer);
 
   const byQueue = {};
   for (const cells of grid) {

@@ -1,5 +1,5 @@
 import { getText } from '../lib/http.mjs';
-import { buildSnapshot, kyivDayStart } from '../lib/canonical.mjs';
+import { buildSnapshot, kyivDayStart, queueNames, NATIONAL_QUEUES } from '../lib/canonical.mjs';
 
 /**
  * АТ «Хмельницькобленерго» — a picture, and only ever a picture.
@@ -91,7 +91,12 @@ export async function fetchRegion(region) {
   return buildSnapshot({
     regionId: region.id,
     title: region.title,
-    queues: {},
+    // The daily sheet is a picture, so nothing here computes hours — but the queue list is still
+    // a fact about the region, and the app refuses to commit a черга it cannot name. Without it
+    // the address lookup would find someone's підчерга and then be unable to apply it. The
+    // operator's own address file uses the national 1.1–6.2 scheme, which build-khmelnytskyi.mjs
+    // re-checks against this list every time it runs.
+    queues: queueNames(NATIONAL_QUEUES),
     todayEpoch: today,
     sheets,
     sheetBased: true,

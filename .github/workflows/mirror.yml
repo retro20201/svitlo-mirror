@@ -33,8 +33,12 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Test the push decision
-        run: node --test tools/mirror/notify.test.mjs
+      # Every test file, not just one: the suite is offline and takes under a second, and the
+      # parsers it covers are the part of this repo that fails silently rather than loudly.
+      # Listed with `find` rather than a directory argument, which makes the runner execute
+      # mirror.mjs itself and report the mirror run as a failed test.
+      - name: Test the parsers and the push decision
+        run: node --test $(find tools -name '*.test.mjs')
 
       # Lives in RUNNER_TEMP for the length of the job and is deleted whatever happens.
       - name: Write service account
