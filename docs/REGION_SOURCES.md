@@ -73,7 +73,7 @@ Extract by **pixel sampling at computed cell positions, not OCR** — the grid i
 
 ### A7. Хмельницький — **1 region, ~3–5 days, budget as a scraper with a vision component**
 Site fully open, no Cloudflare, **no robots.txt at all**. Three separate pieces:
-- **Address→черга:** stable XLSX per РЕМ, e.g. `https://hoe.com.ua/Content/Uploads/GPV6/xls/Черги_на_відключення_Хмельницький_РЕМ_побут_01072026.xlsx` (3,804 rows, `Населений пункт | Вулиця | Список будинків | Черга/підчерга`). Parse once per season. **This is the mapping, not the schedule** — the earlier "machine-readable ГПВ" label was wrong.
+- **Address→черга: DONE (2026-09-20)** — `tools/addr/build-khmelnytskyi.mjs`. 135 settlements, 3,050 streets, 61,437 addresses published; 953 houses withheld because the operator lists them on two підчерги at once. Only `Хмельницький_РЕМ` is published today — every other РЕМ name answers 404, so coverage is one district until the operator posts the rest. The builder probes the effective-date suffixes rather than hardcoding one, so re-running it after ~1 Oct picks up the new set. Cross-checked against their own address API: 107/119 houses over six sampled streets. **This is the mapping, not the schedule** — the earlier "machine-readable ГПВ" label was wrong.
 - **Daily table:** a raster PNG per day, linked from `https://hoe.com.ua/page/arhiv-grafikiv-pogodinnih-vidkljuchen-2026` (~115 entries Jan–Jul 2026). 12 rows × 24 columns, blue = off. CV extraction, same technique as A6.
 - **Intraday:** `@khmelnytskoblenergo` text deltas per підчерга. **Mandatory, not optional** — the morning PNG is stale by noon.
 
@@ -110,7 +110,7 @@ Everything below is currently unverifiable because Ukraine is out of restriction
 | 7 | `@chernigivoblenergo` | Are ГПВ posts **text or image**? (`діятиме такий Графік` hints at an attachment.) | Чернігів |
 | 8 | `@poltavaOE` | Watch for `Оновлено графік погодинного відключення електроенергії!` — that post announces a new **static seasonal черга×година table** and links it. It is the only trigger to re-acquire the mapping. | Полтава |
 | 9 | `https://www.cherkasyoblenergo.com/perelik-gpv/_payload.json` | Winter file set replaces the 01.04–01.10.2026 set ~1 Oct; **uuids change** — never hardcode them, re-read the payload. | Черкаси |
-| 10 | `https://hoe.com.ua/Content/Uploads/GPV6/xls/…_01102026.xlsx` | New effective-date suffix on the address→черга files. | Хмельницький |
+| 10 | `node tools/addr/build-khmelnytskyi.mjs` | Re-run it: the October files replace the July ones, and the other РЕМ are expected to appear. It reports how many of the 20 it found. | Хмельницький |
 | 11 | All Telegram channels | Re-measure revisions-per-day. If any region exceeds ~5/day, the polling interval must drop below 15 min for that channel. | all |
 | 12 | Cloudflare-blocked 8 | Re-test **each** for a separate unprotected subdomain (`poweron.*`, `svitlo.*`, `cabinet.*`, `ok.*`, `api-*`). This pattern was missed on Тернопіль and is cheap to re-run. Also re-test transliteration variants (`g`↔`h`, `i`↔`y`) — that trap cost us Чернігів. | Вінниця, Волинь, Чернівці |
 
