@@ -54,7 +54,14 @@ export const REGIONS = [
   // --- blocked: the site 403s every automated request, browser headers included
   { id: 'vinnytsia',     title: 'Вінницька область',   subtitle: 'область',          operator: 'АТ «Вінницяобленерго»',                   source: null, status: 'blocked' },
   { id: 'volyn',         title: 'Волинська область',   subtitle: 'область',          operator: 'ПрАТ «Волиньобленерго»',                  source: null, status: 'blocked' },
-  { id: 'ivano-frankivsk', title: 'Івано-Франківська область', subtitle: 'область',  operator: 'АТ «Прикарпаттяобленерго»',               source: 'ivano-frankivsk', status: 'seasonal' },
+  // Their day-ahead table is at /uk/shutdowns_table, which their robots.txt disallows, and the
+  // dedicated schedule site is behind Cloudflare. What is permitted is the archive — yesterday's
+  // sheet. That is a real source, but it can never answer "when is my light going off today",
+  // so `archiveOnly` keeps the region from being offered as working on the strength of it.
+  // Lift the flag when the day-ahead Telegram adapter exists, or when the operator starts
+  // publishing the file on the day it applies — which is exactly what to ask them for.
+  { id: 'ivano-frankivsk', title: 'Івано-Франківська область', subtitle: 'область',  operator: 'АТ «Прикарпаттяобленерго»',               source: 'ivano-frankivsk', status: 'seasonal', archiveOnly: true,
+    note: 'оператор викладає графік лише постфактум, наступного дня — підключимо, щойно зʼявиться графік на день уперед' },
   { id: 'ternopil',      title: 'Тернопільська область', subtitle: 'область',        operator: 'АТ «Тернопільобленерго»',                 source: 'ternopil', status: 'seasonal' },
   { id: 'kharkiv',       title: 'Харківська область',  subtitle: 'область',          operator: 'АТ «Харківобленерго»',                    source: 'kharkiv', status: 'seasonal' },
   { id: 'chernivtsi',    title: 'Чернівецька область', subtitle: 'область',          operator: 'АТ «Чернівціобленерго»',                  source: null, status: 'blocked' },

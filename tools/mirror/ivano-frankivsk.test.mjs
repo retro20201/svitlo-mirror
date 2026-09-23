@@ -309,7 +309,8 @@ test('a listing that silently fell back to the current month is discarded', () =
 
 test('a month with no outages at all yields no days rather than failing', () => {
   // This is the whole of the archive on 2026-08-28, and it is a correct answer, not a fault: the
-  // region is published as seasonal and turns itself live when tables come back.
+  // region is published as seasonal, and stays that way even when tables come back: the archive
+  // is yesterday's, so `archiveOnly` holds it back until a day-ahead source exists.
   const listing = realEmptyRow('27.08.2026') + realEmptyRow('26.08.2026');
   assert.deepEqual(archiveDaysFromListing(listing, '2026-08'), []);
 });

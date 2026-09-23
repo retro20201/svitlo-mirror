@@ -144,6 +144,32 @@ export function hasSchedule(snapshot) {
   return Boolean(factData) && !Array.isArray(factData) && Object.keys(factData).length > 0;
 }
 
+/**
+ * The status the app is told, derived from what the operator is actually publishing.
+ *
+ * Coverage follows the data, not a hand-set flag. Out of season the tables are empty, and a region
+ * offered as `live` then reports "вимкнень не заплановано" where it means "no data" — the one
+ * confusion this app exists to prevent. When restrictions resume the same check turns the region
+ * back on with no code change.
+ *
+ * A picture is not a schedule the app can reason about: no countdown, no alerts, no widget.
+ * Publishing it as `live` would promise all three, so it gets its own status.
+ *
+ * `archiveOnly` is the third case and the reason this moved out of mirror.mjs. Some operators
+ * publish only the record of a day that has already passed — Прикарпаття's archive is yesterday's
+ * sheet, never tomorrow's. Data arriving would otherwise flip the region to `live`, and the app
+ * would promise a countdown while having nothing at all for today: "вимкнень не заплановано",
+ * said to someone sitting in the dark. Such a region stays off until a day-ahead source exists.
+ * This is a property of the source, not of today's data — deciding it by the age of the newest
+ * day would make the region appear and disappear every morning.
+ */
+export function statusFor(region, snapshot, covered = hasSchedule(snapshot)) {
+  if (snapshot.meta?.sheetBased && covered) return 'image';
+  if (covered && !region.archiveOnly) return 'live';
+  if (region.status === 'live') return 'seasonal';
+  return region.status;
+}
+
 /** Problems that must stop a snapshot from being published, as a list of strings. */
 export function validate(snapshot) {
   const problems = [];

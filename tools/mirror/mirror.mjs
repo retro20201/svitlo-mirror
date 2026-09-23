@@ -20,7 +20,7 @@ import { affectsSchedule } from './lib/notify.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REGIONS } from './regions.mjs';
-import { validate, hasSchedule } from './lib/canonical.mjs';
+import { validate, hasSchedule, statusFor } from './lib/canonical.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = join(HERE, '..', '..', 'firebase', 'public', 'v1');
@@ -96,16 +96,7 @@ async function main() {
       entry.hasWeeklyPreset = Object.keys(snapshot.preset?.data ?? {}).length > 0;
       entry.hasSchedule = hasSchedule(snapshot);
 
-      // Coverage follows what the operator is actually publishing, not a hand-set flag. Out of
-      // season the tables are empty, and a region offered as `live` then reports "no outages
-      // scheduled" where it means "no data" — the one confusion this app exists to prevent.
-      // When restrictions resume the same check turns the region back on with no code change.
-      // A picture is not a schedule the app can reason about: no countdown, no alerts, no widget.
-      // Publishing it as `live` would promise all three, so it gets its own status and the app
-      // says plainly what it can and cannot do there.
-      if (snapshot.meta?.sheetBased && entry.hasSchedule) entry.status = 'image';
-      else if (entry.hasSchedule) entry.status = 'live';
-      else if (region.status === 'live') entry.status = 'seasonal';
+      entry.status = statusFor(region, snapshot, entry.hasSchedule);
 
       if (previous && fingerprint(previous) === fingerprint(snapshot)) {
         console.log(`[same]  ${region.id}`);
