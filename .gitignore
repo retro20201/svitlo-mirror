@@ -9,3 +9,10 @@ firebase-debug.log
 firebase-debug.*.log
 .firebase/
 .metadata_never_index
+
+# build-addresses.mjs --fresh builds into <region>.new/ and parks the copy it replaced in
+# <region>.old/, both under the Hosting public dir; build-khmelnytskyi.mjs writes through
+# dot-named temp files. None of them is ever committed.
+firebase/public/v1/addr/*.new/
+firebase/public/v1/addr/*.old/
+firebase/public/v1/addr/**/.*.tmp

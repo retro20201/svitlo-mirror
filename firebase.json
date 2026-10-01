@@ -3,7 +3,9 @@
     "public": "firebase/public",
     "ignore": [
       "**/.*",
-      "**/node_modules/**"
+      "**/node_modules/**",
+      "**/v1/addr/*.new/**",
+      "**/v1/addr/*.old/**"
     ],
     "headers": [
       {
