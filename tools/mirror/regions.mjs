@@ -3,7 +3,8 @@
  * read as a fact about the operator, not as a implementation detail. Anything technical belongs in
  * a comment here. Sources, for the record: Харків/Запоріжжя/Черкаси/Кіровоград come from the operators'
  * own Telegram channels, Тернопіль from api-poweron.toe.com.ua, Івано-Франківськ from be-svitlo.oe.if.ua
- * (the API behind the operator's svitlo.oe.if.ua), Львів from the schedule text at api.loe.lviv.ua.
+ * (the API behind the operator's svitlo.oe.if.ua), Львів from the schedule text at api.loe.lviv.ua,
+ * Волинь from the picture its api-voe-poweron.inneti.net publishes.
  * Херсон's schedule page answers 200 with an empty body, and has since December 2023.
  *
  * Registry of every region the app can offer, and where its schedule comes from.
@@ -60,7 +61,9 @@ export const REGIONS = [
 
   // --- blocked: the site 403s every automated request, browser headers included
   { id: 'vinnytsia',     title: 'Вінницька область',   subtitle: 'область',          operator: 'АТ «Вінницяобленерго»',                   source: null, status: 'blocked' },
-  { id: 'volyn',         title: 'Волинська область',   subtitle: 'область',          operator: 'ПрАТ «Волиньобленерго»',                  source: null, status: 'blocked' },
+  // energy.volyn.ua answers only Ukrainian IPs, but its schedule is an iframe of the operator's
+  // «poweron» service, whose API hands out the day's picture — read by colour, see sources/volyn.mjs.
+  { id: 'volyn',         title: 'Волинська область',   subtitle: 'область',          operator: 'ПрАТ «Волиньобленерго»',                  source: 'volyn', status: 'seasonal' },
   // Day-ahead from be-svitlo.oe.if.ua, the open API behind the operator's own svitlo.oe.if.ua —
   // checked 2026-10-01: CloudFront, robots.txt `Allow: /`, no Cloudflare challenge any more.
   // /uk/shutdowns_table on oe.if.ua stays untouched (its robots.txt disallows it). Out of season the

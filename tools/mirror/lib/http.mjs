@@ -6,6 +6,11 @@ export async function getJSON(url, { retries = 2, timeoutMs = 20000 } = {}) {
   return get(url, { retries, timeoutMs }).then((response) => response.json());
 }
 
+/** Raw bytes, for the operators that publish their table only as a picture. */
+export async function getBytes(url, options = {}) {
+  return get(url, options).then(async (response) => Buffer.from(await response.arrayBuffer()));
+}
+
 export async function getText(url, options = {}) {
   return get(url, options).then((response) => response.text());
 }
