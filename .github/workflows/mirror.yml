@@ -49,10 +49,14 @@ jobs:
       # The committed region files are a 2026-09-07 seed, not what phones have. Starting from what
       # is served makes "keep the last good copy" and the change/push decision compare against the
       # live mirror; from the seed, Kyiv looked changed on every run and woke every phone for nothing.
+      # Every region the registry knows, not only the committed seeds: a region added after the
+      # seed had no file to restore, so every run treated it as new and pushed to its phones.
       - name: Restore the served mirror
         run: |
-          for file in firebase/public/v1/*.json; do
-            curl -fsS --retry 2 "https://koly-svitlo.web.app/v1/$(basename "$file")" -o "$file.served" \
+          regions=$(node --input-type=module -e "import { REGIONS } from './tools/mirror/regions.mjs'; console.log(REGIONS.filter((r) => r.source).map((r) => r.id).join(' '))")
+          for name in index $regions; do
+            file="firebase/public/v1/$name.json"
+            curl -fsS --retry 2 "https://koly-svitlo.web.app/v1/$name.json" -o "$file.served" \
               && mv "$file.served" "$file" || rm -f "$file.served"
           done
 

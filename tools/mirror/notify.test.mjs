@@ -49,3 +49,11 @@ test('topic names carry no characters FCM rejects', () => {
   assert.match(topicFor('a.b'), /^[a-zA-Z0-9-_.~%]+$/);
   assert.ok(!topicFor('a.b').includes('.'));
 });
+
+test('a region seen for the first time with nothing published wakes no one', () => {
+  // Out of season a new region's first file has `[]`; with no served copy to compare against it
+  // used to count as changed on every run.
+  assert.equal(affectsSchedule(null, { fact: { data: [] } }), false);
+  assert.equal(affectsSchedule({ fact: { data: {} } }, { fact: { data: [] } }), false);
+  assert.equal(affectsSchedule({ fact: { data: [] } }, { fact: { data: { 1787691600: {} } } }), true);
+});

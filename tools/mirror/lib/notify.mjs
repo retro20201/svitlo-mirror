@@ -64,7 +64,13 @@ export function topicFor(regionId) {
  * is worth spending a wake-up on, for every phone in the oblast at once.
  */
 export function affectsSchedule(previous, next) {
-  const fact = (payload) => JSON.stringify(payload?.fact?.data ?? null);
+  // No file yet, `[]` (what ДТЕК sends out of season) and `{}` all mean "no published day". A
+  // region seen for the first time with nothing published is not news: treating the missing
+  // file as different woke Львів's, Кропивницький's and Волинь's phones on every run.
+  const fact = (payload) => {
+    const data = payload?.fact?.data;
+    return !data || Object.keys(data).length === 0 ? '[]' : JSON.stringify(data);
+  };
   return fact(previous) !== fact(next);
 }
 
