@@ -122,12 +122,16 @@ export function kyivDayStart(date = new Date()) {
   // Kyiv is UTC+2 or +3; resolve by asking the formatter what that wall time maps back to.
   for (const offset of ['+03:00', '+02:00']) {
     const candidate = new Date(`${iso}T00:00:00${offset}`);
+    // `hourCycle: 'h23'`, never `hour12: false`: under the ICU in Node 20 — what CI runs — the
+    // latter writes midnight as "24", so neither offset matched and every summer-time day was
+    // keyed an hour late (22:00Z, not 21:00Z). The app looks a day up by its exact key, so on
+    // 2026-10-01 Житомир's published outages never reached a phone.
     const check = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Europe/Kyiv', hour: '2-digit', hour12: false
+      timeZone: 'Europe/Kyiv', hour: '2-digit', hourCycle: 'h23'
     }).format(candidate);
     if (check.startsWith('00')) return Math.floor(candidate.getTime() / 1000);
   }
-  return Math.floor(new Date(`${iso}T00:00:00+02:00`).getTime() / 1000);
+  throw new Error(`no Kyiv midnight found for ${iso}`);
 }
 
 /**

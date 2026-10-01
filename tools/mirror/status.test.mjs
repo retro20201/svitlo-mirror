@@ -47,3 +47,11 @@ test('an archive-only region keeps a status that is not about the season', () =>
 test('a region configured live but publishing nothing falls back to seasonal', () => {
   assert.equal(statusFor(region({ status: 'live' }), snapshot()), 'seasonal');
 });
+
+test('a summer-time day is keyed at 21:00Z and a winter one at 22:00Z, whatever the ICU', () => {
+  assert.equal(kyivDayStart(new Date('2026-10-01T13:40:00+03:00')), 1790802000);
+  assert.equal(kyivDayStart(new Date('2026-10-01T00:00:00+03:00')), 1790802000);
+  assert.equal(kyivDayStart(new Date('2026-10-26T12:00:00+02:00')), Date.parse('2026-10-25T22:00:00Z') / 1000);
+  // The 25-hour day: midnight is still summer time.
+  assert.equal(kyivDayStart(new Date('2026-10-25T23:30:00+02:00')), Date.parse('2026-10-24T21:00:00Z') / 1000);
+});
