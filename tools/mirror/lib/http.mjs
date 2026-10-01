@@ -10,13 +10,28 @@ export async function getText(url, options = {}) {
   return get(url, options).then((response) => response.text());
 }
 
-async function get(url, { retries = 2, timeoutMs = 20000, headers = {} } = {}) {
+/**
+ * A form POST, for the operators whose own page asks that way (Полтава's `newgpv-info.php`). The
+ * same retry rules as a GET: a POST that only reads is as safe to repeat as one.
+ */
+export async function postForm(url, fields, options = {}) {
+  return get(url, {
+    ...options,
+    method: 'POST',
+    body: new URLSearchParams(fields).toString(),
+    headers: { 'content-type': 'application/x-www-form-urlencoded; charset=UTF-8', ...options.headers }
+  }).then((response) => response.text());
+}
+
+async function get(url, { retries = 2, timeoutMs = 20000, headers = {}, method = 'GET', body } = {}) {
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(url, {
+        method,
+        body,
         signal: controller.signal,
         headers: { 'user-agent': USER_AGENT, 'accept-language': 'uk-UA,uk;q=0.9', ...headers }
       });
