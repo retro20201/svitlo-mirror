@@ -12,8 +12,10 @@ import { gpvSnapshot } from '../lib/telegram.mjs';
  * 1.1–6.2 the channel already prints. That API belongs to a per-user address lookup in the app,
  * where the user supplies their own address, not to a background poller.
  *
- * Черкаси's own wrinkle: they close the last window of a day with "20:30 – 00:00" rather than
- * "24:00", which `lib/telegram.mjs` reads as midnight along with "23:59".
+ * Черкаси's own wrinkles: they close the last window of a day with "20:30 – 00:00" rather than
+ * "24:00", which `lib/telegram.mjs` reads as midnight along with "23:59"; their tables list only
+ * the subqueues switched off; and an "Оновлений графік" lists only what is ongoing or still ahead,
+ * so it overrides the day from the moment it is posted, not the hours already gone.
  */
 export async function fetchRegion(region) {
   return gpvSnapshot({ region, channel: 'pat_cherkasyoblenergo', source: 'cherkasy' });

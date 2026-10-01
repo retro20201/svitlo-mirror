@@ -93,9 +93,25 @@ test('a page that loses its grid still names the national queues', () => {
   assert.deepEqual(fact, {});
 });
 
+test('tomorrow printed as a second table keeps both days', () => {
+  // What the page looks like every evening of the season (Wayback, 11.11.2025 21:11 and
+  // 12.02.2026 20:38): today's table, then tomorrow's below it, each with its own colspan=48
+  // header and twelve 48-cell rows. Reading both dates as one header once threw away every row.
+  const { queues, fact } = parseSchedulePage(
+    page(['19.11.2025'], [queueRow('1.1', [NOV19_1_1]), queueRow('3.1', [NOV19_3_2])]) +
+    page(['20.11.2025'], [queueRow('1.1', [FEB10_3_1]), queueRow('3.1', ['.'.repeat(48)])])
+  );
+
+  assert.deepEqual(Object.keys(queues), ['GPV1.1', 'GPV3.1']);
+  assert.deepEqual(Object.keys(fact), [String(KYIV_MIDNIGHT_19_11_2025), String(KYIV_MIDNIGHT_19_11_2025 + 86400)]);
+  assert.equal(fact[KYIV_MIDNIGHT_19_11_2025]['GPV3.1']['1'], 'no');
+  assert.equal(fact[KYIV_MIDNIGHT_19_11_2025 + 86400]['GPV1.1']['3'], 'second');
+  assert.equal(fact[KYIV_MIDNIGHT_19_11_2025 + 86400]['GPV3.1']['3'], 'yes');
+});
+
 test('a second published day is read from its own 48 columns', () => {
-  // Not a layout the operator has been seen using — one day at a time is all they publish. The
-  // header allows several, so the columns are matched to dates; this pins that mapping.
+  // Not a layout the operator has been seen using — they print a second table instead (above).
+  // The header allows several dates, so the columns are matched to dates; this pins that mapping.
   const { fact } = parseSchedulePage(
     page(['19.11.2025', '10.02.2026'], [queueRow('3.1', [NOV19_3_2, FEB10_3_1])])
   );

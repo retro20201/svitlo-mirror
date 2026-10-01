@@ -1,11 +1,10 @@
 /**
  * `note` is rendered to the user in the picker INSTEAD of the per-status explanation, so it must
  * read as a fact about the operator, not as a implementation detail. Anything technical belongs in
- * a comment here. Sources, for the record: Харків/Запоріжжя/Черкаси come from the operators' own
- * Telegram channels, Тернопіль from api-poweron.toe.com.ua, Івано-Франківськ from be-svitlo.oe.if.ua
+ * a comment here. Sources, for the record: Харків/Запоріжжя/Черкаси/Кіровоград come from the operators'
+ * own Telegram channels, Тернопіль from api-poweron.toe.com.ua, Івано-Франківськ from be-svitlo.oe.if.ua
  * (the API behind the operator's svitlo.oe.if.ua), Львів from the schedule text at api.loe.lviv.ua.
- * Кіровоград serves its schedule only over POST, which Cloudflare challenges; Херсон's schedule
- * page answers 200 with an empty body out of season.
+ * Херсон's schedule page answers 200 with an empty body, and has since December 2023.
  *
  * Registry of every region the app can offer, and where its schedule comes from.
  *
@@ -53,7 +52,8 @@ export const REGIONS = [
   // probe it replaces watched /shedule-off, a client-side route of their React app: the server
   // answers it with the same 1 195-byte empty shell as the home page, so it could never fire.
   { id: 'lviv',          title: 'Львівська область',   subtitle: 'область',          operator: 'ПрАТ «Львівобленерго»',        source: 'lviv', status: 'seasonal' },
-  { id: 'kirovohrad',    title: 'Кіровоградська область', subtitle: 'область',       operator: 'АТ «Кіровоградобленерго»',     source: null, status: 'seasonal', probe: 'https://kiroe.com.ua/energy'  },
+  // Read from the operator's district Telegram channels, which carry the oblast-wide table verbatim.
+  { id: 'kirovohrad',    title: 'Кіровоградська область', subtitle: 'область',       operator: 'АТ «Кіровоградобленерго»',     source: 'kirovohrad', status: 'seasonal' },
   { id: 'zhytomyr',      title: 'Житомирська область', subtitle: 'область',          operator: 'АТ «Житомиробленерго»',        source: 'zhytomyr', status: 'seasonal', probe: 'https://www.ztoe.com.ua/' },
   { id: 'sumy',          title: 'Сумська область',     subtitle: 'область',          operator: 'АТ «Сумиобленерго»',           source: null, status: 'seasonal', probe: 'https://www.soe.com.ua/' },
   { id: 'rivne',         title: 'Рівненська область',  subtitle: 'область',          operator: 'АТ «Рівнеобленерго»',          source: 'rivne', status: 'seasonal', probe: 'https://www.ez.rv.ua/grafiky-pogodynnyh-vidklyuchen/' },
@@ -77,7 +77,11 @@ export const REGIONS = [
   { id: 'cherkasy',      title: 'Черкаська область',   subtitle: 'область',          operator: 'АТ «Черкасиобленерго»',                   source: 'cherkasy', status: 'seasonal' },
   { id: 'zaporizhzhia',  title: 'Запорізька область',  subtitle: 'область',          operator: 'АТ «Запоріжжяобленерго»',                 source: 'zaporizhzhia', status: 'seasonal' },
   { id: 'poltava',       title: 'Полтавська область',  subtitle: 'область',          operator: 'АТ «Полтаваобленерго»',                   source: null, status: 'noFeed' , note: 'оператор публікує лише кількість черг, без таблиці підчерг' },
-  { id: 'kherson',      title: 'Херсонська область',  subtitle: 'область',          operator: 'АТ «Херсонобленерго»',                    source: null, status: 'seasonal' },
+  // Checked 2026-10-01 from a Kyiv IP: the operator's whole «Відключення» section has answered 200
+  // with an empty body since December 2023, winter 2025–26 included, and neither its channel nor
+  // the ОВА's has ever carried an hourly table by черга. Outages there follow the shelling.
+  // `seasonal` promised a season that does not come.
+  { id: 'kherson',      title: 'Херсонська область',  subtitle: 'область',          operator: 'АТ «Херсонобленерго»',                    source: null, status: 'noFeed', note: 'оператор не публікує графіків відключень за чергами' },
 
   // --- occupied
   { id: 'donetsk',       title: 'Донецька область',    subtitle: 'область',          operator: 'ДТЕК Донецькі електромережі',             source: null, status: 'occupied' },

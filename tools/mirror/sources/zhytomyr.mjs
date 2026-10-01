@@ -57,21 +57,25 @@ export function parseSchedulePage(html) {
   const rows = tableRows(html);
   const gridAt = html.search(/colspan="48"/i);
 
-  // The header spans the 48 half-hours of each published day. Today the operator prints one day,
-  // but the layout allows several, so the columns are matched to dates rather than assumed.
-  const days = rows
-    .filter((row) => /colspan="48"/i.test(row))
-    .flatMap((row) => [...row.matchAll(/(\d{2}\.\d{2}\.\d{4})/g)].map((match) => match[1]));
-
-  const labels = [];
+  // Each header row spans the 48 half-hours of the days under it. In the evening the operator
+  // prints tomorrow as a second table, with its own header and its own twelve rows of 48 cells,
+  // below today's — so a queue row belongs to the header above it, not to every date on the page.
+  // Counting both dates against every row once made each 48-cell row look short, and both days
+  // vanished every evening of the season.
+  let days = [];
+  const labels = new Set();
   const halves = {};
   for (const row of rows) {
+    if (/colspan="48"/i.test(row)) {
+      days = [...row.matchAll(/(\d{2}\.\d{2}\.\d{4})/g)].map((match) => match[1]);
+      continue;
+    }
     // Only schedule cells carry a hex background; the Черга/Підчерга headers use the word `white`.
     const colors = [...row.matchAll(/background:\s*(#[0-9a-f]{6})/gi)].map((match) => match[1]);
     const label = row.match(/<b[^>]*>\s*(\d\.\d)\s*<\/b>/)?.[1];
     if (!label || !days.length || colors.length !== days.length * 48) continue;
 
-    labels.push(label);
+    labels.add(label);
     days.forEach((day, index) => {
       halves[day] ??= {};
       halves[day][`GPV${label}`] = colors.slice(index * 48, (index + 1) * 48).map(halfHourState);
@@ -98,7 +102,7 @@ export function parseSchedulePage(html) {
   return {
     // Житомир runs the national 1.1–6.2 scheme, so a page that renders the form but not the grid
     // still leaves the queue list known — and a snapshot without queues is published as degraded.
-    queues: queueNames(labels.length ? labels : NATIONAL_QUEUES),
+    queues: queueNames(labels.size ? [...labels] : NATIONAL_QUEUES),
     fact,
     update: updateStamp(html, gridAt < 0 ? html.length : gridAt)
   };

@@ -6,10 +6,10 @@ import {
 /**
  * Reading ГПВ tables off the operators' own public Telegram channels.
  *
- * Харків, Запоріжжя and Черкаси all put their websites behind Cloudflare or a geo-fence, but each
- * broadcasts the same tables to tens of thousands of subscribers on an official channel. That
- * broadcast is the route: it is the operator publishing to citizens, and reading it circumvents
- * nothing.
+ * Харків and Запоріжжя answer only Ukrainian IPs, Черкаси's site re-posts the channel, and
+ * Кіровоград serves its table over a tokenised POST — but each operator broadcasts the same tables
+ * to tens of thousands of subscribers on an official channel. That broadcast is the route: it is
+ * the operator publishing to citizens, and reading it circumvents nothing.
  *
  * `https://t.me/s/<channel>` is Telegram's *preview page* — public HTML meant for search engines
  * and link previews, not a documented API, and t.me serves no robots.txt at all (404). It carries
@@ -26,16 +26,53 @@ const MONTHS = new Map([
   ['липня', 7], ['серпня', 8], ['вересня', 9], ['жовтня', 10], ['листопада', 11], ['грудня', 12]
 ]);
 
-/** `1.1`, optionally several of them merged into one row: "2.1, 2.2 не вимикаються". */
-const QUEUE_ROW = /^\s*((?:[1-6]\.[12](?:\s*[,;]\s*)?)+)\s*:?\s*(.*)$/;
+/**
+ * `1.1`, optionally several of them merged into one row ("2.1, 2.2 не вимикаються"), optionally
+ * behind an emoji and the word itself ("⚡ Черга 1.1" — Запоріжжя, April 2026).
+ */
+const QUEUE_ROW = /^\s*(?:[^\p{L}\p{N}\s]+\s*)?(?:(?:під)?черг[аи]\s+)?((?:[1-6]\.[12](?:\s*[,;]\s*)?)+)\s*:?\s*(.*)$/iu;
 const RANGE = /(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/g;
+/**
+ * Кропивницький's rows: whole hours with no minutes, "Черга 1.1: 00-01, 02-04, 15:30-18:00", and
+ * a lone "-" for a subqueue that stays on. Hours are only read that way on a row that holds
+ * nothing else, so a house range in an address list ("вул. Соборна 1-17") is never a window.
+ */
+const HOURS_ONLY = /^\s*(?:\d{1,2}(?::\d{2})?\s*-\s*\d{1,2}(?::\d{2})?\s*[,;]?\s*)+$/;
+const BARE_HOUR = /(?<![\d:])(\d{1,2})(?![\d:])/g;
+const STAYS_ON = /^\s*-\s*$/;
+
+/** A line holding nothing but one window — the second line of a stacked "⚡ Черга 1.1" row. */
+const RANGE_ONLY = /^\s*\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}\s*[,;]?\s*$/;
 
 /**
- * A published table always lists every subqueue in the oblast. An amendment that named only two
- * or three would, if accepted, silently erase the other nine — so a post has to look like a whole
- * day before it is allowed to replace one.
+ * The line every one of these operators puts above a table. Since spring 2026 they list only the
+ * subqueues that are switched off ("Решта черг/ підчерг у ГПВ не задіяна"), so under this header
+ * a single row is a whole day's table.
+ */
+const TABLE_HEADER = /Години\s+відсутності\s+електропостачання|Час\s+відключень\s+для\s+черг/i;
+
+/**
+ * Without that header a post has to look like a whole day before it is believed — the stacked
+ * layout carries no header, and twelve labelled hours are not something a news post does by
+ * accident.
  */
 const MIN_ROWS = 8;
+
+/**
+ * A post withdrawing hours rather than adding them: "Графіки погодинних відключень … скасовано до
+ * 14:00" (Харків), "застосування графіків погодинних відключень (ГПВ) не заплановано" and "…від
+ * НЕК «Укренерго» НЕ НАДХОДИЛО" (Запоріжжя). Only ГПВ counts: the same channels cancel ГАВ, which
+ * this schedule never carried.
+ */
+const WITHDRAWN = /(?:ГПВ|погодинн)[^\n]{0,160}?(?:скасован\S*(?:\s+до\s+(\d{1,2}):(\d{2}))?|не\s+заплановано|не\s+надходило)/iu;
+
+/** A dateless post that is still plainly about the day it went out. */
+const SAME_DAY = /сьогодні|замінено\s+на\s+графік|скасовано\s+до\s+\d/i;
+
+/** "ОНОВЛЕНО 03.04.2026 О 11:46", "ОНОВЛЕНО о 20:20" — a post edited in place to a later version. */
+const REVISED = /оновлено\s+(?:(\d{2})\.(\d{2})\.(\d{4})\s+)?о\s+(\d{1,2}):(\d{2})/iu;
+
+const NATIONAL_KEYS = NATIONAL_QUEUES.map((queue) => `GPV${queue}`);
 
 const DAY_SECONDS = 86400;
 
@@ -75,25 +112,35 @@ export function parsePosts(html, channel = '') {
  * One post → the day it describes and that day's hours, or `null` when it is not a ГПВ table.
  *
  * Most posts on these channels are news, ГОП notices for industry, or address lists that happen to
- * carry queue labels; only a real table survives all three gates below.
+ * carry queue labels; only a real table survives the gates below. A table names the queues that
+ * switch off; every other national subqueue stays on that day, and is published as such, because
+ * "not listed" is the operator's way of saying so and "no schedule" would read as a failure.
+ *
+ * A post that withdraws hours instead comes back with `withdrawn` set: the slots it switches back
+ * on, from the moment it went out until `until`.
  */
 export function parseGpvPost(post) {
   const text = normalise(post.text);
   if (!/ГПВ|погодинн/i.test(text)) return null;
 
-  const target = targetDate(text, new Date(post.postedAt));
+  const postedAt = new Date(post.postedAt);
+  const target = targetDate(text, postedAt) ?? (SAME_DAY.test(text) ? postedAt : null);
   if (!target) return null;
+
+  const at = revisedAt(text, postedAt);
+  const version = { id: post.id, postedAt: post.postedAt, at, epoch: kyivDayStart(target) };
 
   const halves = {};
   let rows = 0;
-  for (const line of text.split('\n')) {
+  for (const line of stackRows(text.split('\n'))) {
     const row = QUEUE_ROW.exec(line);
     if (!row) continue;
 
-    const ranges = [...row[2].matchAll(RANGE)];
-    // "не вимикається" / "не вимикаються" is the operator stating this queue stays on — quite
-    // different from an address list, which carries the same label and nothing else at all.
-    const stated = ranges.length > 0 || /не\s+вимика/i.test(row[2]);
+    const spec = HOURS_ONLY.test(row[2]) ? row[2].replace(BARE_HOUR, '$1:00') : row[2];
+    const ranges = [...spec.matchAll(RANGE)];
+    // "не вимикається" / "не вимикаються" / "-" is the operator stating this queue stays on —
+    // quite different from an address list, which carries the same label and nothing else at all.
+    const stated = ranges.length > 0 || /не\s+вимика/i.test(spec) || STAYS_ON.test(spec);
     if (!stated) continue;
 
     for (const label of row[1].match(/[1-6]\.[12]/g) ?? []) {
@@ -102,8 +149,74 @@ export function parseGpvPost(post) {
       rows++;
     }
   }
-  if (rows < MIN_ROWS) return null;
+  if (rows === 0 || (rows < MIN_ROWS && !TABLE_HEADER.test(text))) {
+    const withdrawn = rows === 0 ? WITHDRAWN.exec(text) : null;
+    if (!withdrawn) return null;
+    const until = withdrawn[1] ? Math.ceil((+withdrawn[1] * 60 + +withdrawn[2]) / 30) : 48;
+    return { ...version, withdrawn: { until: Math.min(48, until) } };
+  }
 
+  for (const key of NATIONAL_KEYS) halves[key] ??= Array(48).fill('on');
+  return { ...version, halves, queues: hoursOf(halves) };
+}
+
+/**
+ * Posts → canonical `fact`, the queue keys seen, and the operator's own newest timestamp.
+ *
+ * A day's table is revised repeatedly — Запоріжжя published five versions of 13 грудня between
+ * 05:18 and 17:46, and posted 11 грудня's plan an hour *before* amending 10 грудня's. So "the
+ * newest post" is not "today's table": every post is keyed by the date it names.
+ *
+ * And a revision speaks only from the moment it goes out. Черкаси's 21:01 "Оновлений графік" for
+ * 9 квітня lists the windows still ongoing or ahead, nothing that already happened; Запоріжжя's
+ * 17:32 one for 1 липня keeps only 4.1, the others having been and gone. So the first table of a
+ * day lays down all of it, and each later version overwrites from its own half-hour onward —
+ * replacing the whole day with the newest post erased the morning's outages from the timeline.
+ */
+export function scheduleFromPosts(posts, { since = kyivDayStart() - DAY_SECONDS } = {}) {
+  const versions = new Map();
+  for (const post of posts) {
+    const parsed = parseGpvPost(post);
+    if (!parsed || parsed.epoch < since) continue;
+    if (!versions.has(parsed.epoch)) versions.set(parsed.epoch, []);
+    versions.get(parsed.epoch).push(parsed);
+  }
+
+  const fact = {};
+  const queues = new Set();
+  let update = null;
+  for (const epoch of [...versions.keys()].sort((a, b) => a - b)) {
+    let day = null;
+    for (const version of versions.get(epoch).sort((a, b) => a.at - b.at || a.id - b.id)) {
+      // A withdrawal with nothing published before it has nothing to take back.
+      if (version.withdrawn && !day) continue;
+      // Ordered by when the version was written, but in force from when the post went out: an
+      // edit restates the post, and the post has been the operator's word since then.
+      const from = day ? slotWithin(epoch, Date.parse(version.postedAt)) : 0;
+      day ??= {};
+      if (version.withdrawn) {
+        for (const slots of Object.values(day)) slots.fill('on', from, Math.max(from, version.withdrawn.until));
+      } else {
+        for (const key of new Set([...Object.keys(day), ...Object.keys(version.halves)])) {
+          day[key] ??= Array(48).fill('on');
+          for (let slot = from; slot < 48; slot++) day[key][slot] = version.halves[key]?.[slot] ?? 'on';
+        }
+      }
+      if (!update || version.at > update.at) update = version;
+    }
+    if (!day) continue;
+    fact[epoch] = hoursOf(day);
+    for (const key of Object.keys(day)) queues.add(key);
+  }
+  return {
+    fact,
+    queues: [...queues].sort(),
+    update: update && (update.at === Date.parse(update.postedAt) ? update.postedAt : new Date(update.at).toISOString())
+  };
+}
+
+/** Half-hour slots → canonical hour states. */
+function hoursOf(halves) {
   const queues = {};
   for (const [key, slots] of Object.entries(halves)) {
     const hours = {};
@@ -112,38 +225,52 @@ export function parseGpvPost(post) {
     }
     queues[key] = hours;
   }
-  return { id: post.id, postedAt: post.postedAt, epoch: kyivDayStart(target), queues };
+  return queues;
 }
 
 /**
- * Posts → canonical `fact`, the queue keys seen, and the operator's own newest timestamp.
- *
- * The one rule that matters here: a day's table is revised repeatedly — Запоріжжя published five
- * versions of 13 грудня between 05:18 and 17:46, and posted 11 грудня's plan an hour *before*
- * amending 10 грудня's. So "the newest post" is not "today's table". Every post is keyed by the
- * date it names, and the newest post wins for that date only.
+ * The half-hour of day `epoch` that a version takes effect in: 0 if it went out before the day
+ * began, 48 if after it ended. Read off the Kyiv wall clock, so the 25-hour day in October counts
+ * its slots the way the operator's table does.
  */
-export function scheduleFromPosts(posts, { since = kyivDayStart() - DAY_SECONDS } = {}) {
-  const latest = new Map();
-  for (const post of posts) {
-    const parsed = parseGpvPost(post);
-    if (!parsed || parsed.epoch < since) continue;
-    const held = latest.get(parsed.epoch);
-    if (!held || parsed.postedAt > held.postedAt || (parsed.postedAt === held.postedAt && parsed.id > held.id)) {
-      latest.set(parsed.epoch, parsed);
-    }
-  }
+function slotWithin(epoch, at) {
+  const day = kyivDayStart(new Date(at));
+  if (day < epoch) return 0;
+  if (day > epoch) return 48;
+  const [hour, minute] = KYIV_CLOCK.format(new Date(at)).split(':').map(Number);
+  return Math.floor((hour * 60 + minute) / 30);
+}
 
-  const fact = {};
-  const queues = new Set();
-  let update = null;
-  for (const epoch of [...latest.keys()].sort((a, b) => a - b)) {
-    const parsed = latest.get(epoch);
-    fact[epoch] = parsed.queues;
-    for (const key of Object.keys(parsed.queues)) queues.add(key);
-    if (!update || parsed.postedAt > update) update = parsed.postedAt;
+const KYIV_CLOCK = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/Kyiv', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+});
+
+/**
+ * When the version in a post was written. Запоріжжя edit posts in place — #3085 went out at 09:23
+ * and carries "ОНОВЛЕНО о 20:20" — so the edit time, when the post states one, orders it among the
+ * others. A stated time before the post itself is a typo and is ignored.
+ */
+function revisedAt(text, postedAt) {
+  const posted = postedAt.getTime();
+  const stated = REVISED.exec(text);
+  if (!stated) return posted;
+  const [, day, month, year, hour, minute] = stated;
+  const date = day ? new Date(Date.UTC(+year, +month - 1, +day, 12)) : postedAt;
+  const revised = (kyivDayStart(date) + +hour * 3600 + +minute * 60) * 1000;
+  return revised > posted ? revised : posted;
+}
+
+/**
+ * "⚡ Черга 2.2\n з 13:30 до 16:30\n з 23:30 до 24:00" → "⚡ Черга 2.2, 13:30-16:30, 23:30-24:00":
+ * windows stacked under their label are folded back onto its row.
+ */
+function stackRows(lines) {
+  const rows = [];
+  for (const line of lines) {
+    if (rows.length && RANGE_ONLY.test(line) && QUEUE_ROW.test(rows.at(-1))) rows[rows.length - 1] += `, ${line.trim()}`;
+    else rows.push(line);
   }
-  return { fact, queues: [...queues].sort(), update };
+  return rows;
 }
 
 /**
@@ -151,9 +278,9 @@ export function scheduleFromPosts(posts, { since = kyivDayStart() - DAY_SECONDS 
  *
  * Queue names fall back to the national 1.1–6.2 scheme rather than to whatever the last post
  * happened to mention: out of season there are no posts at all, and a snapshot with no queues
- * fails validation and is published as degraded. All three oblasts on this route use the full
- * national scheme — every archived table lists all twelve subqueues — so naming them costs
- * nothing and keeps a quiet region honestly "seasonal" instead of broken.
+ * fails validation and is published as degraded. Every oblast on this route runs the national
+ * scheme — the full-day tables list all twelve subqueues — so naming them costs nothing and keeps
+ * a quiet region honestly "seasonal" instead of broken.
  */
 export async function gpvSnapshot({ region, channel, source }) {
   const posts = await fetchChannel(channel);
@@ -216,7 +343,9 @@ function normalise(text) {
     // requiring a word boundary and no preceding ':' leaves those alone.
     .replace(/(?<!:)\b(\d{1,2});(\d{2})\b/g, '$1:$2')
     // "1.2 07:00:14:00" — the dash between two times typed as a colon.
-    .replace(/(\d{1,2}:\d{2}):(\d{1,2}:\d{2})/g, '$1-$2');
+    .replace(/(\d{1,2}:\d{2}):(\d{1,2}:\d{2})/g, '$1-$2')
+    // "з 09:00 до 14:00" — the stacked layout spells a window out in words.
+    .replace(/(?<![\p{L}])з\s+(\d{1,2}:\d{2})\s+(?:до|по)\s+(\d{1,2}:\d{2})/gu, '$1-$2');
 }
 
 /**
@@ -246,11 +375,21 @@ function targetDate(text, postedAt) {
   for (const [, day, word] of text.matchAll(/(\d{1,2})\s+([\p{L}']+)/gu)) {
     const month = MONTHS.get(word.toLowerCase());
     if (!month) continue;
-    const resolved = resolveYear(Number(day), month, postedAt);
-    const drift = resolved ? Math.abs(resolved - postedAt) / 86400000 : Infinity;
-    return drift <= MAX_LEAD_DAYS ? resolved : null;
+    return plausible(resolveYear(Number(day), month, postedAt), postedAt);
   }
-  return null;
+  // Кропивницький name the day only in digits: "За розпорядженням НЕК «Укренерго» 05.02.2026…".
+  // A worded date wins when there is one — Запоріжжя's "ОНОВЛЕНО 03.04.2026 О 11:46" dates the
+  // edit, not the table.
+  const numeric = text.match(/(?<![\d.])(\d{2})\.(\d{2})\.(20\d{2})(?![\d.])/);
+  if (!numeric) return null;
+  const [, day, month, year] = numeric.map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day, 12));
+  return plausible(date.getUTCDate() === day ? date : null, postedAt);
+}
+
+function plausible(resolved, postedAt) {
+  const drift = resolved ? Math.abs(resolved - postedAt) / 86400000 : Infinity;
+  return drift <= MAX_LEAD_DAYS ? resolved : null;
 }
 
 /** Posts name a day without a year, and a 31 грудня post names a day in the next one. */
