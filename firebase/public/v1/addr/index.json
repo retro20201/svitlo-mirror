@@ -27,10 +27,12 @@
  },
  "kyiv-region": {
   "shape": "nested",
-  "settlements": 1190,
-  "streets": 25364,
-  "built": 25364,
-  "addresses": 628600
+  "settlements": 1191,
+  "streets": 25379,
+  "built": 25379,
+  "addresses": 628600,
+  "lines": true,
+  "multiLine": 27021
  },
  "odesa": {
   "shape": "nested",
