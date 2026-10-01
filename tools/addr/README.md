@@ -148,9 +148,9 @@ harvest. Хмельницькобленерго's quarterly file sets are not a 
 |---|---|---|---|---|
 | kyiv | — | 2670 | 50 206 | **re-harvested 2026-10-01** with `x/`: 6 208 houses (12.4 %) on 2–4 lines, 6 169 of them on lines with different schedules; first lines unchanged for every house since 2026-09-07 |
 | odesa | 939 | 14 311 | 381 863 | **re-harvested 2026-10-01** with `x/`: 13 973 houses (3.7 %) on several lines; 120 streets ДТЕК did not list that day kept from the last harvest |
-| dnipro | 1149 | 18 273 | 472 195 | **re-harvest in progress 2026-10-01**; previous harvest |
+| dnipro | 1153 | 18 304 | 472 195 | **re-harvested 2026-10-01** with `x/`: 30 190 houses (6.4 %) on several lines; 4 settlements and 31 streets appended |
 | kyiv-region | 1190 | 25 364 | 628 600 | **re-harvest in progress 2026-10-01**; previous harvest |
-| khmelnytskyi | 135 | 3050 | 61 437 | 01.07.2026 set, Хмельницький РЕМ only (built 2026-09-20). The 01.10.2026 rebuild is pending: `hoe.com.ua` refused every connection on 2026-10-01 |
+| khmelnytskyi | 135 | 3050 | 61 437 | 01.07.2026 set, Хмельницький РЕМ only; 930 houses on two or three черги published to `x/` (23 on four to seven withheld, see `MAX_LINES`). Built 2026-10-01 from a Kyiv VPS: `hoe.com.ua` refuses connections from outside Ukraine. The 01.10.2026 set was not published yet |
 
 ## Publishing
 

@@ -13,7 +13,9 @@
   "settlements": 135,
   "streets": 3050,
   "built": 3050,
-  "addresses": 61437
+  "addresses": 61437,
+  "lines": true,
+  "multiLine": 930
  },
  "kyiv": {
   "shape": "flat",

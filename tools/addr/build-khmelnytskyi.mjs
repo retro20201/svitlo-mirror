@@ -131,12 +131,22 @@ export function mergeHouse(map, house, keys, problems, where) {
 export function splitLines(houses) {
   const single = {}, lines = {};
   for (const [house, keys] of Object.entries(houses)) {
-    if (keys === WITHHELD) continue;
+    if (keys === WITHHELD || keys.length > MAX_LINES) continue;
     if (keys.length > 1) lines[house] = keys;
     else single[house] = keys[0];
   }
   return { single, lines };
 }
+
+/**
+ * More черги than a building plausibly has lines, so withheld like a conflict.
+ *
+ * In the 01.07.2026 set 854 of the 953 multi-черга houses have two, 704 of them in Хмельницький
+ * itself — apartment blocks, the shape ДТЕК reports. But 23 have four to seven, almost all village
+ * houses: overlapping rows of the operator's table, not lines. ДТЕК's own maximum across 1.6 M
+ * houses is four.
+ */
+export const MAX_LINES = 3;
 
 /** One workbook → `settlement → street → { house: [queueKey, …] }`, plus what could not be read. */
 export function parseWorkbook(grid) {

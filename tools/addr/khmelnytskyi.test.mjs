@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { queueKey, houseList, assignHouse, mergeHouse, splitLines, parseWorkbook, stableList, writeRegion, outputDir }
+import { queueKey, houseList, assignHouse, mergeHouse, splitLines, MAX_LINES, parseWorkbook, stableList, writeRegion, outputDir }
   from './build-khmelnytskyi.mjs';
 
 test('a черга is read out of the operator\'s wording', () => {
@@ -230,4 +230,11 @@ test('--only checks one РЕМ in a temp dir and never writes over the published
   assert.notEqual(check, published);
   assert.ok(!check.includes(join('firebase', 'public')), check);
   assert.deepEqual(await readdir(check), [], 'a fresh dir, not one an earlier check filled');
+});
+
+test('a house on more черги than a building has lines is withheld, not offered', () => {
+  const tooMany = ['GPV1.1', 'GPV2.1', 'GPV3.1', 'GPV4.1'].slice(0, MAX_LINES + 1);
+  const { single, lines } = splitLines({ 1: tooMany, 2: ['GPV1.1', 'GPV2.2'], 3: ['GPV5.1'] });
+  assert.deepEqual(lines, { 2: ['GPV1.1', 'GPV2.2'] });
+  assert.deepEqual(single, { 3: 'GPV5.1' });
 });
