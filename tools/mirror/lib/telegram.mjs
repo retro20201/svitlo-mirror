@@ -85,6 +85,24 @@ export async function fetchChannel(channel, { before = null, after = null } = {}
   return parsePosts(await getText(`${PREVIEW_BASE}/${channel}${query}`), channel);
 }
 
+/**
+ * Preview HTML → `[{ id, postedAt, text, photos }]` for the posts that carry photos: the picture
+ * operators post when their table exists only as an image. `photos` are Telegram's CDN URLs,
+ * signed and short-lived, so they are fetched in the same run that reads the page.
+ */
+export function parsePhotoPosts(html) {
+  return html.split('<div class="tgme_widget_message_wrap').slice(1).flatMap((wrap) => {
+    const photos = [...wrap.matchAll(/tgme_widget_message_photo_wrap[^>]*background-image:url\('([^']+)'\)/g)].map((m) => m[1]);
+    const [post] = parsePosts(wrap);
+    return photos.length && post ? [{ ...post, photos }] : [];
+  });
+}
+
+/** One page of a public channel's preview, raw — for adapters that need more than the text. */
+export async function fetchChannelPage(channel, { before = null } = {}) {
+  return getText(`${PREVIEW_BASE}/${channel}${before ? `?before=${before}` : ''}`);
+}
+
 /** Preview HTML → `[{ channel, id, postedAt, text }]`. */
 export function parsePosts(html, channel = '') {
   const marks = [...html.matchAll(/data-post="[^"]*?\/(\d+)"/g)];
@@ -120,6 +138,19 @@ export function parsePosts(html, channel = '') {
  * on, from the moment it went out until `until`.
  */
 export function parseGpvPost(post) {
+  return parseVersion(post);
+}
+
+/** The shared front half of `parseGpvPost`: the day a post names and when its version was written. */
+export function dayOfPost(post) {
+  const text = normalise(post.text);
+  const postedAt = new Date(post.postedAt);
+  const target = targetDate(text, postedAt) ?? (SAME_DAY.test(text) ? postedAt : null);
+  if (!target) return null;
+  return { id: post.id, postedAt: post.postedAt, at: revisedAt(text, postedAt), epoch: kyivDayStart(target) };
+}
+
+function parseVersion(post) {
   const text = normalise(post.text);
   if (!/ГПВ|погодинн/i.test(text)) return null;
 
@@ -174,10 +205,18 @@ export function parseGpvPost(post) {
  * replacing the whole day with the newest post erased the morning's outages from the timeline.
  */
 export function scheduleFromPosts(posts, { since = kyivDayStart() - DAY_SECONDS } = {}) {
+  return mergeVersions(posts.map(parseGpvPost).filter(Boolean), { since });
+}
+
+/**
+ * Versions of days → canonical `fact`. A version is `{ id, postedAt, at, epoch, halves }` (a table)
+ * or `{ …, withdrawn: { until } }`; `at` orders them, `postedAt` is when each took effect. Shared
+ * by every adapter that reads a channel, whether the table came as text or as a picture.
+ */
+export function mergeVersions(list, { since = kyivDayStart() - DAY_SECONDS } = {}) {
   const versions = new Map();
-  for (const post of posts) {
-    const parsed = parseGpvPost(post);
-    if (!parsed || parsed.epoch < since) continue;
+  for (const parsed of list) {
+    if (parsed.epoch < since) continue;
     if (!versions.has(parsed.epoch)) versions.set(parsed.epoch, []);
     versions.get(parsed.epoch).push(parsed);
   }
@@ -377,10 +416,10 @@ function targetDate(text, postedAt) {
     if (!month) continue;
     return plausible(resolveYear(Number(day), month, postedAt), postedAt);
   }
-  // Кропивницький name the day only in digits: "За розпорядженням НЕК «Укренерго» 05.02.2026…".
-  // A worded date wins when there is one — Запоріжжя's "ОНОВЛЕНО 03.04.2026 О 11:46" dates the
-  // edit, not the table.
-  const numeric = text.match(/(?<![\d.])(\d{2})\.(\d{2})\.(20\d{2})(?![\d.])/);
+  // Кропивницький name the day only in digits: "За розпорядженням НЕК «Укренерго» 05.02.2026…",
+  // Суми with dashes: "на 30-06-2026". A worded date wins when there is one — Запоріжжя's
+  // "ОНОВЛЕНО 03.04.2026 О 11:46" dates the edit, not the table.
+  const numeric = text.match(/(?<![\d.-])(\d{2})[.-](\d{2})[.-](20\d{2})(?!\d|[.-]\d)/);
   if (!numeric) return null;
   const [, day, month, year] = numeric.map(Number);
   const date = new Date(Date.UTC(year, month - 1, day, 12));

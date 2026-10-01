@@ -4,7 +4,8 @@
  * a comment here. Sources, for the record: Харків/Запоріжжя/Черкаси/Кіровоград come from the operators'
  * own Telegram channels, Тернопіль from api-poweron.toe.com.ua, Івано-Франківськ from be-svitlo.oe.if.ua
  * (the API behind the operator's svitlo.oe.if.ua), Львів from the schedule text at api.loe.lviv.ua,
- * Волинь from the picture its api-voe-poweron.inneti.net publishes.
+ * Волинь from the picture its api-voe-poweron.inneti.net publishes, Суми from the picture it
+ * posts to Telegram.
  * Херсон's schedule page answers 200 with an empty body, and has since December 2023.
  *
  * Registry of every region the app can offer, and where its schedule comes from.
@@ -56,7 +57,9 @@ export const REGIONS = [
   // Read from the operator's district Telegram channels, which carry the oblast-wide table verbatim.
   { id: 'kirovohrad',    title: 'Кіровоградська область', subtitle: 'область',       operator: 'АТ «Кіровоградобленерго»',     source: 'kirovohrad', status: 'seasonal' },
   { id: 'zhytomyr',      title: 'Житомирська область', subtitle: 'область',          operator: 'АТ «Житомиробленерго»',        source: 'zhytomyr', status: 'seasonal', probe: 'https://www.ztoe.com.ua/' },
-  { id: 'sumy',          title: 'Сумська область',     subtitle: 'область',          operator: 'АТ «Сумиобленерго»',           source: null, status: 'seasonal', probe: 'https://www.soe.com.ua/' },
+  // Read off the picture the operator posts to @SumyEnergo — its site's own schedule comes from a
+  // robots-disallowed /api/. See sources/sumy.mjs and lib/sumy-picture.mjs.
+  { id: 'sumy',          title: 'Сумська область',     subtitle: 'область',          operator: 'АТ «Сумиобленерго»',           source: 'sumy', status: 'seasonal' },
   { id: 'rivne',         title: 'Рівненська область',  subtitle: 'область',          operator: 'АТ «Рівнеобленерго»',          source: 'rivne', status: 'seasonal', probe: 'https://www.ez.rv.ua/grafiky-pogodynnyh-vidklyuchen/' },
 
   // --- blocked: the site 403s every automated request, browser headers included
