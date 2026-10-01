@@ -20,10 +20,17 @@ async function get(url, { retries = 2, timeoutMs = 20000, headers = {} } = {}) {
         signal: controller.signal,
         headers: { 'user-agent': USER_AGENT, 'accept-language': 'uk-UA,uk;q=0.9', ...headers }
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status}`);
+        // A 4xx is the server's answer, not a lost packet: asking again a second later only repeats
+        // a refusal — a 429 or 403 above all — to a server that has just asked us to back off.
+        error.retry = response.status >= 500;
+        throw error;
+      }
       return response;
     } catch (error) {
       lastError = error;
+      if (error.retry === false) break;
       // Backing off matters: these are small operators' servers, often during a blackout.
       if (attempt < retries) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
     } finally {

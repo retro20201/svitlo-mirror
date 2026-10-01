@@ -20,7 +20,7 @@ import { affectsSchedule } from './lib/notify.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REGIONS } from './regions.mjs';
-import { validate, hasSchedule, statusFor } from './lib/canonical.mjs';
+import { validate, hasSchedule, statusFor, kyivDayStart } from './lib/canonical.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = join(HERE, '..', '..', 'firebase', 'public', 'v1');
@@ -35,7 +35,8 @@ const ADAPTERS = {
   'ivano-frankivsk': () => import('./sources/ivano-frankivsk.mjs'),
   zhytomyr: () => import('./sources/zhytomyr.mjs'),
   rivne: () => import('./sources/rivne.mjs'),
-  khmelnytskyi: () => import('./sources/khmelnytskyi.mjs')
+  khmelnytskyi: () => import('./sources/khmelnytskyi.mjs'),
+  lviv: () => import('./sources/lviv.mjs')
 };
 
 async function readExisting(file) {
@@ -131,6 +132,13 @@ async function main() {
         entry.queues = Object.keys(previous.preset?.sch_names ?? {}).length;
         entry.hasWeeklyPreset = Object.keys(previous.preset?.data ?? {}).length > 0;
         entry.stale = true;
+        // Phones are still served that last good copy. While it covers today or a later day, the
+        // region keeps the status the copy earned: otherwise a region that went live from published
+        // days (Миколаїв in season) drops back to its declared 'seasonal' for one failed run, and the
+        // app takes it out of the picker. A copy whose days have all passed earns nothing.
+        const today = kyivDayStart();
+        const days = Array.isArray(previous.fact?.data) ? [] : Object.keys(previous.fact?.data ?? {}).map(Number);
+        if (days.some((day) => day >= today)) entry.status = statusFor(region, previous);
       } else {
         entry.status = 'planned';
       }

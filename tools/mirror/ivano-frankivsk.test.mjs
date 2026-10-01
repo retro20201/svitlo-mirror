@@ -1,27 +1,155 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { crc32, deflateRawSync } from 'node:zlib';
-import { parseDaySheet, archiveDaysFromListing } from './sources/ivano-frankivsk.mjs';
+import { sheetGrid } from '../lib/xlsx.mjs';
+import { hourStateFromHalves, kyivDayStart, NATIONAL_QUEUES, validate } from './lib/canonical.mjs';
+import { factFromQueues, checkQueueList, fetchRegion } from './sources/ivano-frankivsk.mjs';
 
 /**
- * Івано-Франківськ is the one region whose hour parsing can be proven rather than argued about, so
- * the fixture below is the real thing: the bytes of
- * shutdowns_schedule_archive_20260701.xlsx, downloaded from oe.if.ua on 2026-08-28
- * (sha256 dcd2c315c08461a1a6d35c80f13cd8c63e4e4c661367ba6ca9b43ffc3a9b6fcc, 7175 bytes).
- *
- * It is worth knowing why this particular day. On 2026-08-28 Ukraine is out of restriction season
- * and the archive is almost entirely "Відключень не було"; 01.07.2026 is the only day the operator
- * has filed a ГПВ sheet for in the whole retained window, and it carries exactly two queues with
- * outages. That is thin, but it is real, and between them the two queues pin down the case that
- * actually matters — an outage that starts and ends on the half hour, which the canonical format
- * has to split into `second` and `first` rather than blacking out a whole hour.
- *
- * The sheet's own dialect is therefore load-bearing and verified, not assumed: queue labels arrive
- * as *numbers* (`<c r="A3" s="5" t="n"><v>1.1</v></c>`), every other cell is an inline string down
- * to the empty ones (`<is><t></t></is>`), there is no sharedStrings.xml, and `<dimension>` lies —
- * it claims A1:B16 for a sheet 49 columns wide, which is why nothing here trusts it.
+ * be-svitlo has not been seen publishing a schedule: on 2026-10-01, the day this adapter was
+ * written, every черга answered `[]`. The fixtures therefore come in three kinds, and each says
+ * which it is:
+ *  - REAL — bytes from the operator: the queue list and the twelve empty answers captured on
+ *    2026-10-01 at 13:43 UTC, and the archived sheet for 01.07.2026 below;
+ *  - the shape the operator's own front end reads (quoted in the adapter), filled in the way public
+ *    clients of the live API recorded it in season: each interval carries `shutdownHours` and
+ *    `status: 1` next to `from`/`to`, and `scheduleApprovedSince` reads like "24.11.2025 19:52";
+ *  - edge cases written in that shape.
  */
 
+// REAL: POST /gpv-queue-list, verbatim, 2026-10-01.
+const REAL_QUEUE_LIST = [
+  { id: 1, code: '1.1', label: 'черга 1.1' }, { id: 2, code: '1.2', label: 'черга 1.2' },
+  { id: 3, code: '2.1', label: 'черга 2.1' }, { id: 4, code: '2.2', label: 'черга 2.2' },
+  { id: 5, code: '3.1', label: 'черга 3.1' }, { id: 6, code: '3.2', label: 'черга 3.2' },
+  { id: 7, code: '4.1', label: 'черга 4.1' }, { id: 8, code: '4.2', label: 'черга 4.2' },
+  { id: 9, code: '5.1', label: 'черга 5.1' }, { id: 10, code: '5.2', label: 'черга 5.2' },
+  { id: 11, code: '6.1', label: 'черга 6.1' }, { id: 12, code: '6.2', label: 'черга 6.2' }
+];
+
+/** 12:00 on 20.11.2026 in Kyiv, and the midnights `fact` keys the days around it by. */
+const NOW = new Date('2026-11-20T10:00:00Z');
+const NOV_20 = 1795125600;
+const NOV_21 = 1795212000;
+
+const outage = (from, to, status = 1) => ({ shutdownHours: `${from}-${to}`, from, to, status });
+const day = (eventDate, queues, scheduleApprovedSince = '19.11.2026 19:52') =>
+  ({ eventDate, queues, createdAt: scheduleApprovedSince, scheduleApprovedSince });
+
+const LIGHT = Array(24).fill('yes');
+/** A day of light with the given hour rows (1–24) overwritten. */
+const lightExcept = (hours) => LIGHT.map((state, index) => hours[index + 1] ?? state);
+
+test('the real queue list names exactly the national twelve', () => {
+  assert.doesNotThrow(() => checkQueueList(REAL_QUEUE_LIST));
+});
+
+test('a queue list that gains, loses or renames a черга stops the run', () => {
+  // `[]` is also the answer for a черга that does not exist, so querying codes the operator no
+  // longer lists would look exactly like a quiet day. The region must read as degraded instead.
+  const gained = [...REAL_QUEUE_LIST, { id: 13, code: '7.1', label: 'черга 7.1' }];
+  const lost = REAL_QUEUE_LIST.slice(1);
+  const renamed = REAL_QUEUE_LIST.map((item) => ({ ...item, code: item.code.replace('.', '/') }));
+  const doubled = [...REAL_QUEUE_LIST.slice(1), REAL_QUEUE_LIST[1]];
+  // Their page queries with the code exactly as listed, so "1.1 " is not the черга asked about.
+  const padded = REAL_QUEUE_LIST.map((item) => ({ ...item, code: `${item.code} ` }));
+  for (const list of [gained, lost, renamed, doubled, padded]) {
+    assert.throws(() => checkQueueList(list), /gpv-queue-list changed/);
+  }
+  assert.throws(() => checkQueueList({ message: 'error' }), /not an array/);
+  assert.throws(() => checkQueueList([{ id: 1, code: 1.1 }]), /no string code/);
+});
+
+test('twelve real empty answers are no information, not a day of light', () => {
+  // REAL: every GET /schedule-by-queue on 2026-10-01 returned exactly `[]`. Their page shows that
+  // as "Інформація відсутня"; publishing it as "yes" would tell people there are no outages.
+  const responses = Object.fromEntries(NATIONAL_QUEUES.map((code) => [code, JSON.parse('[]')]));
+  assert.deepEqual(factFromQueues(responses, NOW), { fact: {}, update: null });
+});
+
+test('an outage window becomes hours keyed by Kyiv midnight', () => {
+  const { fact, update } = factFromQueues({
+    '4.2': [day('20.11.2026', { '4.2': [outage('16:30', '20:00')] })]
+  }, NOW);
+
+  assert.deepEqual(Object.keys(fact), [String(NOV_20)]);
+  // 16:00-17:00 loses only its second half; 17:00-20:00 is dark; light is back for 20:00-21:00.
+  assert.deepEqual(Object.values(fact[NOV_20]['GPV4.2']), lightExcept({ 17: 'second', 18: 'no', 19: 'no', 20: 'no' }));
+  assert.equal(update, '19.11.2026 19:52');
+});
+
+test('several windows in any order are all applied', () => {
+  // The order their API lists windows in is not chronological — clients recorded
+  // 14:00, 01:30, 22:00, 07:30 for one day — and the page lists them as given.
+  const { fact } = factFromQueues({
+    '6.2': [day('20.11.2026', { '6.2': [outage('14:00', '15:00'), outage('01:30', '02:00'), outage('07:30', '09:00')] })]
+  }, NOW);
+  assert.deepEqual(
+    Object.values(fact[NOV_20]['GPV6.2']),
+    lightExcept({ 2: 'second', 8: 'second', 9: 'no', 15: 'no' })
+  );
+});
+
+test('an empty array for the черга is a day published without outages', () => {
+  // Their page renders `queues[code] = []` as a green "Не застосовується" chip: the schedule does
+  // not apply to this черга that day. That is published data, the same all-"yes" day ДТЕК sends.
+  const { fact } = factFromQueues({ '1.1': [day('20.11.2026', { '1.1': [] })] }, NOW);
+  assert.deepEqual(Object.values(fact[NOV_20]['GPV1.1']), LIGHT);
+});
+
+test('a date with no queues, or without an element, says nothing about it', () => {
+  // NO_DATA on their page: "Інформація відсутня". Light must not be inferred from silence.
+  const { fact } = factFromQueues({
+    '1.1': [day('20.11.2026', {})],
+    '1.2': [day('20.11.2026', { '1.2': [outage('10:00', '11:00')] })],
+    '2.1': []
+  }, NOW);
+  assert.deepEqual(Object.keys(fact[NOV_20]), ['GPV1.2']);
+});
+
+test('an answer keyed by anything but the черга asked for stops the run', () => {
+  // Their page reads `queues[code]` with the code from the queue list. Keys that have moved would
+  // read as NO_DATA in all twelve answers at once — the off-season, in the middle of the season.
+  const window = [outage('16:00', '20:00')];
+  for (const queues of [{ 'GPV1.1': window }, { '1.1 ': window }, { '1/1': window }, { '1.2': [] }]) {
+    assert.throws(
+      () => factFromQueues({ '1.1': [day('20.11.2026', queues)] }, NOW),
+      /the answer for 1\.1 lists only/,
+      JSON.stringify(queues)
+    );
+  }
+  // Other черги next to the one asked for are fine; it is the one asked for that must be there.
+  const { fact } = factFromQueues({ '1.1': [day('20.11.2026', { '1.1': window, '1.2': [] })] }, NOW);
+  assert.deepEqual(Object.keys(fact[NOV_20]), ['GPV1.1']);
+});
+
+test('only today and tomorrow in Kyiv are kept', () => {
+  // Their page shows exactly these two. Yesterday is a stale record and must not keep a region
+  // "live"; the day after tomorrow is something their own page never displays.
+  const { fact } = factFromQueues({
+    '3.1': [
+      day('19.11.2026', { '3.1': [outage('08:00', '12:00')] }),
+      day('20.11.2026', { '3.1': [outage('10:00', '12:00')] }),
+      day('21.11.2026', { '3.1': [] }),
+      day('22.11.2026', { '3.1': [outage('08:00', '12:00')] })
+    ]
+  }, NOW);
+  assert.deepEqual(Object.keys(fact), [String(NOV_20), String(NOV_21)]);
+  assert.equal(fact[NOV_20]['GPV3.1']['11'], 'no');
+  assert.deepEqual(Object.values(fact[NOV_21]['GPV3.1']), LIGHT);
+});
+
+/**
+ * REAL: the bytes of shutdowns_schedule_archive_20260701.xlsx, downloaded from oe.if.ua on
+ * 2026-08-28 (sha256 dcd2c315c08461a1a6d35c80f13cd8c63e4e4c661367ba6ca9b43ffc3a9b6fcc, 7175 bytes),
+ * which the previous, archive-reading version of this adapter was tested against.
+ *
+ * It is here as the semantic anchor for the new source. The sheet is the operator's own record of
+ * a real day: row 2 labels the 48 half-hours "00:00" … "23:30", rows 3–14 are черги 1.1–6.2, and
+ * its legend reads "X = Немає електроенергії". Two черги were off that evening, both starting or
+ * ending on the half hour. Re-expressed as the `from`/`to` windows be-svitlo lists under
+ * "Відключення", the same day has to fold back to exactly the same grid — which is what proves the
+ * interval arithmetic rather than arguing for it.
+ */
 const REAL_WORKBOOK_BASE64 =
   'UEsDBBQAAAAIAAAAIez2i56hIAEAAIQDAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbK2Tu27DMAxFf8XQWlhKOhRFYTtDH2ObIf0A' +
   'VaJjIXpBVFLn70vbTYcscdBMBEXec68EqFr1zhYHSGiCr9mSL1gBXgVt/LZmn5u38pGtmmpzjIAFrXqsWZdzfBICVQdOIg8RPE3a' +
@@ -121,196 +249,340 @@ const REAL_WORKBOOK_BASE64 =
   'AAABAAAApIHqGAAAZG9jUHJvcHMvYXBwLnhtbFBLBQYAAAAACQAJAE4CAACjGQAAAAA=';
 
 const REAL_WORKBOOK = Buffer.from(REAL_WORKBOOK_BASE64, 'base64');
+const JUL_1 = 1782853200;
 
-test('the real sheet yields the twelve national queues and nothing else', () => {
-  const parsed = parseDaySheet(REAL_WORKBOOK);
-  assert.deepEqual(Object.keys(parsed), [
-    'GPV1.1', 'GPV1.2', 'GPV2.1', 'GPV2.2', 'GPV3.1', 'GPV3.2',
-    'GPV4.1', 'GPV4.2', 'GPV5.1', 'GPV5.2', 'GPV6.1', 'GPV6.2'
+/** The archived sheet: its own half-hour labels, and each черга's 48 cells as "marked X". */
+function archivedSheet() {
+  const grid = sheetGrid(REAL_WORKBOOK);
+  const labels = grid[2].slice(2, 50);
+  const rows = {};
+  for (const cells of grid) {
+    const queue = /^\d\.\d$/.exec(cells?.[1] ?? '')?.[0];
+    if (queue) rows[queue] = labels.map((_, slot) => /^[XХ]$/.test(cells[2 + slot] ?? ''));
+  }
+  return { labels, rows };
+}
+
+/** Each run of marked cells → one window, timed by the sheet's own labels. */
+function windowsFromMarks(marks, labels) {
+  const windows = [];
+  for (let slot = 0; slot < marks.length; slot++) {
+    if (!marks[slot] || marks[slot - 1]) continue;
+    let end = slot;
+    while (end < marks.length && marks[end]) end++;
+    windows.push(outage(labels[slot], end === marks.length ? '00:00' : labels[end]));
+  }
+  return windows;
+}
+
+test('the archived 01.07.2026 sheet, as be-svitlo windows, folds back to the same grid', () => {
+  const { labels, rows } = archivedSheet();
+  assert.equal(labels[0], '00:00');
+  assert.equal(labels[47], '23:30');
+  assert.deepEqual(Object.keys(rows), NATIONAL_QUEUES);
+
+  const responses = {};
+  const expected = {};
+  for (const [queue, marks] of Object.entries(rows)) {
+    responses[queue] = [day('01.07.2026', { [queue]: windowsFromMarks(marks, labels) }, '30.06.2026 18:40')];
+    const halves = marks.map((marked) => (marked ? 'off' : 'on'));
+    expected[`GPV${queue}`] = Object.fromEntries(
+      LIGHT.map((_, index) => [String(index + 1), hourStateFromHalves(halves[index * 2], halves[index * 2 + 1])])
+    );
+  }
+
+  // What the sheet holds, spelled out: the two evening outages and ten черги with none.
+  assert.deepEqual(responses['1.2'][0].queues['1.2'], [outage('20:30', '22:00')]);
+  assert.deepEqual(responses['6.2'][0].queues['6.2'], [outage('19:00', '20:30')]);
+  const quiet = NATIONAL_QUEUES.filter((queue) => queue !== '1.2' && queue !== '6.2');
+  for (const queue of quiet) assert.deepEqual(responses[queue][0].queues[queue], [], queue);
+
+  const { fact } = factFromQueues(responses, new Date('2026-07-01T09:00:00Z'));
+  assert.deepEqual(fact, { [JUL_1]: expected });
+
+  // 20:00-21:00 loses only its second half on 1.2, only its first on 6.2.
+  assert.deepEqual(
+    [fact[JUL_1]['GPV1.2']['20'], fact[JUL_1]['GPV1.2']['21'], fact[JUL_1]['GPV1.2']['22'], fact[JUL_1]['GPV1.2']['23']],
+    ['yes', 'second', 'no', 'yes']
+  );
+  assert.deepEqual(
+    [fact[JUL_1]['GPV6.2']['19'], fact[JUL_1]['GPV6.2']['20'], fact[JUL_1]['GPV6.2']['21'], fact[JUL_1]['GPV6.2']['22']],
+    ['yes', 'no', 'first', 'yes']
+  );
+  for (const queue of quiet) assert.deepEqual(Object.values(fact[JUL_1][`GPV${queue}`]), LIGHT, queue);
+});
+
+test('a window that runs past midnight carries into tomorrow when tomorrow is published', () => {
+  // Their page measures "22:00–02:00" as four hours: an end before the start is on the next day.
+  const { fact } = factFromQueues({
+    '5.1': [
+      day('20.11.2026', { '5.1': [outage('22:00', '02:00')] }),
+      day('21.11.2026', { '5.1': [] })
+    ]
+  }, NOW);
+  assert.deepEqual(Object.values(fact[NOV_20]['GPV5.1']), lightExcept({ 23: 'no', 24: 'no' }));
+  assert.deepEqual(Object.values(fact[NOV_21]['GPV5.1']), lightExcept({ 1: 'no', 2: 'no' }));
+});
+
+test('the carried-over hours alone do not invent a day', () => {
+  // Tomorrow unpublished means nothing is known about 02:00-24:00 — writing it as a day would
+  // declare all of it light. The carry-over waits for tomorrow's own element.
+  const { fact } = factFromQueues({
+    '5.1': [day('20.11.2026', { '5.1': [outage('22:00', '02:00')] })]
+  }, NOW);
+  assert.deepEqual(Object.keys(fact), [String(NOV_20)]);
+});
+
+test('last night\'s window still darkens this morning, and tomorrow\'s goes nowhere', () => {
+  const { fact } = factFromQueues({
+    '5.2': [
+      day('19.11.2026', { '5.2': [outage('23:00', '01:30')] }),
+      day('20.11.2026', { '5.2': [] }),
+      day('21.11.2026', { '5.2': [outage('23:00', '01:00')] })
+    ]
+  }, NOW);
+  assert.deepEqual(Object.values(fact[NOV_20]['GPV5.2']), lightExcept({ 1: 'no', 2: 'first' }));
+  assert.deepEqual(Object.values(fact[NOV_21]['GPV5.2']), lightExcept({ 24: 'no' }));
+  assert.deepEqual(Object.keys(fact), [String(NOV_20), String(NOV_21)]);
+});
+
+test('an "00:00" end and a "24:00" end are both midnight and carry nothing over', () => {
+  const at = (to) => factFromQueues({
+    '2.2': [day('20.11.2026', { '2.2': [outage('22:00', to)] }), day('21.11.2026', { '2.2': [] })]
+  }, NOW).fact;
+  assert.deepEqual(at('00:00'), at('24:00'));
+  assert.deepEqual(Object.values(at('00:00')[NOV_20]['GPV2.2']), lightExcept({ 23: 'no', 24: 'no' }));
+  assert.deepEqual(Object.values(at('00:00')[NOV_21]['GPV2.2']), LIGHT);
+  // A whole day written as 00:00–24:00 is a whole day.
+  const allDay = factFromQueues({ '2.2': [day('20.11.2026', { '2.2': [outage('00:00', '24:00')] })] }, NOW).fact;
+  assert.deepEqual(new Set(Object.values(allDay[NOV_20]['GPV2.2'])), new Set(['no']));
+});
+
+test('the 25-hour day keeps wall-clock rows, and tomorrow is found in its first hour', () => {
+  // 00:30 on 25.10.2026 in Kyiv; at 04:00 the clocks go back to 03:00. "Now + 24 h" would still be
+  // the 25th, so tomorrow has to come from the calendar.
+  const { fact } = factFromQueues({
+    '1.1': [
+      day('25.10.2026', { '1.1': [outage('03:00', '04:00')] }),
+      day('26.10.2026', { '1.1': [] })
+    ]
+  }, new Date('2026-10-24T21:30:00Z'));
+  assert.deepEqual(Object.keys(fact), ['1792875600', '1792965600']);
+  assert.equal(1792965600 - 1792875600, 25 * 3600);
+  // The operator writes wall-clock times and the canonical grid has wall-clock rows: 03:00-04:00
+  // is row 4, however many times that hour happens.
+  assert.deepEqual(Object.values(fact[1792875600]['GPV1.1']), lightExcept({ 4: 'no' }));
+});
+
+test('status 1 or none is an outage; any other status stops the run', () => {
+  // Their renderer ignores `status`: every listed window is under "Відключення". Only 1 has been
+  // seen, and the one public client that names 0 reads it as "no outage" — the opposite of their
+  // page. Publishing either reading, or "maybe" between them, would be a guess; the app never
+  // announces "maybe", so a downgraded outage would arrive without its alert.
+  const { fact } = factFromQueues({
+    '3.2': [day('20.11.2026', { '3.2': [outage('10:00', '11:00'), { from: '15:00', to: '16:00' }] })]
+  }, NOW);
+  assert.deepEqual(Object.values(fact[NOV_20]['GPV3.2']), lightExcept({ 11: 'no', 16: 'no' }));
+
+  for (const status of ['1', 0, 2, null, true, 'SCHEDULED', { code: 1 }]) {
+    assert.throws(
+      () => factFromQueues({ '3.2': [day('20.11.2026', { '3.2': [outage('10:00', '11:00', status)] })] }, NOW),
+      /unknown status/,
+      JSON.stringify(status)
+    );
+  }
+});
+
+test('times off the half-hour grid darken every half hour they touch', () => {
+  const { fact } = factFromQueues({
+    '4.1': [day('20.11.2026', { '4.1': [outage('16:10', '16:20'), outage('18:15', '19:45')] })]
+  }, NOW);
+  assert.deepEqual(Object.values(fact[NOV_20]['GPV4.1']), lightExcept({ 17: 'first', 19: 'no', 20: 'no' }));
+});
+
+test('the update stamp is the latest approval among the days shown', () => {
+  const { update } = factFromQueues({
+    '1.1': [
+      day('19.11.2026', { '1.1': [] }, '20.11.2026 23:59'),
+      day('20.11.2026', { '1.1': [] }, '19.11.2026 19:52'),
+      day('21.11.2026', { '1.1': [] }, '20.11.2026 18:05')
+    ],
+    '1.2': [day('20.11.2026', { '1.2': [] }, '20.11.2026 09:15')]
+  }, NOW);
+  // The stale day's stamp is ignored even though it sorts last: it describes nothing published.
+  assert.equal(update, '20.11.2026 18:05');
+
+  const unstamped = factFromQueues({ '1.1': [{ eventDate: '20.11.2026', queues: { '1.1': [] } }] }, NOW);
+  assert.equal(unstamped.update, null);
+});
+
+test('two identical elements for one date are one; two different ones stop the run', () => {
+  const same = day('20.11.2026', { '1.1': [outage('10:00', '12:00')] });
+  const { fact } = factFromQueues({ '1.1': [same, structuredClone(same)] }, NOW);
+  assert.equal(fact[NOV_20]['GPV1.1']['11'], 'no');
+
+  // Their page would silently show the first. Which one is in force cannot be known.
+  const other = day('20.11.2026', { '1.1': [outage('14:00', '16:00')] });
+  assert.throws(() => factFromQueues({ '1.1': [same, other] }, NOW), /two different schedules/);
+  const silent = day('20.11.2026', {});
+  assert.throws(() => factFromQueues({ '1.1': [same, silent] }, NOW), /two different schedules/);
+});
+
+test('every shape the operator\'s page would not read stops the run instead of being guessed', () => {
+  const broken = [
+    [{ message: 'Internal error' }, /response is not an array/],
+    [[null], /element is not an object/],
+    [[day('2026-11-20', { '1.1': [] })], /not DD\.MM\.YYYY/],
+    [[day('31.02.2026', { '1.1': [] })], /not DD\.MM\.YYYY/],
+    [[day('20.11.26', { '1.1': [] })], /not DD\.MM\.YYYY/],
+    [[{ queues: { '1.1': [] } }], /not DD\.MM\.YYYY/],
+    [[day('20.11.2026', [])], /queues is not an object/],
+    [[day('20.11.2026', null)], /queues is not an object/],
+    [[day('20.11.2026', { '1.1': {} })], /queue 1\.1: not an array/],
+    [[day('20.11.2026', { '1.1': ['10:00-12:00'] })], /interval is not an object/],
+    [[day('20.11.2026', { '1.1': [{ from: '10:00' }] })], /is not HH:mm/],
+    [[day('20.11.2026', { '1.1': [outage('7:30', '09:00')] })], /is not HH:mm/],
+    [[day('20.11.2026', { '1.1': [outage('07:30:00', '09:00:00')] })], /is not HH:mm/],
+    [[day('20.11.2026', { '1.1': [outage('22:00', '24:30')] })], /is not HH:mm/],
+    [[day('20.11.2026', { '1.1': [{ from: 1030, to: 1200 }] })], /is not HH:mm/],
+    [[day('20.11.2026', { '1.1': [outage('24:00', '02:00')] })], /cannot start at 24:00/],
+    [[day('20.11.2026', { '1.1': [outage('10:00', '10:00')] })], /has no length/],
+    [[day('20.11.2026', { '1.1': [outage('00:00', '00:00')] })], /has no length/],
+    [[day('20.11.2026', { '1.1': [outage('10:00', '12:00', '1')] })], /unknown status "1"/],
+    // Another черга's window, in this черга's answer, is still the operator's payload.
+    [[day('20.11.2026', { '1.1': [], '1.2': [outage('9:00', '10:00')] })], /queue 1\.2\[0\] from/],
+    [[day('20.11.2026', { '1.1': [], '1.2': [outage('09:00', '10:00', 0)] })], /queue 1\.2\[0\]: unknown status 0/],
+    // So is a day that would be thrown away as stale.
+    [[day('01.10.2025', { '1.1': [outage('10:00', '10:00')] })], /has no length/],
+    [[day('01.10.2025', { '1.1': [outage('10:00', '11:00', 2)] })], /unknown status 2/],
+    [[{ ...day('20.11.2026', { '1.1': [] }), scheduleApprovedSince: 1795164000 }], /scheduleApprovedSince is a number/]
+  ];
+  for (const [payload, error] of broken) {
+    assert.throws(() => factFromQueues({ '1.1': payload }, NOW), error, JSON.stringify(payload));
+  }
+});
+
+/**
+ * `fetchRegion` against a stand-in for be-svitlo — no network, and no real waiting. `serve(method)`
+ * plays the operator; `setTimeout` runs on a virtual clock that moves to the next timer only once
+ * everything else has settled, so the spacing is measured exactly instead of the suite sitting
+ * through thirteen seconds of it. Every request is logged with the virtual time it left at.
+ */
+async function offlineRun(serve) {
+  const real = { fetch: globalThis.fetch, setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout };
+  const timers = new Map();
+  const requests = [];
+  let clock = 0;
+  let nextTimer = 1;
+  globalThis.setTimeout = (callback, ms = 0) => {
+    timers.set(nextTimer, { at: clock + ms, callback });
+    return nextTimer++;
+  };
+  globalThis.clearTimeout = (id) => { timers.delete(id); };
+  globalThis.fetch = async (url, init = {}) => {
+    const method = init.method ?? 'GET';
+    requests.push({ at: clock, method, url: String(url), userAgent: init.headers?.['user-agent'] });
+    return serve(method, String(url));
+  };
+
+  let outcome;
+  fetchRegion({ id: 'ivano-frankivsk', title: 'Івано-Франківська область' })
+    .then((snapshot) => { outcome = { snapshot }; }, (error) => { outcome = { error }; });
+  try {
+    while (!outcome) {
+      // The real setImmediate: by the time it fires, everything the stand-ins queued has run.
+      await new Promise((resolve) => setImmediate(resolve));
+      if (outcome) break;
+      const next = [...timers].sort(([, a], [, b]) => a.at - b.at)[0];
+      if (!next) throw new Error('fetchRegion is waiting on nothing');
+      timers.delete(next[0]);
+      clock = next[1].at;
+      next[1].callback();
+    }
+  } finally {
+    Object.assign(globalThis, real);
+  }
+  return { ...outcome, requests };
+}
+
+const reply = (body, status = 200) => ({ ok: status < 400, status, json: async () => structuredClone(body) });
+const BE_SVITLO = 'https://be-svitlo.oe.if.ua';
+
+/** The gaps between consecutive requests, in virtual milliseconds. */
+const gaps = (requests) => requests.slice(1).map((request, index) => request.at - requests[index].at);
+
+test('a run asks for the queue list, then each national черга in turn, a second apart', async () => {
+  // REAL answers: the list and the twelve `[]` of 2026-10-01.
+  const { snapshot, error, requests } = await offlineRun((method) =>
+    reply(method === 'POST' ? REAL_QUEUE_LIST : []));
+  assert.equal(error, undefined);
+  assert.deepEqual(requests.map(({ method, url }) => `${method} ${url}`), [
+    `POST ${BE_SVITLO}/gpv-queue-list`,
+    ...NATIONAL_QUEUES.map((code) => `GET ${BE_SVITLO}/schedule-by-queue?queue=${code}`)
   ]);
-  // Row 1 is the title, row 2 the times, row 16 the legend — none may become a queue.
-  for (const hours of Object.values(parsed)) assert.equal(Object.keys(hours).length, 24);
+  // A small operator's server, often during a blackout: never two requests within a second.
+  assert.ok(gaps(requests).every((gap) => gap >= 1000), String(gaps(requests)));
+  // The POST's copied User-Agent has to stay in step with the one lib/http.mjs gives every GET.
+  assert.equal(new Set(requests.map(({ userAgent }) => userAgent)).size, 1);
+  assert.match(requests[0].userAgent, /^svitlo-mirror\//);
+
+  assert.deepEqual(validate(snapshot), []);
+  assert.deepEqual(snapshot.fact.data, []);
+  assert.deepEqual(Object.keys(snapshot.preset.sch_names), NATIONAL_QUEUES.map((code) => `GPV${code}`));
 });
 
-test('the real outage on queue 1.2 splits 20:30-22:00 into second then no', () => {
-  // The sheet marks slots 20:30, 21:00 and 21:30. 20:00-21:00 loses only its second half.
-  const hours = parseDaySheet(REAL_WORKBOOK)['GPV1.2'];
-  assert.equal(hours['20'], 'yes');
-  assert.equal(hours['21'], 'second');
-  assert.equal(hours['22'], 'no');
-  assert.equal(hours['23'], 'yes');
-});
-
-test('the real outage on queue 6.2 splits 19:00-20:30 into no then first', () => {
-  // Marked at 19:00, 19:30 and 20:00, so 20:00-21:00 keeps its second half.
-  const hours = parseDaySheet(REAL_WORKBOOK)['GPV6.2'];
-  assert.equal(hours['19'], 'yes');
-  assert.equal(hours['20'], 'no');
-  assert.equal(hours['21'], 'first');
-  assert.equal(hours['22'], 'yes');
-});
-
-test('the ten untouched queues in the real sheet are a full day of light', () => {
-  const parsed = parseDaySheet(REAL_WORKBOOK);
-  for (const [queue, hours] of Object.entries(parsed)) {
-    if (queue === 'GPV1.2' || queue === 'GPV6.2') continue;
-    assert.deepEqual(new Set(Object.values(hours)), new Set(['yes']), queue);
-  }
-});
-
-/**
- * Cases the one real sheet cannot cover, written in the dialect it just proved: a numeric label in
- * column A, inline strings across B..AW.
- */
-const SHEET_HEAD =
-  '<?xml version="1.0" encoding="UTF-8"?>' +
-  '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
-  'xml:space="preserve"><dimension ref="A1:B16"></dimension><sheetData>';
-
-function columnLetters(index) {
-  let letters = '';
-  for (let n = index; n > 0; n = Math.floor((n - 1) / 26)) {
-    letters = String.fromCharCode(65 + ((n - 1) % 26)) + letters;
-  }
-  return letters;
-}
-
-function queueRow(rowIndex, label, marks) {
-  let xml = `<row r="${rowIndex}" ><c r="A${rowIndex}" s="5" t="n"><v>${label}</v></c>`;
-  marks.forEach((mark, slot) => {
-    const reference = `${columnLetters(slot + 2)}${rowIndex}`;
-    xml += `<c r="${reference}" s="7" t="inlineStr"><is><t>${mark}</t></is></c>`;
+test('a run publishes what the operator lists for today and tomorrow', async () => {
+  // The real clock decides "today" inside fetchRegion, so both days are offered: should midnight
+  // pass mid-test, the second is still shown.
+  const ddmmyyyy = (date) => new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).format(date).split('-').reverse().join('.');
+  const noon = (kyivDayStart() + 12 * 3600) * 1000;
+  const days = [ddmmyyyy(new Date(noon)), ddmmyyyy(new Date(noon + 86400000))];
+  const { snapshot, error } = await offlineRun((method, url) => {
+    if (method === 'POST') return reply(REAL_QUEUE_LIST);
+    return reply(url.endsWith('=4.2') ? days.map((date) => day(date, { '4.2': [outage('10:00', '12:00')] })) : []);
   });
-  return xml + '</row>';
-}
-
-const blank = () => Array(48).fill('');
-
-/** Marks the half-hour slots covering [from, to) in hours, e.g. off(marks, 8, 11.5). */
-function off(marks, from, to, mark = 'X') {
-  for (let slot = from * 2; slot < to * 2; slot++) marks[slot] = mark;
-  return marks;
-}
-
-/** A real zip, because the adapter reads the central directory rather than the local headers. */
-function buildXlsx(sheetXml) {
-  const name = Buffer.from('xl/worksheets/sheet1.xml');
-  const raw = Buffer.from(sheetXml);
-  const deflated = deflateRawSync(raw);
-  const checksum = crc32(raw);
-
-  const local = Buffer.alloc(30);
-  local.writeUInt32LE(0x04034b50, 0);
-  local.writeUInt16LE(20, 4);
-  local.writeUInt16LE(8, 8);
-  local.writeUInt32LE(checksum, 14);
-  local.writeUInt32LE(deflated.length, 18);
-  local.writeUInt32LE(raw.length, 22);
-  local.writeUInt16LE(name.length, 26);
-
-  const central = Buffer.alloc(46);
-  central.writeUInt32LE(0x02014b50, 0);
-  central.writeUInt16LE(20, 6);
-  central.writeUInt16LE(8, 10);
-  central.writeUInt32LE(checksum, 16);
-  central.writeUInt32LE(deflated.length, 20);
-  central.writeUInt32LE(raw.length, 24);
-  central.writeUInt16LE(name.length, 28);
-
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(1, 8);
-  end.writeUInt16LE(1, 10);
-  end.writeUInt32LE(central.length + name.length, 12);
-  end.writeUInt32LE(local.length + name.length + deflated.length, 16);
-
-  return Buffer.concat([local, name, deflated, central, name, end]);
-}
-
-const workbook = (rows) => buildXlsx(SHEET_HEAD + rows.join('') + '</sheetData></worksheet>');
-
-test('the Cyrillic Х is the same mark as the Latin X', () => {
-  // Indistinguishable on screen, and the sheet is filled in by hand — reading one as an outage and
-  // the other as an unknown symbol would split one queue's evening into two different answers.
-  const latin = parseDaySheet(workbook([queueRow(3, '1.1', off(blank(), 9, 10, 'X'))]));
-  const cyrillic = parseDaySheet(workbook([queueRow(3, '1.1', off(blank(), 9, 10, 'Х'))]));
-  assert.equal(latin['GPV1.1']['10'], 'no');
-  assert.deepEqual(cyrillic['GPV1.1'], latin['GPV1.1']);
+  assert.equal(error, undefined);
+  assert.deepEqual(validate(snapshot), []);
+  const published = Object.values(snapshot.fact.data);
+  assert.ok(published.length >= 1);
+  for (const byQueue of published) {
+    assert.deepEqual(Object.keys(byQueue), ['GPV4.2']);
+    assert.deepEqual(Object.values(byQueue['GPV4.2']), lightExcept({ 11: 'no', 12: 'no' }));
+  }
+  assert.equal(snapshot.fact.update, '19.11.2026 19:52');
 });
 
-test('a mark nobody has seen before is reported as possible, not as light', () => {
-  const parsed = parseDaySheet(workbook([queueRow(3, '2.1', off(blank(), 14, 15, '?'))]));
-  assert.equal(parsed['GPV2.1']['15'], 'maybe');
+test('a changed queue list stops the run before any черга is asked about', async () => {
+  const { error, requests } = await offlineRun(() => reply(REAL_QUEUE_LIST.slice(1)));
+  assert.match(error.message, /gpv-queue-list changed/);
+  assert.equal(requests.length, 1);
 });
 
-test('float noise in a numeric queue label still names its queue', () => {
-  // The label is a number in the sheet, so a writer is free to hand back 1.1000000000000001.
-  const parsed = parseDaySheet(workbook([queueRow(3, '1.1000000000000001', blank())]));
-  assert.deepEqual(Object.keys(parsed), ['GPV1.1']);
-});
+test('the queue list survives a dropped connection the way every GET does', async () => {
+  /** The list fails `failures` times — `fail()` decides how — and then answers. */
+  const flaky = (failures, fail) => {
+    let posts = 0;
+    return (method) => {
+      if (method !== 'POST') return reply([]);
+      return ++posts <= failures ? fail() : reply(REAL_QUEUE_LIST);
+    };
+  };
+  const dropped = () => { throw new TypeError('fetch failed'); };
 
-test('the edges of the day survive the column arithmetic', () => {
-  const parsed = parseDaySheet(workbook([
-    queueRow(3, '1.1', off(blank(), 0, 1)),
-    queueRow(4, '6.2', off(blank(), 23, 24))
-  ]));
-  assert.equal(parsed['GPV1.1']['1'], 'no');
-  assert.equal(parsed['GPV1.1']['2'], 'yes');
-  assert.equal(parsed['GPV6.2']['23'], 'yes');
-  assert.equal(parsed['GPV6.2']['24'], 'no');
-});
+  // One blip used to cost the whole run; now it costs a second.
+  for (const fail of [dropped, () => reply({ message: 'Bad Gateway' }, 502)]) {
+    const { error, requests } = await offlineRun(flaky(1, fail));
+    assert.equal(error, undefined);
+    assert.deepEqual(requests.slice(0, 2).map(({ method }) => method), ['POST', 'POST']);
+    assert.equal(requests.length, 14);
+    assert.ok(gaps(requests).every((gap) => gap >= 1000), String(gaps(requests)));
+  }
 
-test('a queue added below row 14 is picked up rather than dropped', () => {
-  // Rows 3-14 are the documented twelve; finding queues by the shape of their label means a
-  // thirteenth would reach the app instead of vanishing.
-  const parsed = parseDaySheet(workbook([queueRow(15, '7.1', off(blank(), 3, 4))]));
-  assert.equal(parsed['GPV7.1']['4'], 'no');
-});
-
-test('cells the writer omitted altogether default to light', () => {
-  const sparse = SHEET_HEAD +
-    '<row r="3" ><c r="A3" s="5" t="n"><v>1.1</v></c>' +
-    '<c r="C3" s="7" t="inlineStr"><is><t>X</t></is></c></row>' +
-    '</sheetData></worksheet>';
-  const parsed = parseDaySheet(buildXlsx(sparse));
-  assert.equal(parsed['GPV1.1']['1'], 'second'); // column C is 00:30-01:00
-  assert.equal(parsed['GPV1.1']['2'], 'yes');
-  assert.equal(Object.keys(parsed['GPV1.1']).length, 24);
-});
-
-/**
- * The listing markup below is verbatim from oe.if.ua on 2026-08-28 — both the row that carries a
- * workbook and the far commoner row that does not.
- */
-const REAL_ROW_WITH_FILE =
-  "<li class='schedule-archive-row'>\n" +
-  '<a class="schedule-archive-row__link" href="/uk/download_schedule_archive?filename=' +
-  'shutdowns_schedule_archive_20260701.xlsx"><span class=\'schedule-archive-row__date\'>' +
-  "01.07.2026</span>\n<span class='schedule-archive-row__label'>ГПВ</span>\n" +
-  "<span class='schedule-archive-row__size'>\n0.01\nМб\n</span>\n" +
-  "<span class='schedule-archive-row__download'>↓</span>\n</a></li>";
-
-const realEmptyRow = (date) =>
-  "<li class='schedule-archive-row schedule-archive-row--empty'>\n" +
-  `<span class='schedule-archive-row__date'>${date}</span>\n` +
-  "<span class='schedule-archive-row__status'>Відключень не було</span>\n</li>";
-
-test('a day that has a workbook is found by its filename', () => {
-  const listing = realEmptyRow('31.07.2026') + realEmptyRow('02.07.2026') + REAL_ROW_WITH_FILE;
-  assert.deepEqual(archiveDaysFromListing(listing, '2026-07'), ['20260701']);
-});
-
-test('a listing that silently fell back to the current month is discarded', () => {
-  // ?month= serves the current month for anything outside the window the site retains. Trusting it
-  // would file July's outage under December and show people a schedule for the wrong day.
-  const listing = realEmptyRow('31.07.2026') + REAL_ROW_WITH_FILE;
-  assert.deepEqual(archiveDaysFromListing(listing, '2025-12'), []);
-});
-
-test('a month with no outages at all yields no days rather than failing', () => {
-  // This is the whole of the archive on 2026-08-28, and it is a correct answer, not a fault: the
-  // region is published as seasonal, and stays that way even when tables come back: the archive
-  // is yesterday's, so `archiveOnly` holds it back until a day-ahead source exists.
-  const listing = realEmptyRow('27.08.2026') + realEmptyRow('26.08.2026');
-  assert.deepEqual(archiveDaysFromListing(listing, '2026-08'), []);
+  // Three in a row is an outage of their API, not a blip: the run fails before any GET.
+  const { error, requests } = await offlineRun(flaky(3, dropped));
+  assert.match(error.message, /fetch failed/);
+  assert.deepEqual(requests.map(({ method }) => method), ['POST', 'POST', 'POST']);
+  assert.deepEqual(gaps(requests), [1000, 2000]);
 });

@@ -2,9 +2,10 @@
  * `note` is rendered to the user in the picker INSTEAD of the per-status explanation, so it must
  * read as a fact about the operator, not as a implementation detail. Anything technical belongs in
  * a comment here. Sources, for the record: Харків/Запоріжжя/Черкаси come from the operators' own
- * Telegram channels, Тернопіль from api-poweron.toe.com.ua, Івано-Франківськ from the daily XLSX
- * archive. Кіровоград serves its schedule only over POST, which Cloudflare challenges; Херсон's
- * schedule page answers 200 with an empty body out of season.
+ * Telegram channels, Тернопіль from api-poweron.toe.com.ua, Івано-Франківськ from be-svitlo.oe.if.ua
+ * (the API behind the operator's svitlo.oe.if.ua), Львів from the schedule text at api.loe.lviv.ua.
+ * Кіровоград serves its schedule only over POST, which Cloudflare challenges; Херсон's schedule
+ * page answers 200 with an empty body out of season.
  *
  * Registry of every region the app can offer, and where its schedule comes from.
  *
@@ -37,6 +38,9 @@ export const REGIONS = [
 
   // --- seasonal: the API answers, but out of season it returns queue names with no hours,
   //     so the app must not offer it as a working region until schedules come back
+  // Only the 12 ГПВ підчерги (`/api/outage-queue/by-type/3`) carry hours, and they are the national
+  // 1.1–6.2. ГАВ and СГАВ (types 1 and 2) are live on/off tiles on the operator's page, not
+  // schedules, so they are not offered as queues (checked against their /js/app.js on 2026-10-01).
   // Checked 2026-09-13: while no queue schedule is published, people here are still switched off —
   // for the pre-winter repair campaign, street by street. Those lists go out daily and only as
   // photos in the operator's channel, so they are neither mirrored nor parsed. The picker renders
@@ -45,7 +49,10 @@ export const REGIONS = [
     note: 'графік публікують лише під час обмежень; планові ремонтні відключення за адресами — щодня в Telegram-каналі оператора @mk_energy_ua' },
 
   // --- planned: publishes a queue schedule, adapter still to write
-  { id: 'lviv',          title: 'Львівська область',   subtitle: 'область',          operator: 'ПрАТ «Львівобленерго»',        source: null, status: 'seasonal', probe: 'https://poweron.loe.lviv.ua/shedule-off' },
+  // Read from the text under their schedule picture (api.loe.lviv.ua, menu items 238 and 256). The
+  // probe it replaces watched /shedule-off, a client-side route of their React app: the server
+  // answers it with the same 1 195-byte empty shell as the home page, so it could never fire.
+  { id: 'lviv',          title: 'Львівська область',   subtitle: 'область',          operator: 'ПрАТ «Львівобленерго»',        source: 'lviv', status: 'seasonal' },
   { id: 'kirovohrad',    title: 'Кіровоградська область', subtitle: 'область',       operator: 'АТ «Кіровоградобленерго»',     source: null, status: 'seasonal', probe: 'https://kiroe.com.ua/energy'  },
   { id: 'zhytomyr',      title: 'Житомирська область', subtitle: 'область',          operator: 'АТ «Житомиробленерго»',        source: 'zhytomyr', status: 'seasonal', probe: 'https://www.ztoe.com.ua/' },
   { id: 'sumy',          title: 'Сумська область',     subtitle: 'область',          operator: 'АТ «Сумиобленерго»',           source: null, status: 'seasonal', probe: 'https://www.soe.com.ua/' },
@@ -54,14 +61,11 @@ export const REGIONS = [
   // --- blocked: the site 403s every automated request, browser headers included
   { id: 'vinnytsia',     title: 'Вінницька область',   subtitle: 'область',          operator: 'АТ «Вінницяобленерго»',                   source: null, status: 'blocked' },
   { id: 'volyn',         title: 'Волинська область',   subtitle: 'область',          operator: 'ПрАТ «Волиньобленерго»',                  source: null, status: 'blocked' },
-  // Their day-ahead table is at /uk/shutdowns_table, which their robots.txt disallows, and the
-  // dedicated schedule site is behind Cloudflare. What is permitted is the archive — yesterday's
-  // sheet. That is a real source, but it can never answer "when is my light going off today",
-  // so `archiveOnly` keeps the region from being offered as working on the strength of it.
-  // Lift the flag when the day-ahead Telegram adapter exists, or when the operator starts
-  // publishing the file on the day it applies — which is exactly what to ask them for.
-  { id: 'ivano-frankivsk', title: 'Івано-Франківська область', subtitle: 'область',  operator: 'АТ «Прикарпаттяобленерго»',               source: 'ivano-frankivsk', status: 'seasonal', archiveOnly: true,
-    note: 'оператор викладає графік лише постфактум, наступного дня — підключимо, щойно зʼявиться графік на день уперед' },
+  // Day-ahead from be-svitlo.oe.if.ua, the open API behind the operator's own svitlo.oe.if.ua —
+  // checked 2026-10-01: CloudFront, robots.txt `Allow: /`, no Cloudflare challenge any more.
+  // /uk/shutdowns_table on oe.if.ua stays untouched (its robots.txt disallows it). Out of season the
+  // API answers `[]`, so the region reports itself seasonal until today or tomorrow is published.
+  { id: 'ivano-frankivsk', title: 'Івано-Франківська область', subtitle: 'область',  operator: 'АТ «Прикарпаттяобленерго»',               source: 'ivano-frankivsk', status: 'seasonal' },
   { id: 'ternopil',      title: 'Тернопільська область', subtitle: 'область',        operator: 'АТ «Тернопільобленерго»',                 source: 'ternopil', status: 'seasonal' },
   { id: 'kharkiv',       title: 'Харківська область',  subtitle: 'область',          operator: 'АТ «Харківобленерго»',                    source: 'kharkiv', status: 'seasonal' },
   { id: 'chernivtsi',    title: 'Чернівецька область', subtitle: 'область',          operator: 'АТ «Чернівціобленерго»',                  source: null, status: 'blocked' },
