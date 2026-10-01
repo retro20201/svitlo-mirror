@@ -1,10 +1,12 @@
 {
  "dnipro": {
   "shape": "nested",
-  "settlements": 1149,
-  "streets": 18273,
-  "built": 18273,
-  "addresses": 472195
+  "settlements": 1153,
+  "streets": 18304,
+  "built": 18304,
+  "addresses": 472195,
+  "lines": true,
+  "multiLine": 30190
  },
  "khmelnytskyi": {
   "shape": "nested",
