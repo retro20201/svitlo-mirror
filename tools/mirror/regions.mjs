@@ -62,8 +62,9 @@ export const REGIONS = [
   { id: 'sumy',          title: 'Сумська область',     subtitle: 'область',          operator: 'АТ «Сумиобленерго»',           source: 'sumy', status: 'seasonal' },
   { id: 'rivne',         title: 'Рівненська область',  subtitle: 'область',          operator: 'АТ «Рівнеобленерго»',          source: 'rivne', status: 'seasonal', probe: 'https://www.ez.rv.ua/grafiky-pogodynnyh-vidklyuchen/' },
 
-  // --- blocked: the site 403s every automated request, browser headers included
-  { id: 'vinnytsia',     title: 'Вінницька область',   subtitle: 'область',          operator: 'АТ «Вінницяобленерго»',                   source: null, status: 'blocked' },
+  // The «403 to every automated request» was Cloudflare refusing non-Ukrainian addresses: from the
+  // Kyiv server the operator's address search answers. One house per підчерга (sources/vinnytsia.mjs).
+  { id: 'vinnytsia',     title: 'Вінницька область',   subtitle: 'область',          operator: 'АТ «Вінницяобленерго»',                   source: 'vinnytsia', status: 'seasonal' },
   // energy.volyn.ua answers only Ukrainian IPs, but its schedule is an iframe of the operator's
   // «poweron» service, whose API hands out the day's picture — read by colour, see sources/volyn.mjs.
   { id: 'volyn',         title: 'Волинська область',   subtitle: 'область',          operator: 'ПрАТ «Волиньобленерго»',                  source: 'volyn', status: 'seasonal' },

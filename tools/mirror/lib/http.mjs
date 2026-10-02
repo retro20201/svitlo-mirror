@@ -30,6 +30,14 @@ export async function postForm(url, fields, options = {}) {
 }
 
 /**
+ * Anything else an adapter needs from a response — its cookies, a multipart POST — with the same
+ * retry and timeout rules. `read(response)` returns what the caller keeps.
+ */
+export async function request(url, options) {
+  return get(url, options);
+}
+
+/**
  * `read` consumes the body while the timer is still armed. Clearing the timer once the headers
  * arrived left a body that stalls bounded only by undici's five-minute default — one slow operator
  * could eat the Kyiv server's whole cycle, and with it every other region's update.
