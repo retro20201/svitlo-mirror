@@ -1,5 +1,5 @@
 // HTTP headers are Latin-1 only, so the app's Ukrainian name stays out of the UA string.
-const USER_AGENT = 'svitlo-mirror/1.0 (+https://koly-svitlo.web.app; outage schedule mirror)';
+export const USER_AGENT = 'svitlo-mirror/1.0 (+https://koly-svitlo.web.app; outage schedule mirror)';
 
 /** Identifies itself honestly and retries only on transport errors, never on a 4xx. */
 export async function getJSON(url, { retries = 2, timeoutMs = 20000 } = {}) {

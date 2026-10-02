@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { parsePosts, parseGpvPost, scheduleFromPosts } from './lib/telegram.mjs';
 import { kyivDayStart } from './lib/canonical.mjs';
 
@@ -758,7 +759,7 @@ test('queue keys are reported so a region can be named out of season', () => {
 });
 
 test('nothing to read is an empty schedule, not a failure', () => {
-  assert.deepEqual(scheduleFromPosts([]), { fact: {}, queues: [], update: null });
+  assert.deepEqual(scheduleFromPosts([]), { fact: {}, halves: {}, queues: [], update: null });
 });
 
 test('an address list carrying queue labels is not a schedule', () => {
@@ -869,4 +870,11 @@ test('a Кропивницький revision restating the day takes over from wh
   assert.deepEqual(outageHours(day['GPV1.1']), {});
   assert.deepEqual(outageHours(day['GPV4.2']), { 20: 'no' });
   assert.deepEqual(outageHours(day['GPV2.2']), { 21: 'no', 22: 'no' });
+});
+
+test('a stacked window written "з 22:30 - 24:00" is not lost (Запоріжжя #3089, 5.2)', () => {
+  const posts = JSON.parse(readFileSync(new URL('./zaporizhzhia.fixture-channel-2026-04.json', import.meta.url), 'utf8'));
+  const version = parseGpvPost(posts.find((post) => post.id === 3089));
+  const off = version.halves['GPV5.2'].flatMap((state, slot) => (state === 'off' ? [slot] : []));
+  assert.deepEqual(off, [18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 45, 46, 47]);
 });

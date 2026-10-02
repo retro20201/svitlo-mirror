@@ -222,6 +222,7 @@ export function mergeVersions(list, { since = kyivDayStart() - DAY_SECONDS } = {
   }
 
   const fact = {};
+  const halves = {};
   const queues = new Set();
   let update = null;
   for (const epoch of [...versions.keys()].sort((a, b) => a - b)) {
@@ -257,13 +258,42 @@ export function mergeVersions(list, { since = kyivDayStart() - DAY_SECONDS } = {
     }
     if (!day) continue;
     fact[epoch] = hoursOf(day);
+    halves[epoch] = day;
     for (const key of Object.keys(day)) queues.add(key);
   }
   return {
     fact,
+    // The same days as half-hours, for an adapter that has two sources to combine (Запоріжжя).
+    halves,
     queues: [...queues].sort(),
     update: update && (update.at === Date.parse(update.postedAt) ? update.postedAt : new Date(update.at).toISOString())
   };
+}
+
+const RANK = { on: 0, possible: 1, off: 2 };
+
+/**
+ * Two readings of the same days, as half-hours, combined slot by slot: off over possible over on.
+ * For an operator with two outlets that each miss revisions the other carries, a half-hour either
+ * calls dark is dark — the wrong way to be wrong costs a fridge, the other a power bank.
+ */
+export function unionHalves(...sources) {
+  const days = {};
+  for (const source of sources) {
+    for (const [epoch, queues] of Object.entries(source ?? {})) {
+      days[epoch] ??= {};
+      for (const [key, slots] of Object.entries(queues)) {
+        const into = (days[epoch][key] ??= Array(48).fill('on'));
+        slots.forEach((state, slot) => { if (RANK[state] > RANK[into[slot]]) into[slot] = state; });
+      }
+    }
+  }
+  return days;
+}
+
+/** Days of half-hours → canonical `fact`. */
+export function factFromHalves(days) {
+  return Object.fromEntries(Object.entries(days).map(([epoch, queues]) => [epoch, hoursOf(queues)]));
 }
 
 /** Half-hour slots → canonical hour states. */
@@ -396,7 +426,10 @@ function normalise(text) {
     // "1.2 07:00:14:00" — the dash between two times typed as a colon.
     .replace(/(\d{1,2}:\d{2}):(\d{1,2}:\d{2})/g, '$1-$2')
     // "з 09:00 до 14:00" — the stacked layout spells a window out in words.
-    .replace(/(?<![\p{L}])з\s+(\d{1,2}:\d{2})\s+(?:до|по)\s+(\d{1,2}:\d{2})/gu, '$1-$2');
+    .replace(/(?<![\p{L}])з\s+(\d{1,2}:\d{2})\s+(?:до|по)\s+(\d{1,2}:\d{2})/gu, '$1-$2')
+    // "з 22:30 - 24:00" — the same with a dash (Запоріжжя #3089): left with its "з", a stacked
+    // line is no bare window, is not folded onto its row, and the window was lost.
+    .replace(/(?<![\p{L}])з\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/gu, '$1-$2');
 }
 
 /**
