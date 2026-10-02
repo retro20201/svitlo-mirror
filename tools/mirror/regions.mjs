@@ -4,8 +4,8 @@
  * a comment here. Sources, for the record: Харків/Запоріжжя/Черкаси/Кіровоград come from the operators'
  * own Telegram channels, Тернопіль from api-poweron.toe.com.ua, Івано-Франківськ from be-svitlo.oe.if.ua
  * (the API behind the operator's svitlo.oe.if.ua), Львів from the schedule text at api.loe.lviv.ua,
- * Волинь from the picture its api-voe-poweron.inneti.net publishes, Суми and Закарпаття from
- * the pictures they post to Telegram.
+ * Волинь from the picture its api-voe-poweron.inneti.net publishes, Суми, Закарпаття and
+ * Чернігів from the pictures (and Чернігів's text amendments) they post to Telegram.
  * Херсон's schedule page answers 200 with an empty body, and has since December 2023.
  *
  * Registry of every region the app can offer, and where its schedule comes from.
@@ -75,7 +75,9 @@ export const REGIONS = [
   { id: 'ternopil',      title: 'Тернопільська область', subtitle: 'область',        operator: 'АТ «Тернопільобленерго»',                 source: 'ternopil', status: 'seasonal' },
   { id: 'kharkiv',       title: 'Харківська область',  subtitle: 'область',          operator: 'АТ «Харківобленерго»',                    source: 'kharkiv', status: 'seasonal' },
   { id: 'chernivtsi',    title: 'Чернівецька область', subtitle: 'область',          operator: 'АТ «Чернівціобленерго»',                  source: null, status: 'blocked' },
-  { id: 'chernihiv',     title: 'Чернігівська область', subtitle: 'область',         operator: 'АТ «Чернігівобленерго»',                  source: null, status: 'blocked' },
+  // The tables and free-text amendments the operator posts to @chernigivoblenergo; its website
+  // bans an address for fetching robots.txt and is not touched.
+  { id: 'chernihiv',     title: 'Чернігівська область', subtitle: 'область',         operator: 'АТ «Чернігівобленерго»',                  source: 'chernihiv', status: 'seasonal' },
   // The grid the operator posts to @zakarpatenergyofficial, read by colour; the caption dates it.
   { id: 'zakarpattia',   title: 'Закарпатська область', subtitle: 'область',         operator: 'АТ «Закарпаттяобленерго»',                source: 'zakarpattia', status: 'seasonal' },
 

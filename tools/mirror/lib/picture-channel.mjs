@@ -17,7 +17,7 @@ const DAY_SECONDS = 86400;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function pictureChannelSnapshot(region, {
-  channel, source, dayOf, read, now = new Date(), spacing = 500,
+  channel, source, dayOf, read, amendment = () => null, now = new Date(), spacing = 500,
   fetchPage = fetchChannelPage, fetchImage = getBytes
 }) {
   const since = kyivDayStart(now) - DAY_SECONDS;
@@ -33,8 +33,23 @@ export async function pictureChannelSnapshot(region, {
       continue;
     }
     await pause(spacing);
-    const result = read(await fetchImage(post.photos[0]));
-    if (result.error) console.warn(`[${source}] post ${post.id} did not read (${result.error}); publishing the picture`);
+    // A reader that throws (a picture in a format it does not handle) has read nothing; it must
+    // not take the whole region down with it.
+    let result;
+    try {
+      result = read(await fetchImage(post.photos[0]));
+    } catch (error) {
+      result = { error: error.message };
+    }
+    // A picture that is no table at all (a stock banner, an infographic) is never published in a
+    // schedule's place; its caption may still amend the day.
+    if (result.notTable) {
+      const delta = amendment(post, day);
+      if (!delta) continue;
+      result = { delta };
+    } else if (result.error) {
+      console.warn(`[${source}] post ${post.id} did not read (${result.error}); publishing the picture`);
+    }
     if (!byDay.has(day.epoch)) byDay.set(day.epoch, []);
     byDay.get(day.epoch).push({ post, day, result });
   }
@@ -42,18 +57,23 @@ export async function pictureChannelSnapshot(region, {
   const versions = [];
   const sheets = [];
   for (const [epoch, list] of byDay) {
-    const newest = list.at(-1);
+    const tables = list.filter(({ result }) => !result.delta);
+    const newest = tables.at(-1);
+    if (!newest) continue;
     if (newest.result.error) {
       sheets.push({
         dayStart: epoch,
         imageUrl: newest.post.photos[0],
         sourceUrl: `https://t.me/${channel}/${newest.post.id}`,
         caption: newest.post.text.split('\n').find((line) => line.trim()) ?? null,
-        isRevision: list.length > 1
+        isRevision: tables.length > 1
       });
       continue;
     }
-    for (const { day, result } of list) if (!result.error) versions.push({ ...day, halves: result.halves });
+    for (const { day, result } of list) {
+      if (result.delta) versions.push({ ...day, delta: result.delta });
+      else if (!result.error) versions.push({ ...day, halves: result.halves });
+    }
   }
   const { fact, update } = mergeVersions(versions, { since });
 

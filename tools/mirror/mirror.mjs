@@ -40,7 +40,8 @@ const ADAPTERS = {
   kirovohrad: () => import('./sources/kirovohrad.mjs'),
   volyn: () => import('./sources/volyn.mjs'),
   sumy: () => import('./sources/sumy.mjs'),
-  zakarpattia: () => import('./sources/zakarpattia.mjs')
+  zakarpattia: () => import('./sources/zakarpattia.mjs'),
+  chernihiv: () => import('./sources/chernihiv.mjs')
 };
 
 async function readExisting(file) {

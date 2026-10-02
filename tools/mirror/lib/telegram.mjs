@@ -209,8 +209,8 @@ export function scheduleFromPosts(posts, { since = kyivDayStart() - DAY_SECONDS 
 }
 
 /**
- * Versions of days → canonical `fact`. A version is `{ id, postedAt, at, epoch, halves }` (a table)
- * or `{ …, withdrawn: { until } }`; `at` orders them, `postedAt` is when each took effect. Shared
+ * Versions of days → canonical `fact`. A version is `{ id, postedAt, at, epoch, halves }` (a table),
+ * `{ …, withdrawn: { until } }`, or `{ …, delta: [{ key, from, to, state }] }` (an amendment); `at` orders them, `postedAt` is when each took effect. Shared
  * by every adapter that reads a channel, whether the table came as text or as a picture.
  */
 export function mergeVersions(list, { since = kyivDayStart() - DAY_SECONDS } = {}) {
@@ -227,8 +227,20 @@ export function mergeVersions(list, { since = kyivDayStart() - DAY_SECONDS } = {
   for (const epoch of [...versions.keys()].sort((a, b) => a - b)) {
     let day = null;
     for (const version of versions.get(epoch).sort((a, b) => a.at - b.at || a.id - b.id)) {
-      // A withdrawal with nothing published before it has nothing to take back.
-      if (version.withdrawn && !day) continue;
+      // A withdrawal or an amendment with nothing published before it has no table to change.
+      if ((version.withdrawn || version.delta) && !day) continue;
+      if (version.delta) {
+        // A free-text amendment (Чернігів): only the half-hours it names change; off outranks
+        // possible, and possible never lightens an off.
+        for (const { key, from, to, state } of version.delta) {
+          day[key] ??= Array(48).fill('on');
+          for (let slot = from; slot < to; slot++) {
+            if (state === 'off' || day[key][slot] === 'on') day[key][slot] = state;
+          }
+        }
+        if (!update || version.at > update.at) update = version;
+        continue;
+      }
       // Ordered by when the version was written, but in force from when the post went out: an
       // edit restates the post, and the post has been the operator's word since then.
       const from = day ? slotWithin(epoch, Date.parse(version.postedAt)) : 0;

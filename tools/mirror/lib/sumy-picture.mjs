@@ -173,7 +173,10 @@ export function inkGrid(lm, bg, x0, y0, x1, y1) {
  * "HH:MM - HH:MM" (or "HH:MM—HH:MM") → four two-digit groups, cut at the two colons and the dash.
  * Returns the groups as column ranges of the line, or a reason.
  */
-export function splitTimeLine(grid) {
+/**
+ * `start` skips anything left of the time itself — Чернігів puts a ⚡ before each window.
+ */
+export function splitTimeLine(grid, { start = 0, faintTop = false } = {}) {
   const { w, h, v } = grid;
   const on = (x, y) => v(x, y) > 0.4;
   // The text's own vertical extent, so heights below are fractions of the digits, not the band.
@@ -195,7 +198,14 @@ export function splitTimeLine(grid) {
     return r;
   };
   const cols = Array.from({ length: w }, (_, x) => profile(x));
-  let first = 0; while (first < w && !Object.values(cols[first]).some(Boolean)) first++;
+  // Чернігів's 0 has a top stroke thin enough to anti-alias below the ink threshold, which leaves
+  // its inside looking like a colon; a colon's dots never reach the top, faint ink or not.
+  if (faintTop) {
+    for (let x = 0; x < w; x++) {
+      for (let y = top; y < top + Math.max(2, Math.round(H * 0.12)); y++) if (v(x, y) > 0.15) { cols[x].top = true; break; }
+    }
+  }
+  let first = start; while (first < w && !Object.values(cols[first]).some(Boolean)) first++;
   let last = w - 1; while (last > 0 && !Object.values(cols[last]).some(Boolean)) last--;
   // Dash: the widest run of columns inked only around mid-height, near the middle of the line —
   // a 4's crossbar or a 7's stem can look mid-only for a column or two, never there and as wide.
