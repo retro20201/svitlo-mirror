@@ -29,9 +29,12 @@ const MONTHS = new Map([
 
 /** `DD-MM-YYYY` in Kyiv for `offset` days after `now` — the only date format the endpoint takes. */
 export function kyivDate(now, offset = 0) {
+  // Noon of the wanted day in Kyiv, counted from today's Kyiv midnight: `now + 24 h` at 23:30 on
+  // the eve of the 23-hour March day is already the day after tomorrow.
+  const noon = (kyivDayStart(now) + offset * 86400 + 12 * 3600) * 1000;
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Kyiv', year: 'numeric', month: '2-digit', day: '2-digit'
-  }).format(new Date(now.getTime() + offset * 86400000));
+  }).format(new Date(noon));
   const [year, month, day] = parts.split('-');
   return `${day}-${month}-${year}`;
 }

@@ -382,7 +382,7 @@ export async function gpvSnapshot({ region, channel, source }) {
 }
 
 /** Index of the `</div>` that closes the element opened just before `from`. */
-function closingDiv(html, from) {
+export function closingDiv(html, from) {
   const tag = /<div\b|<\/div\b/g;
   tag.lastIndex = from;
   let depth = 1;

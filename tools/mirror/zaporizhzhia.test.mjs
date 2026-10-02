@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parseListing, fetchRegion } from './sources/zaporizhzhia.mjs';
-import { scheduleFromPosts } from './lib/telegram.mjs';
+import { scheduleFromPosts, parseGpvPost } from './lib/telegram.mjs';
 import { kyivDayStart, validate } from './lib/canonical.mjs';
 
 // www.zoe.com.ua/outage/ (pages 7–8 as saved from the Kyiv server on 2026-10-01, posts only) and
@@ -105,4 +105,35 @@ test('out of season the site\'s daily «не заплановані» publish no
   }));
   assert.deepEqual(snapshot.fact.data, []);
   assert.equal(Object.keys(snapshot.preset.sch_names).length, 12);
+});
+
+test('a table pasted as <div> rows is read to its last row (3 квітня, post 387542)', () => {
+  const one = SITE.match(/<article id="post-387542"[\s\S]*?<\/article>/)[0];
+  const [post] = parseListing(one, new Date('2026-04-03T04:00:00Z'));
+  const version = parseGpvPost(post);
+  const dark = Object.entries(version.halves).filter(([, slots]) => slots.includes('off')).map(([key]) => key);
+  assert.deepEqual(dark, ['GPV1.1', 'GPV2.1', 'GPV3.2', 'GPV6.2']);
+});
+
+test('a first table with no time is not dated days back by an older post above it', () => {
+  const listing = [
+    article(2, '5 КВІТНЯ ПО ЗАПОРІЗЬКІЙ ОБЛАСТІ ДІЯТИМУТЬ ГПВ'),
+    article(1, 'ГРАФІКИ ПОГОДИННИХ ВІДКЛЮЧЕНЬ НА 2 КВІТНЯ НЕ ЗАПЛАНОВАНІ', '<p>2 квітня введення ГПВ не заплановано</p>')
+  ].join('\n');
+  const posts = parseListing(listing, new Date('2026-04-05T05:00:00Z'));
+  const first = posts.find((post) => post.id === 2);
+  assert.equal(at(first), '04/04, 12:00');
+  assert.ok(parseGpvPost(first)?.halves, 'the table was refused as implausibly dated');
+});
+
+test('when the site does not answer, what phones have stands in for it — no flip back to light', async () => {
+  const now = new Date('2026-04-10T19:30:00Z');
+  const channel = async () => CHANNEL.filter((post) => Date.parse(post.postedAt) <= now);
+  const { value: both } = await quiet(() => fetchRegion(REGION, now, { fetchSite: async () => SITE, fetchTelegram: channel }));
+  const { value: next, seen } = await quiet(() => fetchRegion({ ...REGION, previous: both }, now, {
+    fetchSite: async () => { throw new Error('connect ETIMEDOUT'); },
+    fetchTelegram: channel
+  }));
+  assert.deepEqual(next.fact.data, both.fact.data);
+  assert.match(seen.join('\n'), /site: connect ETIMEDOUT/);
 });

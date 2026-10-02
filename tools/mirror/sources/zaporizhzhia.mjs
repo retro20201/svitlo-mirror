@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import {
-  fetchChannel, scheduleFromPosts, parseGpvPost, dayOfPost, mergeVersions, unionHalves, factFromHalves
+  fetchChannel, scheduleFromPosts, parseGpvPost, dayOfPost, mergeVersions, unionHalves, factFromHalves, closingDiv
 } from '../lib/telegram.mjs';
 import { getTextTrusting } from '../lib/https-ca.mjs';
-import { buildSnapshot, kyivDayStart, queueNames, NATIONAL_QUEUES } from '../lib/canonical.mjs';
+import { buildSnapshot, halvesFromHours, kyivDayStart, queueNames, NATIONAL_QUEUES } from '../lib/canonical.mjs';
 
 /**
  * АТ «Запоріжжяобленерго» — ГПВ tables from two of their own outlets, combined.
@@ -40,7 +40,8 @@ const STAMP = /\(\s*(?:оновлено\s*(?:об?\s*)?)?(\d{1,2})[:.\-](\d{2})\
 
 function plain(fragment) {
   return fragment
-    .replace(/<br\s*\/?>|<\/p>/gi, '\n')
+    // Rows pasted from Facebook come as <div dir="auto">1.1: …</div>, one per line.
+    .replace(/<br\s*\/?>|<\/p>|<\/div>|<div[^>]*>|<\/li>/gi, '\n')
     .replace(/<[^>]+>/g, '')
     .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
     .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)))
@@ -67,7 +68,11 @@ export function parseListing(html, now = new Date()) {
   const items = [];
   for (const [, id, body] of articles) {
     const title = plain(/<h2[^>]*>([\s\S]*?)<\/h2>/.exec(body)?.[1] ?? '');
-    const content = plain(/<div class="content">([\s\S]*?)<\/div>/.exec(body)?.[1] ?? '');
+    // The body up to the </div> that closes it, not the first one inside it: a table pasted as
+    // <div> rows ended at its first row, and every subqueue after it read as light.
+    const open = /<div class="content">/.exec(body);
+    const end = open ? closingDiv(body, open.index + open[0].length) : -1;
+    const content = open ? plain(body.slice(open.index + open[0].length, end === -1 ? undefined : end)) : '';
     const stamp = STAMP.exec(title);
     // The stamp is taken out before parsing, so "(оновлено о 20:55)" is not read again as an
     // in-place edit of whatever day it happens to fall on.
@@ -92,7 +97,10 @@ export function parseListing(html, now = new Date()) {
   const posts = [];
   let previous = null;
   for (const item of items.reverse()) {
-    let at = item.at ?? (previous === null ? (item.subject.epoch - DAY_SECONDS / 2) * 1000 : previous + 1000);
+    // A post with no time is placed no earlier than noon the day before its subject: chained only
+    // from the post before it, a first table could inherit a time days old and be refused as
+    // implausibly far from the day it names.
+    let at = item.at ?? Math.max(previous === null ? -Infinity : previous + 1000, (item.subject.epoch - DAY_SECONDS / 2) * 1000);
     if (previous !== null && at <= previous) at = previous + 1000;
     previous = at;
     posts.push({ id: item.id, postedAt: new Date(at).toISOString(), text: item.text });
@@ -119,6 +127,18 @@ export async function fetchRegion(region, now = new Date(), {
     site.status === 'fulfilled' ? mergeVersions(site.value.map(parseGpvPost).filter(Boolean), { since }) : null,
     channel.status === 'fulfilled' ? scheduleFromPosts(channel.value, { since }) : null
   ].filter(Boolean);
+  // Without the site this cycle, what phones already have stands in for it. Publishing the channel
+  // alone turned every hour only the site called dark back to light for one cycle and dark again
+  // the next — a wake-up for the whole oblast each way, and «світло є» in between. The cost is that
+  // a dark hour the channel later cancels stays dark until the site answers or the day is over.
+  if (site.status === 'rejected' && region.previous?.fact?.data && !Array.isArray(region.previous.fact.data)) {
+    const kept = {};
+    for (const [epoch, queues] of Object.entries(region.previous.fact.data)) {
+      if (Number(epoch) < since) continue;
+      kept[epoch] = Object.fromEntries(Object.entries(queues).map(([key, hours]) => [key, halvesFromHours(hours)]));
+    }
+    readings.push({ halves: kept, queues: Object.keys(Object.values(kept)[0] ?? {}), update: region.previous.fact.update ?? null });
+  }
 
   const halves = unionHalves(...readings.map((reading) => reading.halves));
   const seen = new Set(readings.flatMap((reading) => reading.queues));

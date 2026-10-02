@@ -71,10 +71,21 @@ export function dayOfLabel(label, now = new Date()) {
   return kyivDayStart(date);
 }
 
-/** One hour cell → its two half-hours. A segment counts for a half it covers by more than 1 %. */
-function halvesOfCell(cell, warn) {
+/**
+ * One hour cell → its two half-hours. A segment counts for a half it covers by more than 1 %.
+ *
+ * A cell is read only in the shape the page draws: an object whose `segments` is a list. Anything
+ * else fails the region rather than reading as an hour of light. And a cell whose own class says
+ * something other than «no_disconnection» while its segments show nothing is not taken as light
+ * either — the two disagreeing is an unseen in-season shape, and "maybe" is the safe reading.
+ */
+function halvesOfCell(cell, label, warn) {
+  if (!cell || typeof cell !== 'object' || !Array.isArray(cell.segments)) {
+    throw new Error(`unfamiliar cell for ${label}: ${JSON.stringify(cell)?.slice(0, 80)}`);
+  }
+  if (cell.hour !== undefined && cell.hour !== label) throw new Error(`cell ${cell.hour} where ${label} was due`);
   const halves = ['on', 'on'];
-  for (const segment of cell?.segments ?? []) {
+  for (const segment of cell.segments) {
     const start = Number(segment?.start);
     const size = Number(segment?.size);
     if (!Number.isFinite(start) || !Number.isFinite(size) || start < 0 || size <= 0 || start + size > 100.5) {
@@ -94,7 +105,17 @@ function halvesOfCell(cell, warn) {
       if (overlap > 1 && RANK[state] > RANK[halves[half]]) halves[half] = state;
     });
   }
+  if (cell.class !== undefined && cell.class !== 'no_disconnection' && halves.every((state) => state === 'on')) {
+    warn(`${label}: class ${cell.class} with no outage drawn`);
+    return ['possible', 'possible'];
+  }
   return halves;
+}
+
+/** Any segment that is not light, anywhere in a table. */
+function drawsOutage(table) {
+  return (table.rows ?? []).some((row) => (row?.cells ?? []).some((cell) =>
+    (cell?.segments ?? []).some((segment) => !LIGHT.has(segment?.type))));
 }
 
 /**
@@ -110,8 +131,13 @@ export function parseAnswer(answer, expectedQueue, now = new Date(), warn = () =
   if (tables.length === 0) return { skip: 'no table' };
   if (tables.length > 1) return { skip: `${tables.length} tables` };
   const table = tables[0];
-  if (table.empty) return { skip: 'no outages listed' };
   const listed = table.listnum === null || table.listnum === undefined ? null : String(table.listnum).trim();
+  if (table.empty) {
+    // «Активних відключень не знайдено» — no *active* outages. Trusted only when the rows agree.
+    if (drawsOutage(table)) throw new Error('an answer marked empty draws outages');
+    if (listed !== null && listed !== expectedQueue) return { skip: `the site puts this house in черга ${listed}` };
+    return { skip: 'no outages listed' };
+  }
   if (listed !== expectedQueue) return { skip: `the site puts this house in черга ${listed}` };
   if (JSON.stringify(table.header) !== JSON.stringify(HEADER)) throw new Error('unfamiliar table header');
 
@@ -122,7 +148,7 @@ export function parseAnswer(answer, expectedQueue, now = new Date(), warn = () =
     if (epoch === null) throw new Error(`unfamiliar day label ${row?.label}`);
     if (!Array.isArray(row.cells) || row.cells.length !== 24) throw new Error(`${row.label}: ${row.cells?.length} hours`);
     if (epoch < today) continue;
-    days[epoch] = row.cells.flatMap((cell) => halvesOfCell(cell, warn));
+    days[epoch] = row.cells.flatMap((cell, hour) => halvesOfCell(cell, HEADER[hour + 1], warn));
   }
   return { days };
 }
@@ -136,7 +162,7 @@ function cookieHeader(response) {
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export async function fetchRegion(region, now = new Date()) {
+export async function fetchRegion(region, now = new Date(), { wait = pause } = {}) {
   // The form carries a CSRF token tied to the session cookie the page sets.
   const session = await request(`${BASE}/`, {
     read: async (response) => ({ html: await response.text(), cookie: cookieHeader(response) })
@@ -145,7 +171,7 @@ export async function fetchRegion(region, now = new Date()) {
   if (!csrf) throw new Error('no csrf token on the search page');
 
   const ask = async (home) => {
-    await pause(SPACING_MS);
+    await wait(SPACING_MS);
     const form = new FormData();
     for (const [key, value] of Object.entries({
       csrf, selected_eic: '', website: '', type: 'address', value: home.houseId,
@@ -162,22 +188,28 @@ export async function fetchRegion(region, now = new Date()) {
   };
 
   const halvesByDay = {};
+  const elsewhere = [];
   for (const [queue, homes] of Object.entries(HOUSES)) {
     let parsed;
     for (const home of homes) {
       parsed = parseAnswer(await ask(home), queue, now, (message) => console.warn(`[vinnytsia] ${queue}: ${message}`));
       // Only a house the site places elsewhere is worth a second one; "no outages" is an answer.
-      if (!parsed.skip || parsed.skip === 'no outages listed') break;
+      if (!parsed.skip?.startsWith('the site puts')) break;
       console.warn(`[vinnytsia] ${queue}: ${home.street} ${home.house} — ${parsed.skip}`);
     }
-    if (parsed.skip) {
-      if (parsed.skip !== 'no outages listed') console.warn(`[vinnytsia] ${queue}: not published`);
-      continue;
-    }
+    if (parsed.skip === 'no outages listed') continue;
+    if (parsed.skip?.startsWith('the site puts')) { elsewhere.push(queue); continue; }
+    // No table, several, several addresses: a shape the site has not given before. One run of it
+    // must not publish a day with a hole in it — that wakes every phone twice and leaves the
+    // missing queue's alerts disarmed — so the region fails and keeps its last good copy.
+    if (parsed.skip) throw new Error(`${queue}: ${parsed.skip}`);
     for (const [epoch, halves] of Object.entries(parsed.days)) {
       (halvesByDay[epoch] ??= {})[`GPV${queue}`] = halves;
     }
   }
+  // Every house filed under some other черга is the site renumbering, not twelve coincidences.
+  if (elsewhere.length === Object.keys(HOUSES).length) throw new Error('every house is in an unexpected черга');
+  if (elsewhere.length) console.warn(`[vinnytsia] not published, house in another черга: ${elsewhere.join(', ')}`);
 
   const fact = {};
   for (const [epoch, queues] of Object.entries(halvesByDay)) {

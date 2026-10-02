@@ -135,6 +135,25 @@ export function kyivDayStart(date = new Date()) {
 }
 
 /**
+ * Kyiv midnight of the day after `date`'s. Not `date + 24 h`: on the evening before the 23-hour
+ * day in March that lands on the day after tomorrow, and in October it can land on today.
+ */
+export function kyivTomorrowStart(date = new Date()) {
+  return kyivDayStart(new Date((kyivDayStart(date) + 36 * 3600) * 1000));
+}
+
+/** Canonical hour states → half-hours, never lighter than the hour was (`no` → both off). */
+const HALVES_OF = {
+  yes: ['on', 'on'], no: ['off', 'off'], maybe: ['possible', 'possible'],
+  first: ['off', 'on'], second: ['on', 'off'], mfirst: ['possible', 'on'], msecond: ['on', 'possible']
+};
+export function halvesFromHours(hours) {
+  const slots = [];
+  for (let hour = 1; hour <= 24; hour++) slots.push(...(HALVES_OF[hours?.[String(hour)]] ?? ['off', 'off']));
+  return slots;
+}
+
+/**
  * True when the snapshot actually carries a schedule (a weekly plan or at least one published
  * day). Its absence is NOT a fault: outside the outage season operators publish nothing, and
  * "вимкнень не заплановано" is the correct thing for the app to say. Kept separate from

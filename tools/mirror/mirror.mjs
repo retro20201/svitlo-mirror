@@ -111,7 +111,10 @@ async function main() {
     try {
       if (Date.now() - startedAt > CYCLE_BUDGET_MS) throw new Deadline('cycle budget spent; not started');
       const { fetchRegion } = await (ADAPTERS[region.source]());
-      const snapshot = await withDeadline(fetchRegion(region), REGION_DEADLINE_MS, region.id);
+      // What phones have now, for an adapter that must not drop a day just because one of its
+      // requests failed this time (Чернівці's tomorrow, Запоріжжя's site).
+      const served = await readExisting(file);
+      const snapshot = await withDeadline(fetchRegion({ ...region, previous: served }), REGION_DEADLINE_MS, region.id);
 
       const problems = validate(snapshot);
       if (problems.length) throw new Error(problems.join('; '));

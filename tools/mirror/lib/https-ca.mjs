@@ -17,7 +17,20 @@ export async function getTextTrusting(url, { intermediate, timeoutMs = 20000, re
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await once(url, ca, timeoutMs, maxBytes);
+      // A redirect within the same site (a renamed page, a trailing slash) is followed, twice at
+      // most; one to another host is refused, since the CA was supplied for this one.
+      let target = new URL(url);
+      for (let hop = 0; ; hop++) {
+        const answer = await once(target.href, ca, timeoutMs, maxBytes);
+        if (answer.location === undefined) return answer.body;
+        const next = new URL(answer.location, target);
+        if (hop >= 2 || next.host !== target.host || next.protocol !== 'https:') {
+          const error = new Error(`redirected to ${next.href}`);
+          error.retry = false;
+          throw error;
+        }
+        target = next;
+      }
     } catch (error) {
       lastError = error;
       if (error.retry === false) break;
@@ -38,6 +51,11 @@ function once(url, ca, timeoutMs, maxBytes) {
       ca,
       headers: { 'user-agent': USER_AGENT, 'accept-language': 'uk-UA,uk;q=0.9' }
     }, (response) => {
+      if ([301, 302, 303, 307, 308].includes(response.statusCode) && response.headers.location) {
+        response.resume();
+        resolve({ location: response.headers.location });
+        return;
+      }
       if (response.statusCode !== 200) {
         response.resume();
         const error = new Error(`HTTP ${response.statusCode}`);
@@ -52,7 +70,7 @@ function once(url, ca, timeoutMs, maxBytes) {
         if (size > maxBytes) req.destroy(new Error(`more than ${maxBytes} bytes`));
         else chunks.push(chunk);
       });
-      response.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      response.on('end', () => resolve({ body: Buffer.concat(chunks).toString('utf8') }));
       response.on('error', reject);
     });
     req.on('error', reject);

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { parseAnswer, dayOfLabel } from './sources/vinnytsia.mjs';
+import { parseAnswer, dayOfLabel, fetchRegion } from './sources/vinnytsia.mjs';
 import { kyivDayStart } from './lib/canonical.mjs';
 
 // The real answer for вулиця Магістратська 5 on 2026-10-02, out of season. In-season answers have
@@ -90,4 +90,68 @@ test('day labels take the year that puts them nearest today', () => {
     kyivDayStart(new Date('2027-01-01T12:00:00Z')));
   assert.equal(dayOfLabel('31.02', NOW), null);
   assert.equal(dayOfLabel('завтра', NOW), null);
+});
+
+test('a cell in a shape the page does not draw fails the region instead of reading as light', () => {
+  const noSegments = inSeason({ cells: cellsWith({ 3: [{ type: 'confirm_2', start: 0, size: 100 }] }) });
+  delete noSegments.tables[0].rows[0].cells[17].segments;
+  assert.throws(() => parseAnswer(noSegments, '1.1', NOW), /unfamiliar cell for 17-18/);
+  const shifted = inSeason({ cells: cellsWith({ 3: [{ type: 'confirm_2', start: 0, size: 100 }] }) });
+  shifted.tables[0].rows[0].cells[5].hour = '06-07';
+  assert.throws(() => parseAnswer(shifted, '1.1', NOW), /06-07 where 05-06/);
+});
+
+test('a cell whose class says outage while its segments are empty reads as maybe, not light', () => {
+  const answer = inSeason({ cells: cellsWith({ 3: [{ type: 'confirm_2', start: 0, size: 100 }] }) });
+  answer.tables[0].rows[0].cells[9].class = 'has_disconnection';
+  const { days } = parseAnswer(answer, '1.1', NOW, () => {});
+  assert.deepEqual(days[TODAY].slice(18, 20), ['possible', 'possible']);
+});
+
+test('an answer marked empty that still draws outages is not believed', () => {
+  const answer = structuredClone(OFF_SEASON);
+  answer.tables[0].rows[0].cells[17].segments = [{ type: 'confirm_2', start: 0, size: 100 }];
+  assert.throws(() => parseAnswer(answer, '1.1', NOW), /marked empty draws outages/);
+});
+
+/** fetchRegion against a stand-in site: the page, then one answer per house asked. */
+async function offlineRun(answerFor) {
+  const real = globalThis.fetch;
+  const asked = [];
+  globalThis.fetch = async (url, init = {}) => {
+    if (!String(url).endsWith('search.php')) {
+      return new Response('<input type="hidden" name="csrf" value="abc123">', { status: 200 });
+    }
+    const house = init.body.get('house_id');
+    asked.push(house);
+    return new Response(JSON.stringify(answerFor(house)), { status: 200 });
+  };
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    return { result: await fetchRegion({ id: 'vinnytsia', title: 'Вінницька область' }, NOW, { wait: async () => {} }), asked };
+  } catch (error) {
+    return { error, asked };
+  } finally {
+    globalThis.fetch = real;
+    console.warn = warn;
+  }
+}
+
+test('out of season every house answers empty and the region publishes its queues and no day', async () => {
+  const { result, asked } = await offlineRun(() => OFF_SEASON);
+  assert.equal(asked.length, 12);
+  assert.deepEqual(result.fact.data, []);
+});
+
+test('an answer with no table for one house fails the region rather than tear a hole in the day', async () => {
+  const { error } = await offlineRun((house) => (house === '41583' ? { ...OFF_SEASON, tables: [] } : OFF_SEASON));
+  assert.match(error.message, /3\.1: no table/);
+});
+
+test('every house in an unexpected черга is the site renumbering, and fails the region', async () => {
+  const renumbered = inSeason({ listnum: 'Черга 1.1', cells: cellsWith({ 3: [{ type: 'confirm_2', start: 0, size: 100 }] }) });
+  const { error, asked } = await offlineRun(() => renumbered);
+  assert.match(error.message, /every house is in an unexpected черга/);
+  assert.equal(asked.length, 15);   // the three fallback houses tried too
 });

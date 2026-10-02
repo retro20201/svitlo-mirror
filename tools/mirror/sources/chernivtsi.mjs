@@ -1,5 +1,5 @@
 import { getText } from '../lib/http.mjs';
-import { buildSnapshot, hourStateFromHalves, kyivDayStart } from '../lib/canonical.mjs';
+import { buildSnapshot, hourStateFromHalves, kyivDayStart, kyivTomorrowStart } from '../lib/canonical.mjs';
 
 /**
  * АТ «Чернівціобленерго» — the table on oblenergo.cv.ua/shutdowns/, rendered server-side.
@@ -90,7 +90,7 @@ export function parsePage(html) {
 /** A parsed page → the day it may publish, or nothing. */
 export function publishable(page, now = new Date()) {
   const today = kyivDayStart(now);
-  const tomorrow = kyivDayStart(new Date(now.getTime() + 86_400_000));
+  const tomorrow = kyivTomorrowStart(now);
   if (page.hidden) {
     if (page.groups.some((row) => row.includes('off'))) {
       console.warn('[chernivtsi] the schedule is switched off on the page, but its table has outages');
@@ -118,14 +118,25 @@ export async function fetchRegion(region, now = new Date(), { fetchPage = getTex
   const first = publishable(page, now);
   if (first) fact[first.day] = first.hours;
 
-  const tomorrow = kyivDayStart(new Date(now.getTime() + 86_400_000));
-  if (page.next === tomorrow && !page.hidden) {
-    await wait(NEXT_DELAY_MS);
-    const next = parsePage(await fetchPage(`${PAGE}?next`));
-    // Without a published tomorrow, ?next serves today's table again.
-    if (next.day === tomorrow) {
-      const second = publishable(next, now);
-      if (second) fact[second.day] = second.hours;
+  // Asked even when today's page is switched off: a quiet day can be followed by a dark one, and
+  // its 00:00 outages must reach phones the evening before.
+  const tomorrow = kyivTomorrowStart(now);
+  if (page.next === tomorrow) {
+    try {
+      await wait(NEXT_DELAY_MS);
+      // Fewer retries than the main page: main + pause + this must stay inside the region's limit.
+      const next = parsePage(await fetchPage(`${PAGE}?next`, { retries: 1, timeoutMs: 15000 }));
+      // Without a published tomorrow, ?next serves today's table again.
+      if (next.day === tomorrow) {
+        const second = publishable(next, now);
+        if (second) fact[second.day] = second.hours;
+      }
+    } catch (error) {
+      // Today's fresh table still goes out. Tomorrow stays as phones already have it, rather than
+      // vanishing for a cycle and coming back — two wake-ups and a disarmed midnight alert.
+      const kept = region.previous?.fact?.data?.[tomorrow];
+      if (kept) fact[tomorrow] = kept;
+      console.warn(`[chernivtsi] ?next: ${error.message}; tomorrow ${kept ? 'kept from the last copy' : 'not published'}`);
     }
   }
 

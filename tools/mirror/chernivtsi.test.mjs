@@ -81,3 +81,55 @@ test('out of season the region publishes its twelve groups and no day', async ()
   assert.equal(snapshot.preset.sch_names.CV7, 'Група 7');
   assert.deepEqual(validate(snapshot), []);
 });
+
+const redate = (html, from, to) => html.split(from).join(to);
+const allLight = (html) => html.replace(/<o>в<\/o>|<s>мз<\/s>/g, '<u>з</u>');
+
+test('on the eve of the 23-hour day, at 23:30, tomorrow is still the next day', async () => {
+  // 12/13.11.2025 moved to 27/28.03.2027, the night clocks go forward.
+  const today = redate(redate(page('2025-11-12'), '13.11.2025', '28.03.2027'), '12.11.2025', '27.03.2027');
+  const tomorrow = redate(page('2025-11-13'), '13.11.2025', '28.03.2027');
+  const snapshot = await fetchRegion({ id: 'chernivtsi', title: 'Чернівецька область' }, new Date('2027-03-27T21:30:00Z'), {
+    fetchPage: async (url) => (url.endsWith('?next') ? tomorrow : today),
+    wait: async () => {}
+  });
+  assert.deepEqual(Object.keys(snapshot.fact.data).map(Number).sort(), [day('2027-03-27'), day('2027-03-28')]);
+});
+
+test('a failed ?next keeps today fresh and tomorrow as phones already have it', async () => {
+  const now = new Date('2025-11-12T21:03:28Z');
+  const published = await fetchRegion({ id: 'chernivtsi', title: 'Чернівецька область' }, now, {
+    fetchPage: async (url) => (url.endsWith('?next') ? page('2025-11-13') : page('2025-11-12')),
+    wait: async () => {}
+  });
+  const { value: snapshot } = await quietAsync(() => fetchRegion(
+    { id: 'chernivtsi', title: 'Чернівецька область', previous: published }, now, {
+      fetchPage: async (url) => { if (url.endsWith('?next')) throw new Error('HTTP 503'); return page('2025-11-12'); },
+      wait: async () => {}
+    }));
+  assert.deepEqual(snapshot.fact.data, published.fact.data);
+
+  // With no earlier copy, today alone.
+  const { value: alone } = await quietAsync(() => fetchRegion({ id: 'chernivtsi', title: 'Чернівецька область' }, now, {
+    fetchPage: async (url) => { if (url.endsWith('?next')) throw new Error('HTTP 503'); return page('2025-11-12'); },
+    wait: async () => {}
+  }));
+  assert.deepEqual(Object.keys(alone.fact.data).map(Number), [day('2025-11-12')]);
+});
+
+test('a quiet, switched-off today still lets tomorrow\'s outages through', async () => {
+  const quietToday = allLight(page('2025-11-12')).replace('<div id="gsv_t"', '<div id="gsv_24h"></div><div id="gsv_t"');
+  const { value: snapshot } = await quietAsync(() => fetchRegion({ id: 'chernivtsi', title: 'Чернівецька область' },
+    new Date('2025-11-12T21:03:28Z'), {
+      fetchPage: async (url) => (url.endsWith('?next') ? page('2025-11-13') : quietToday),
+      wait: async () => {}
+    }));
+  assert.deepEqual(Object.keys(snapshot.fact.data).map(Number), [day('2025-11-13')]);
+});
+
+async function quietAsync(fn) {
+  const warn = console.warn;
+  const seen = [];
+  console.warn = (message) => seen.push(message);
+  try { return { value: await fn(), seen }; } finally { console.warn = warn; }
+}
