@@ -85,7 +85,9 @@ export const REGIONS = [
   { id: 'khmelnytskyi',  title: 'Хмельницька область', subtitle: 'область',          operator: 'АТ «Хмельницькобленерго»',                source: 'khmelnytskyi', status: 'seasonal' , note: 'оператор публікує графік лише зображенням' },
   { id: 'cherkasy',      title: 'Черкаська область',   subtitle: 'область',          operator: 'АТ «Черкасиобленерго»',                   source: 'cherkasy', status: 'seasonal' },
   { id: 'zaporizhzhia',  title: 'Запорізька область',  subtitle: 'область',          operator: 'АТ «Запоріжжяобленерго»',                 source: 'zaporizhzhia', status: 'seasonal' },
-  { id: 'poltava',       title: 'Полтавська область',  subtitle: 'область',          operator: 'АТ «Полтаваобленерго»',                   source: null, status: 'noFeed' , note: 'оператор публікує лише кількість черг, без таблиці підчерг' },
+  // The table the old note denied exists: poe.pl.ua's own widget fetches it (sources/poltava.mjs).
+  // The site refuses non-Ukrainian addresses, so it only ever arrives from the Kyiv server.
+  { id: 'poltava',       title: 'Полтавська область',  subtitle: 'область',          operator: 'АТ «Полтаваобленерго»',                   source: 'poltava', status: 'seasonal' },
   // Checked 2026-10-01 from a Kyiv IP: the operator's whole «Відключення» section has answered 200
   // with an empty body since December 2023, winter 2025–26 included, and neither its channel nor
   // the ОВА's has ever carried an hourly table by черга. Outages there follow the shelling.

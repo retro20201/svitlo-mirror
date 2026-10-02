@@ -1,0 +1,45 @@
+/**
+ * A Google OAuth access token from a service-account key: one signed JWT assertion and one POST.
+ *
+ * No SDK, for the same reason as everything else here — a dependency would have to be audited on
+ * every run, and this is the whole exchange.
+ */
+
+import { createSign } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+
+function base64url(input) {
+  return Buffer.from(input).toString('base64')
+    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+/** @returns {Promise<{token: string, projectId: string}>} */
+export async function accessToken(credentialsPath, scope) {
+  const account = JSON.parse(await readFile(credentialsPath, 'utf8'));
+  const now = Math.floor(Date.now() / 1000);
+  const claim = {
+    iss: account.client_email,
+    scope,
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now,
+    exp: now + 3600
+  };
+  const unsigned = `${base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))}.${base64url(JSON.stringify(claim))}`;
+  const signer = createSign('RSA-SHA256');
+  signer.update(unsigned);
+  const assertion = `${unsigned}.${signer.sign(account.private_key, 'base64')
+    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')}`;
+
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`token exchange failed: HTTP ${response.status} ${await response.text()}`);
+  }
+  return { token: (await response.json()).access_token, projectId: account.project_id };
+}

@@ -2,8 +2,10 @@ name: Mirror outage schedules
 
 on:
   schedule:
-    # Every 10 minutes. Operators revise the day's schedule during the day, and a phone that
-    # checks in with a 5-minute cache should never be more than ~15 minutes behind them.
+    # The fallback. The mirror runs on a Kyiv server every 5 minutes (tools/mirror/vps/): several
+    # operators refuse addresses outside Ukraine, and this cron drops most of its runs. Every run
+    # here first asks whether that server finished a cycle in the last 20 minutes, and stands down
+    # if it did — two writers deploying the whole site overwrite each other's copies.
     - cron: '*/10 * * * *'
   workflow_dispatch:
     inputs:
@@ -51,7 +53,15 @@ jobs:
       # live mirror; from the seed, Kyiv looked changed on every run and woke every phone for nothing.
       # Every region the registry knows, not only the committed seeds: a region added after the
       # seed had no file to restore, so every run treated it as new and pushed to its phones.
+      # Prints why it decided. Any doubt (no beat, an unreadable one) means publishing from here.
+      - name: Is the Kyiv server publishing?
+        id: kyiv
+        run: node tools/mirror/heartbeat.mjs check
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
+
       - name: Restore the served mirror
+        if: steps.kyiv.outputs.fresh != 'true' || inputs.force_deploy
         run: |
           regions=$(node --input-type=module -e "import { REGIONS } from './tools/mirror/regions.mjs'; console.log(REGIONS.filter((r) => r.source).map((r) => r.id).join(' '))")
           for name in index $regions; do
@@ -60,8 +70,11 @@ jobs:
               && mv "$file.served" "$file" || rm -f "$file.served"
           done
 
+      # Skipped while the Kyiv server publishes, which also leaves the deploy and the push below
+      # with nothing to do.
       - name: Fetch and validate
         id: mirror
+        if: steps.kyiv.outputs.fresh != 'true' || inputs.force_deploy
         run: node tools/mirror/mirror.mjs
 
       # Reports when a seasonal region starts publishing again, so its adapter gets written
@@ -72,8 +85,17 @@ jobs:
           node tools/mirror/probe.mjs --selftest
           node tools/mirror/probe.mjs
 
+      # Asked again right before publishing: the Kyiv server may have come back while this run spent
+      # minutes timing out on operators that refuse US addresses, and its copy is the newer one.
+      - name: Is the Kyiv server still away?
+        id: kyiv_again
+        if: steps.mirror.outputs.changed == 'true' && !inputs.force_deploy
+        run: node tools/mirror/heartbeat.mjs check
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
+
       - name: Deploy to Firebase Hosting
-        if: steps.mirror.outputs.changed == 'true' || inputs.force_deploy
+        if: (steps.mirror.outputs.changed == 'true' && steps.kyiv_again.outputs.fresh != 'true') || inputs.force_deploy
         run: npx --yes firebase-tools@latest deploy --only hosting --project koly-svitlo --non-interactive
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
@@ -81,7 +103,7 @@ jobs:
       # Strictly after the deploy: a phone woken before the new file is served would refetch
       # the old schedule and believe it current until the next background refresh.
       - name: Announce changed regions
-        if: steps.mirror.outputs.notify != ''
+        if: steps.mirror.outputs.notify != '' && steps.kyiv_again.outputs.fresh != 'true'
         continue-on-error: true
         run: node tools/mirror/send-push.mjs "${{ steps.mirror.outputs.notify }}"
         env:

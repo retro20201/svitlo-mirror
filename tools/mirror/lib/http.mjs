@@ -3,16 +3,16 @@ const USER_AGENT = 'svitlo-mirror/1.0 (+https://koly-svitlo.web.app; outage sche
 
 /** Identifies itself honestly and retries only on transport errors, never on a 4xx. */
 export async function getJSON(url, { retries = 2, timeoutMs = 20000 } = {}) {
-  return get(url, { retries, timeoutMs }).then((response) => response.json());
+  return get(url, { retries, timeoutMs, read: (response) => response.json() });
 }
 
 /** Raw bytes, for the operators that publish their table only as a picture. */
 export async function getBytes(url, options = {}) {
-  return get(url, options).then(async (response) => Buffer.from(await response.arrayBuffer()));
+  return get(url, { ...options, read: async (response) => Buffer.from(await response.arrayBuffer()) });
 }
 
 export async function getText(url, options = {}) {
-  return get(url, options).then((response) => response.text());
+  return get(url, { ...options, read: (response) => response.text() });
 }
 
 /**
@@ -24,11 +24,17 @@ export async function postForm(url, fields, options = {}) {
     ...options,
     method: 'POST',
     body: new URLSearchParams(fields).toString(),
-    headers: { 'content-type': 'application/x-www-form-urlencoded; charset=UTF-8', ...options.headers }
-  }).then((response) => response.text());
+    headers: { 'content-type': 'application/x-www-form-urlencoded; charset=UTF-8', ...options.headers },
+    read: (response) => response.text()
+  });
 }
 
-async function get(url, { retries = 2, timeoutMs = 20000, headers = {}, method = 'GET', body } = {}) {
+/**
+ * `read` consumes the body while the timer is still armed. Clearing the timer once the headers
+ * arrived left a body that stalls bounded only by undici's five-minute default — one slow operator
+ * could eat the Kyiv server's whole cycle, and with it every other region's update.
+ */
+async function get(url, { retries = 2, timeoutMs = 20000, headers = {}, method = 'GET', body, read } = {}) {
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
@@ -47,8 +53,10 @@ async function get(url, { retries = 2, timeoutMs = 20000, headers = {}, method =
         error.retry = response.status >= 500;
         throw error;
       }
-      return response;
+      return await read(response);
     } catch (error) {
+      // A body that is not the JSON it claims to be is the server's answer too, not a lost packet.
+      if (error instanceof SyntaxError) error.retry = false;
       lastError = error;
       if (error.retry === false) break;
       // Backing off matters: these are small operators' servers, often during a blackout.

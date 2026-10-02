@@ -1,0 +1,33 @@
+[Unit]
+Description=Коли Світло: mirror outage schedules to koly-svitlo.web.app
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Follow main, so an adapter fix reaches the server the way it reaches CI: by being pushed. The
+# sync lives here, not in run.sh, so that a broken run.sh cannot stop the push that repairs it.
+# A fetch that fails or stalls ("-") leaves the code already here; a reset that fails stops the
+# cycle, since a half-updated tree would publish code nobody tested.
+ExecStartPre=-/usr/bin/timeout 90 /usr/bin/git -C /root/svitlo-mirror -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch -q --depth 1 origin main
+ExecStartPre=/usr/bin/git -C /root/svitlo-mirror reset -q --hard origin/main
+ExecStart=/bin/bash /root/svitlo-mirror/tools/mirror/vps/run.sh
+Environment=HOME=/root NO_UPDATE_NOTIFIER=1
+StateDirectory=svitlo-mirror
+# Comfortably inside the 20 minutes after which GitHub takes over, so the two never overlap.
+TimeoutStartSec=12min
+
+# This server also runs BenzUA and the VPN. The mirror waits on the network most of the time, but
+# a deploy hashes ~73 000 files: keep it behind everything else on the one core, and let it write
+# only to its own folders, so nothing it runs can touch /opt/benzua-fetch or the VPN.
+Nice=15
+CPUWeight=20
+CPUQuota=60%
+IOSchedulingClass=idle
+# Ubuntu 20.04 mounts the legacy cgroup hierarchy, where only MemoryLimit= takes effect.
+MemoryLimit=600M
+MemoryMax=600M
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/root/svitlo-mirror /root/svitlo-mirror-tools -/root/.config/configstore -/root/.cache -/root/.npm
