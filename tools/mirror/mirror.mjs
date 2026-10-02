@@ -18,6 +18,8 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { affectsSchedule } from './lib/notify.mjs';
 import { unchanged } from './lib/change.mjs';
+import { readRelay, staleSince } from './lib/relay.mjs';
+import { ADAPTERS } from './adapters.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REGIONS } from './regions.mjs';
@@ -26,27 +28,6 @@ import { validate, hasSchedule, statusFor, kyivDayStart } from './lib/canonical.
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = join(HERE, '..', '..', 'firebase', 'public', 'v1');
 
-const ADAPTERS = {
-  dtek: () => import('./sources/dtek.mjs'),
-  mykolaiv: () => import('./sources/mykolaiv.mjs'),
-  kharkiv: () => import('./sources/kharkiv.mjs'),
-  zaporizhzhia: () => import('./sources/zaporizhzhia.mjs'),
-  cherkasy: () => import('./sources/cherkasy.mjs'),
-  ternopil: () => import('./sources/ternopil.mjs'),
-  'ivano-frankivsk': () => import('./sources/ivano-frankivsk.mjs'),
-  zhytomyr: () => import('./sources/zhytomyr.mjs'),
-  rivne: () => import('./sources/rivne.mjs'),
-  khmelnytskyi: () => import('./sources/khmelnytskyi.mjs'),
-  lviv: () => import('./sources/lviv.mjs'),
-  kirovohrad: () => import('./sources/kirovohrad.mjs'),
-  volyn: () => import('./sources/volyn.mjs'),
-  sumy: () => import('./sources/sumy.mjs'),
-  zakarpattia: () => import('./sources/zakarpattia.mjs'),
-  chernihiv: () => import('./sources/chernihiv.mjs'),
-  poltava: () => import('./sources/poltava.mjs'),
-  vinnytsia: () => import('./sources/vinnytsia.mjs'),
-  chernivtsi: () => import('./sources/chernivtsi.mjs')
-};
 
 async function readExisting(file) {
   try {
@@ -85,6 +66,10 @@ async function main() {
   );
 
   const startedAt = Date.now();
+  // Read up front: a failing region carries forward the time it first failed.
+  const indexFile = join(OUT_DIR, 'index.json');
+  const previousIndex = await readExisting(indexFile);
+  const previousRows = new Map((previousIndex?.regions ?? []).map((row) => [row.id, row]));
   let overran = false;
   let changed = 0;
   let failed = 0;
@@ -114,7 +99,19 @@ async function main() {
       // What phones have now, for an adapter that must not drop a day just because one of its
       // requests failed this time (Чернівці's tomorrow, Запоріжжя's site).
       const served = await readExisting(file);
-      const snapshot = await withDeadline(fetchRegion({ ...region, previous: served }), REGION_DEADLINE_MS, region.id);
+      let snapshot;
+      let relayed = null;
+      try {
+        snapshot = await withDeadline(fetchRegion({ ...region, previous: served }), REGION_DEADLINE_MS, region.id);
+      } catch (error) {
+        // The Kyiv server's own read failed; a recent copy GitHub read for it stands in
+        // (lib/relay.mjs). Without one, the region fails as before and keeps its last copy.
+        relayed = process.env.RELAY_DIR ? await readRelay(process.env.RELAY_DIR, region.id) : null;
+        if (!relayed) throw error;
+        if (error instanceof Deadline) overran = true;
+        console.warn(`[relay] ${region.id}: ${error.message}; publishing GitHub's copy of ${relayed.relayedAt}`);
+        snapshot = relayed.snapshot;
+      }
 
       const problems = validate(snapshot);
       if (problems.length) throw new Error(problems.join('; '));
@@ -126,6 +123,11 @@ async function main() {
       entry.hasSchedule = hasSchedule(snapshot);
 
       entry.status = statusFor(region, snapshot, entry.hasSchedule);
+      if (relayed) {
+        // Still failing here: kept on the list GitHub reads, so it keeps relaying.
+        entry.stale = true;
+        entry.staleSince = staleSince(previousRows.get(region.id));
+      }
 
       if (unchanged(previous, snapshot)) {
         console.log(`[same]  ${region.id}`);
@@ -161,6 +163,7 @@ async function main() {
         entry.queues = Object.keys(previous.preset?.sch_names ?? {}).length;
         entry.hasWeeklyPreset = Object.keys(previous.preset?.data ?? {}).length > 0;
         entry.stale = true;
+        entry.staleSince = staleSince(previousRows.get(region.id));
         // Phones are still served that last good copy. While it covers today or a later day, the
         // region keeps the status the copy earned: otherwise a region that went live from published
         // days (Миколаїв in season) drops back to its declared 'seasonal' for one failed run, and the
@@ -174,9 +177,6 @@ async function main() {
       index.push(entry);
     }
   }
-
-  const indexFile = join(OUT_DIR, 'index.json');
-  const previousIndex = await readExisting(indexFile);
 
   // A single-region run only learns about that region. Rebuilding the whole index from it would
   // strip `queues`/`hasWeeklyPreset` from every other row, so carry the previous values forward.

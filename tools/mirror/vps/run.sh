@@ -57,9 +57,16 @@ main() {
     fi
   done
 
+  # GitHub's copies of regions this server has been failing (lib/relay.mjs). A missing branch or a
+  # failed fetch just means there are none; mirror.mjs uses them only where its own read fails.
+  rm -rf "$STATE/relay" && mkdir -p "$STATE/relay"
+  if timeout 60 git fetch -q --depth 1 origin relay 2>/dev/null; then
+    git archive FETCH_HEAD | tar -x -C "$STATE/relay"
+  fi
+
   local outputs changed notify
   outputs=$(mktemp)
-  if ! GITHUB_OUTPUT="$outputs" node tools/mirror/mirror.mjs; then
+  if ! GITHUB_OUTPUT="$outputs" RELAY_DIR="$STATE/relay" node tools/mirror/mirror.mjs; then
     rm -f "$outputs"
     echo "[mirror] every adapter failed — not publishing"
     exit 1

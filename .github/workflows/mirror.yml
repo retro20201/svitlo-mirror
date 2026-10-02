@@ -29,6 +29,9 @@ concurrency:
 jobs:
   mirror:
     runs-on: ubuntu-latest
+    # Pushes the `relay` branch (below); nothing else is written to the repository.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -100,6 +103,26 @@ jobs:
           node tools/mirror/probe.mjs --selftest
           node tools/mirror/probe.mjs
 
+      # Standing down still leaves one job. Regions the Kyiv server has been failing for over 20
+      # minutes — an operator or Telegram refusing that one address — are read from here and handed
+      # back through the `relay` branch, which the server publishes from. Never Hosting: one writer.
+      - name: Read what the Kyiv server cannot
+        id: relay
+        if: steps.kyiv.outputs.fresh == 'true' && !inputs.force_deploy
+        run: node tools/mirror/relay.mjs "$RUNNER_TEMP/relay-out"
+
+      - name: Hand it to the Kyiv server
+        if: steps.relay.outputs.relayed != ''
+        working-directory: ${{ runner.temp }}/relay-out
+        run: |
+          git init -q -b relay
+          git add -A
+          git -c user.name=svitlo-mirror -c user.email=svitlo-mirror@users.noreply.github.com \
+            commit -q -m "Relay ${{ steps.relay.outputs.relayed }}"
+          git push -q -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" relay
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # Asked again right before publishing: the Kyiv server may have come back while this run spent
       # minutes timing out on operators that refuse US addresses, and its copy is the newer one.
       - name: Is the Kyiv server still away?
@@ -140,3 +163,11 @@ jobs:
       - name: Remove service account
         if: always()
         run: rm -f "$RUNNER_TEMP/service-account.json"
+
+      # The alert: a failed run is mailed. The Kyiv server is up but refused by a source GitHub
+      # can still read; the region is being relayed meanwhile.
+      - name: Report what the Kyiv server cannot read
+        if: steps.relay.outputs.relayed != ''
+        run: |
+          echo "::error::The Kyiv server cannot read ${{ steps.relay.outputs.relayed }}; relayed from GitHub until it can"
+          exit 1
