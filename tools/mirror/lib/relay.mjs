@@ -30,15 +30,24 @@ export function staleSince(previousRow, now = new Date()) {
   return previousRow?.stale && previousRow.staleSince ? previousRow.staleSince : now.toISOString();
 }
 
-/** The regions GitHub should try: failing on the Kyiv server for longer than a blip. */
+/**
+ * The regions GitHub should try: failing on the Kyiv server for longer than a blip — and failing
+ * to read, not merely skipped because the cycle ran out of time.
+ */
 export function regionsToRelay(indexRows, now = Date.now()) {
   return (indexRows ?? [])
-    .filter((row) => row.stale && Date.parse(row.staleSince ?? '') <= now - STALE_BEFORE_RELAY_MS)
+    .filter((row) => row.stale && !row.notStarted && Date.parse(row.staleSince ?? '') <= now - STALE_BEFORE_RELAY_MS)
     .map((row) => row.id);
 }
 
-/** GitHub's copy of a region, or null when there is none, it is too old, or it does not hold up. */
-export async function readRelay(dir, regionId, now = Date.now()) {
+/**
+ * GitHub's copy of a region, or null when there is none, it does not hold up, or it is not of
+ * this failure. The branch keeps its last copy after a block ends; read on the next one-cycle
+ * blip, that copy would replace a schedule revised since and wake phones onto the older one. So a
+ * copy counts only while the region was already failing when GitHub read it (`previousRow`), and
+ * only if nothing newer has been published since (`served`).
+ */
+export async function readRelay(dir, regionId, { now = Date.now(), previousRow, served } = {}) {
   let relayed;
   try {
     relayed = JSON.parse(await readFile(join(dir, `${regionId}.json`), 'utf8'));
@@ -48,6 +57,9 @@ export async function readRelay(dir, regionId, now = Date.now()) {
   const at = Date.parse(relayed?.relayedAt ?? '');
   if (!Number.isFinite(at) || now - at > RELAY_MAX_AGE_MS || at > now + 5 * 60_000) return null;
   if (relayed.regionId !== regionId || validate(relayed).length) return null;
+  if (!previousRow?.stale || !(Date.parse(previousRow.staleSince ?? '') <= at)) return null;
+  const servedAt = Date.parse(served?.mirroredAt ?? '');
+  if (Number.isFinite(servedAt) && servedAt > at) return null;
   const { relayedAt, ...snapshot } = relayed;
   return { snapshot, relayedAt };
 }

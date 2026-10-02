@@ -26,7 +26,14 @@ async function served(name) {
   return response.json();
 }
 
-const index = await served('index');
+let index;
+try {
+  index = await served('index');
+} catch (error) {
+  // Not the Kyiv server's problem, and not one to mail anyone about: try again next run.
+  console.log(`[relay] the served index did not load (${error.message}); nothing relayed this run`);
+  process.exit(0);
+}
 const wanted = regionsToRelay(index.regions);
 const relayed = [];
 const unreachable = [];

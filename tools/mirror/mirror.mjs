@@ -75,9 +75,13 @@ async function main() {
   let failed = 0;
   /** Regions whose published schedule moved — pushed after the deploy, never before. */
   const notify = [];
-  const index = [];
+  const entries = new Map();
 
-  for (const region of REGIONS) {
+  // Regions that failed last cycle go last: a source refusing this server costs its full deadline
+  // every cycle, and must not use up the budget of the regions that still answer.
+  const order = [...REGIONS].sort((a, b) =>
+    Number(Boolean(previousRows.get(a.id)?.stale)) - Number(Boolean(previousRows.get(b.id)?.stale)));
+  for (const region of order) {
     const entry = {
       id: region.id,
       title: region.title,
@@ -88,33 +92,38 @@ async function main() {
     if (region.note) entry.note = region.note;
 
     if (!targets.includes(region)) {
-      index.push(entry);
+      entries.set(region.id, entry);
       continue;
     }
 
     const file = join(OUT_DIR, `${region.id}.json`);
+    // What phones have now, for an adapter that must not drop a day just because one of its
+    // requests failed this time (Чернівці's tomorrow, Запоріжжя's site).
+    const served = await readExisting(file);
+    let notStarted = false;
     try {
-      if (Date.now() - startedAt > CYCLE_BUDGET_MS) throw new Deadline('cycle budget spent; not started');
-      const { fetchRegion } = await (ADAPTERS[region.source]());
-      // What phones have now, for an adapter that must not drop a day just because one of its
-      // requests failed this time (Чернівці's tomorrow, Запоріжжя's site).
-      const served = await readExisting(file);
       let snapshot;
       let relayed = null;
       try {
+        if (Date.now() - startedAt > CYCLE_BUDGET_MS) {
+          notStarted = true;
+          throw new Deadline('cycle budget spent; not started');
+        }
+        const { fetchRegion } = await (ADAPTERS[region.source]());
         snapshot = await withDeadline(fetchRegion({ ...region, previous: served }), REGION_DEADLINE_MS, region.id);
+        const problems = validate(snapshot);
+        if (problems.length) throw new Error(problems.join('; '));
       } catch (error) {
-        // The Kyiv server's own read failed; a recent copy GitHub read for it stands in
-        // (lib/relay.mjs). Without one, the region fails as before and keeps its last copy.
-        relayed = process.env.RELAY_DIR ? await readRelay(process.env.RELAY_DIR, region.id) : null;
+        // The Kyiv server's own read failed; a copy GitHub read for it during this same failure
+        // stands in (lib/relay.mjs). Without one, the region fails as before and keeps its copy.
+        relayed = process.env.RELAY_DIR
+          ? await readRelay(process.env.RELAY_DIR, region.id, { previousRow: previousRows.get(region.id), served })
+          : null;
         if (!relayed) throw error;
         if (error instanceof Deadline) overran = true;
         console.warn(`[relay] ${region.id}: ${error.message}; publishing GitHub's copy of ${relayed.relayedAt}`);
         snapshot = relayed.snapshot;
       }
-
-      const problems = validate(snapshot);
-      if (problems.length) throw new Error(problems.join('; '));
 
       const previous = await readExisting(file);
       const queues = Object.keys(snapshot.preset?.sch_names ?? {}).length;
@@ -131,7 +140,7 @@ async function main() {
 
       if (unchanged(previous, snapshot)) {
         console.log(`[same]  ${region.id}`);
-        index.push(entry);
+        entries.set(region.id, entry);
         continue;
       }
 
@@ -151,7 +160,7 @@ async function main() {
         `${entry.hasWeeklyPreset ? 'weekly preset' : 'no preset'}, ${days} published day(s)`
       );
       changed++;
-      index.push(entry);
+      entries.set(region.id, entry);
     } catch (error) {
       // A failing adapter keeps the last good copy on disk and reports the region as degraded,
       // rather than removing a schedule people may be relying on right now.
@@ -164,6 +173,8 @@ async function main() {
         entry.hasWeeklyPreset = Object.keys(previous.preset?.data ?? {}).length > 0;
         entry.stale = true;
         entry.staleSince = staleSince(previousRows.get(region.id));
+        // Skipped for time is not refused: GitHub relays only regions this server could not read.
+        if (notStarted) entry.notStarted = true;
         // Phones are still served that last good copy. While it covers today or a later day, the
         // region keeps the status the copy earned: otherwise a region that went live from published
         // days (Миколаїв in season) drops back to its declared 'seasonal' for one failed run, and the
@@ -174,9 +185,11 @@ async function main() {
       } else {
         entry.status = 'planned';
       }
-      index.push(entry);
+      entries.set(region.id, entry);
     }
   }
+
+  const index = REGIONS.map((region) => entries.get(region.id));
 
   // A single-region run only learns about that region. Rebuilding the whole index from it would
   // strip `queues`/`hasWeeklyPreset` from every other row, so carry the previous values forward.

@@ -60,7 +60,7 @@ main() {
   # GitHub's copies of regions this server has been failing (lib/relay.mjs). A missing branch or a
   # failed fetch just means there are none; mirror.mjs uses them only where its own read fails.
   rm -rf "$STATE/relay" && mkdir -p "$STATE/relay"
-  if timeout 60 git fetch -q --depth 1 origin relay 2>/dev/null; then
+  if timeout 30 git fetch -q --depth 1 origin relay 2>/dev/null; then
     git archive FETCH_HEAD | tar -x -C "$STATE/relay"
   fi
 

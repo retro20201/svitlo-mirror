@@ -29,11 +29,16 @@ concurrency:
 jobs:
   mirror:
     runs-on: ubuntu-latest
-    # Pushes the `relay` branch (below); nothing else is written to the repository.
+    # Read-only: this job runs third-party npm code (firebase-tools). Writing the `relay` branch is
+    # a separate job that runs none.
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      kyiv_fresh: ${{ steps.kyiv.outputs.fresh }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -103,26 +108,6 @@ jobs:
           node tools/mirror/probe.mjs --selftest
           node tools/mirror/probe.mjs
 
-      # Standing down still leaves one job. Regions the Kyiv server has been failing for over 20
-      # minutes — an operator or Telegram refusing that one address — are read from here and handed
-      # back through the `relay` branch, which the server publishes from. Never Hosting: one writer.
-      - name: Read what the Kyiv server cannot
-        id: relay
-        if: steps.kyiv.outputs.fresh == 'true' && !inputs.force_deploy
-        run: node tools/mirror/relay.mjs "$RUNNER_TEMP/relay-out"
-
-      - name: Hand it to the Kyiv server
-        if: steps.relay.outputs.relayed != ''
-        working-directory: ${{ runner.temp }}/relay-out
-        run: |
-          git init -q -b relay
-          git add -A
-          git -c user.name=svitlo-mirror -c user.email=svitlo-mirror@users.noreply.github.com \
-            commit -q -m "Relay ${{ steps.relay.outputs.relayed }}"
-          git push -q -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" relay
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       # Asked again right before publishing: the Kyiv server may have come back while this run spent
       # minutes timing out on operators that refuse US addresses, and its copy is the newer one.
       - name: Is the Kyiv server still away?
@@ -134,7 +119,8 @@ jobs:
 
       - name: Deploy to Firebase Hosting
         if: steps.restore.outputs.baseline == 'ok' && ((steps.mirror.outputs.changed == 'true' && steps.kyiv_again.outputs.fresh != 'true') || inputs.force_deploy)
-        run: npx --yes firebase-tools@latest deploy --only hosting --project koly-svitlo --non-interactive
+        # The version the Kyiv server runs (tools/mirror/vps/README.md), not whatever is newest.
+        run: npx --yes firebase-tools@15.32.1 deploy --only hosting --project koly-svitlo --non-interactive
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
 
@@ -163,6 +149,40 @@ jobs:
       - name: Remove service account
         if: always()
         run: rm -f "$RUNNER_TEMP/service-account.json"
+
+  # Standing down still leaves one job. Regions the Kyiv server has been failing to read for over
+  # 20 minutes — an operator or Telegram refusing that one address — are read from here and handed
+  # back through the `relay` branch, which the server publishes from. Never Hosting: one writer.
+  # The only job with write access, and it installs nothing: the adapters have no dependencies.
+  relay:
+    needs: mirror
+    if: needs.mirror.outputs.kyiv_fresh == 'true' && !inputs.force_deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Read what the Kyiv server cannot
+        id: relay
+        run: node tools/mirror/relay.mjs "$RUNNER_TEMP/relay-out"
+
+      - name: Hand it to the Kyiv server
+        if: steps.relay.outputs.relayed != ''
+        working-directory: ${{ runner.temp }}/relay-out
+        run: |
+          git init -q -b relay
+          git add -A
+          git -c user.name=svitlo-mirror -c user.email=svitlo-mirror@users.noreply.github.com \
+            commit -q -m "Relay ${{ steps.relay.outputs.relayed }}"
+          git push -q -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" relay
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # The alert: a failed run is mailed. The Kyiv server is up but refused by a source GitHub
       # can still read; the region is being relayed meanwhile.
