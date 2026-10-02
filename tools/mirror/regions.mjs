@@ -75,7 +75,9 @@ export const REGIONS = [
   { id: 'ivano-frankivsk', title: 'Івано-Франківська область', subtitle: 'область',  operator: 'АТ «Прикарпаттяобленерго»',               source: 'ivano-frankivsk', status: 'seasonal' },
   { id: 'ternopil',      title: 'Тернопільська область', subtitle: 'область',        operator: 'АТ «Тернопільобленерго»',                 source: 'ternopil', status: 'seasonal' },
   { id: 'kharkiv',       title: 'Харківська область',  subtitle: 'область',          operator: 'АТ «Харківобленерго»',                    source: 'kharkiv', status: 'seasonal' },
-  { id: 'chernivtsi',    title: 'Чернівецька область', subtitle: 'область',          operator: 'АТ «Чернівціобленерго»',                  source: null, status: 'blocked' },
+  // «Blocked» was Cloudflare refusing non-Ukrainian addresses. The operator's own «Група 1–12»,
+  // not national підчерги (sources/chernivtsi.mjs).
+  { id: 'chernivtsi',    title: 'Чернівецька область', subtitle: 'область',          operator: 'АТ «Чернівціобленерго»',                  source: 'chernivtsi', status: 'seasonal' },
   // The tables and free-text amendments the operator posts to @chernigivoblenergo; its website
   // bans an address for fetching robots.txt and is not touched.
   { id: 'chernihiv',     title: 'Чернігівська область', subtitle: 'область',         operator: 'АТ «Чернігівобленерго»',                  source: 'chernihiv', status: 'seasonal' },
