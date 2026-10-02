@@ -148,20 +148,17 @@ export async function fetchRegion(region) {
   const window = graphWindow();
   const query = new URLSearchParams({ after: window.after, before: window.before });
 
+  // Out of season the graph collection answers 200 with no members (checked 2026-10-02), which
+  // publishes as "queues, no schedule". A request or a graph that fails is something else: it
+  // fails the region, which keeps the last good copy. Degrading it to "no schedule" published an
+  // empty day over a real one and woke every phone in the oblast to look at it.
   const [groups, graphs] = await Promise.all([
     getJSON(`${API}/pw-accounts/building-groups`),
-    // An unreadable graph must not take the queue list down with it. Out of season this
-    // collection is legitimately empty, and the region is then published as seasonal rather than
-    // broken — so a failure here degrades to "queues, no schedule" instead of losing the region.
-    getJSON(`${API}/a_gpv_g?${query}`).catch(() => null)
+    getJSON(`${API}/a_gpv_g?${query}`)
   ]);
-
-  let parsed = { fact: {}, labels: [], update: null };
-  try {
-    parsed = factFromGraphs(graphs?.['hydra:member']);
-  } catch {
-    parsed = { fact: {}, labels: [], update: null };
-  }
+  const members = graphs?.['hydra:member'];
+  if (!Array.isArray(members)) throw new Error('a_gpv_g came back without hydra:member');
+  const parsed = factFromGraphs(members);
 
   // Buildings assigned to no підчерга come back as an empty `chergGpv`; that is a row in their
   // address data, not a queue.

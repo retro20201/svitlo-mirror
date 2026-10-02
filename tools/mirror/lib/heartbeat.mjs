@@ -61,14 +61,17 @@ export async function readLabels({ credentialsPath, site }) {
   return { labels: (await response.json()).labels ?? {}, nowSeconds: serverSeconds(response) };
 }
 
-/** Merges the beat into whatever labels are already there rather than replacing them. */
-export async function writeBeat({ credentialsPath, site }) {
+/**
+ * Merges the beat into whatever labels are already there rather than replacing them. `clear`
+ * writes 0, which reads as "no beat": GitHub takes over on its next run instead of in 20 minutes.
+ */
+export async function writeBeat({ credentialsPath, site, clear = false }) {
   const { token } = await accessToken(credentialsPath, SCOPE);
   const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
   const current = await fetch(channelUrl(site), { headers });
   if (!current.ok) throw new Error(`channel read: HTTP ${current.status} ${await current.text()}`);
   const nowSeconds = serverSeconds(current);
-  const labels = { ...((await current.json()).labels ?? {}), [LABEL]: String(nowSeconds) };
+  const labels = { ...((await current.json()).labels ?? {}), [LABEL]: clear ? '0' : String(nowSeconds) };
   const response = await fetch(`${channelUrl(site)}?updateMask=labels`, {
     method: 'PATCH',
     headers,

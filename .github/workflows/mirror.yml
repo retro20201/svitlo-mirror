@@ -48,11 +48,6 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KOLY_SVITLO }}
 
-      # The committed region files are a 2026-09-07 seed, not what phones have. Starting from what
-      # is served makes "keep the last good copy" and the change/push decision compare against the
-      # live mirror; from the seed, Kyiv looked changed on every run and woke every phone for nothing.
-      # Every region the registry knows, not only the committed seeds: a region added after the
-      # seed had no file to restore, so every run treated it as new and pushed to its phones.
       # Prints why it decided. Any doubt (no beat, an unreadable one) means publishing from here.
       - name: Is the Kyiv server publishing?
         id: kyiv
@@ -60,21 +55,41 @@ jobs:
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
 
+      # The committed region files are a 2026-09-07 seed, not what phones have. Starting from what
+      # is served makes "keep the last good copy" and the change/push decision compare against the
+      # live mirror; from the seed, Kyiv looked changed on every run and woke every phone for nothing.
+      # Every region the registry knows, not only the committed seeds: a region added after the
+      # seed had no file to restore, so every run treated it as new and pushed to its phones.
+      # Only a 404 means "not published yet". A 5xx, a reset or a body cut off after its 200 leaves
+      # the baseline unknown, and this run then publishes nothing (the same rule as tools/mirror/vps).
       - name: Restore the served mirror
+        id: restore
         if: steps.kyiv.outputs.fresh != 'true' || inputs.force_deploy
         run: |
           regions=$(node --input-type=module -e "import { REGIONS } from './tools/mirror/regions.mjs'; console.log(REGIONS.filter((r) => r.source).map((r) => r.id).join(' '))")
+          baseline=ok
           for name in index $regions; do
             file="firebase/public/v1/$name.json"
-            curl -fsS --retry 2 "https://koly-svitlo.web.app/v1/$name.json" -o "$file.served" \
-              && mv "$file.served" "$file" || rm -f "$file.served"
+            code=$(curl -sS --retry 2 --max-time 30 -o "$file.served" -w '%{http_code}' "https://koly-svitlo.web.app/v1/$name.json") && rc=0 || rc=$?
+            if [ "$rc" = "0" ] && [ "$code" = "200" ] \
+              && node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$file.served"; then
+              mv "$file.served" "$file"
+            elif [ "$rc" = "0" ] && [ "$code" = "404" ]; then
+              rm -f "$file.served"
+            else
+              rm -f "$file.served"
+              echo "::warning::$name: HTTP ${code:-none}, curl $rc — not publishing from an unknown baseline"
+              baseline=unknown
+              break
+            fi
           done
+          echo "baseline=$baseline" >> "$GITHUB_OUTPUT"
 
       # Skipped while the Kyiv server publishes, which also leaves the deploy and the push below
       # with nothing to do.
       - name: Fetch and validate
         id: mirror
-        if: steps.kyiv.outputs.fresh != 'true' || inputs.force_deploy
+        if: steps.restore.outputs.baseline == 'ok'
         run: node tools/mirror/mirror.mjs
 
       # Reports when a seasonal region starts publishing again, so its adapter gets written
@@ -95,7 +110,7 @@ jobs:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
 
       - name: Deploy to Firebase Hosting
-        if: (steps.mirror.outputs.changed == 'true' && steps.kyiv_again.outputs.fresh != 'true') || inputs.force_deploy
+        if: steps.restore.outputs.baseline == 'ok' && ((steps.mirror.outputs.changed == 'true' && steps.kyiv_again.outputs.fresh != 'true') || inputs.force_deploy)
         run: npx --yes firebase-tools@latest deploy --only hosting --project koly-svitlo --non-interactive
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json

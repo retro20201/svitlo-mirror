@@ -17,6 +17,7 @@
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { affectsSchedule } from './lib/notify.mjs';
+import { unchanged } from './lib/change.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REGIONS } from './regions.mjs';
@@ -53,11 +54,24 @@ async function readExisting(file) {
   }
 }
 
-/** Compare on content only — the mirror's own timestamps must not trigger a deploy every run. */
-function fingerprint(snapshot) {
-  if (!snapshot) return null;
-  const { lastUpdated, lastUpdateStatus, mirroredAt, ...rest } = snapshot;
-  return JSON.stringify(rest);
+/**
+ * One region may take this long; the whole fetch, this long. Adapters run one after another, so
+ * without a bound a few operators answering slowly during a wide blackout — the moment the app is
+ * for — added up past the Kyiv server's 12-minute limit, and the kill threw away every region's
+ * update, Київ's included. A region that runs out of time fails the usual way: its last good copy
+ * stays, marked stale. Regions not started once the budget is spent fail the same way.
+ */
+const REGION_DEADLINE_MS = 120_000;
+const CYCLE_BUDGET_MS = 7 * 60_000;
+
+class Deadline extends Error {}
+
+function withDeadline(promise, ms, label) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Deadline(`${label}: no answer in ${ms / 1000} s`)), ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 }
 
 async function main() {
@@ -68,6 +82,8 @@ async function main() {
     (region) => region.source && (!only || region.id === only)
   );
 
+  const startedAt = Date.now();
+  let overran = false;
   let changed = 0;
   let failed = 0;
   /** Regions whose published schedule moved — pushed after the deploy, never before. */
@@ -91,8 +107,9 @@ async function main() {
 
     const file = join(OUT_DIR, `${region.id}.json`);
     try {
+      if (Date.now() - startedAt > CYCLE_BUDGET_MS) throw new Deadline('cycle budget spent; not started');
       const { fetchRegion } = await (ADAPTERS[region.source]());
-      const snapshot = await fetchRegion(region);
+      const snapshot = await withDeadline(fetchRegion(region), REGION_DEADLINE_MS, region.id);
 
       const problems = validate(snapshot);
       if (problems.length) throw new Error(problems.join('; '));
@@ -105,7 +122,7 @@ async function main() {
 
       entry.status = statusFor(region, snapshot, entry.hasSchedule);
 
-      if (previous && fingerprint(previous) === fingerprint(snapshot)) {
+      if (unchanged(previous, snapshot)) {
         console.log(`[same]  ${region.id}`);
         index.push(entry);
         continue;
@@ -132,6 +149,7 @@ async function main() {
       // A failing adapter keeps the last good copy on disk and reports the region as degraded,
       // rather than removing a schedule people may be relying on right now.
       console.error(`[fail]  ${region.id}: ${error.message}`);
+      if (error instanceof Deadline) overran = true;
       failed++;
       const previous = await readExisting(file);
       if (previous) {
@@ -182,6 +200,9 @@ async function main() {
       { flag: 'a' }
     );
   }
+  // An adapter that lost the race is still waiting on its sockets and timers; they would hold the
+  // process open long after the cycle's work is written.
+  if (overran) process.exit(0);
 }
 
 main();

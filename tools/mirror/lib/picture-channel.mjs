@@ -33,11 +33,16 @@ export async function pictureChannelSnapshot(region, {
       continue;
     }
     await pause(spacing);
+    // A download that fails is a lost packet, not an unreadable picture, so it fails the region:
+    // that keeps the last good copy and wakes no one. Treated as unreadable, it published the day
+    // without the picture's hours and woke every phone in the oblast for a schedule that had not
+    // changed.
+    const bytes = await fetchImage(post.photos[0]);
     // A reader that throws (a picture in a format it does not handle) has read nothing; it must
     // not take the whole region down with it.
     let result;
     try {
-      result = read(await fetchImage(post.photos[0]));
+      result = read(bytes);
     } catch (error) {
       result = { error: error.message };
     }

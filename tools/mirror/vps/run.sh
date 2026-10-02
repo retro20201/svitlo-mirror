@@ -36,20 +36,23 @@ main() {
 
   # Start from what phones are being served, exactly as CI does: the committed files are a seed,
   # and comparing against them would look like a change — and a push — on every cycle.
-  # A 404 is a region not published yet. Anything else — the site unreachable from here — would
-  # leave the stale seed as the baseline: every region would look changed, and their phones woken.
-  local regions name file code
+  # A 404 is a region not published yet. Anything else — the site unreachable from here, or a body
+  # cut off after its 200 — would leave the stale seed or a broken file as the baseline: every
+  # region would look changed, and their phones woken.
+  local regions name file code rc
   regions=$(node --input-type=module -e "import { REGIONS } from './tools/mirror/regions.mjs'; console.log(REGIONS.filter((r) => r.source).map((r) => r.id).join(' '))")
   for name in index $regions; do
     file="firebase/public/v1/$name.json"
     code=$(curl -sS --retry 2 --max-time 30 -o "$file.served" -w '%{http_code}' "https://koly-svitlo.web.app/v1/$name.json")
-    if [ "$code" = "200" ]; then
+    rc=$?
+    if [ "$rc" = "0" ] && [ "$code" = "200" ] \
+      && node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$file.served"; then
       mv "$file.served" "$file"
-    elif [ "$code" = "404" ]; then
+    elif [ "$rc" = "0" ] && [ "$code" = "404" ]; then
       rm -f "$file.served"
     else
       rm -f "$file.served"
-      echo "[restore] $name: HTTP ${code:-none} — not publishing from an unknown baseline"
+      echo "[restore] $name: HTTP ${code:-none}, curl $rc — not publishing from an unknown baseline"
       exit 1
     fi
   done
@@ -66,8 +69,16 @@ main() {
   rm -f "$outputs"
 
   if [ "$changed" = "true" ]; then
+    # Stamped before the deploy as well as after the cycle: GitHub asks once more right before its
+    # own release, and this one may be minutes in flight. A beat that cannot land means GitHub
+    # will publish too, so this one does not.
+    if ! node tools/mirror/heartbeat.mjs beat; then
+      echo "[deploy] skipped — without a beat GitHub publishes, and two writers overwrite each other"
+      exit 1
+    fi
     if ! "$FIREBASE" deploy --only hosting --project koly-svitlo --non-interactive --message "kyiv ${head:0:9}"; then
-      echo "[deploy] failed — no push, no beat"
+      echo "[deploy] failed — no push; handing over to GitHub"
+      node tools/mirror/heartbeat.mjs clear
       exit 1
     fi
   fi

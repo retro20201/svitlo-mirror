@@ -101,8 +101,11 @@ export async function fetchRegion(region) {
 
       await pause(SPACING_MS);
       const url = `${HOST}${path}`;
+      // Outside the try: a failed download fails the region and keeps the last good copy. Only a
+      // picture that arrived and does not read as the grid is published as the picture.
+      const bytes = await getBytes(url);
       try {
-        const hours = hoursFromHalves(halvesFromPicture(await getBytes(url)));
+        const hours = hoursFromHalves(halvesFromPicture(bytes));
         if (hours) fact[dayStart] = hours;
       } catch (error) {
         console.warn(`[volyn] ${path} did not read as the grid (${error.message}); publishing the picture`);

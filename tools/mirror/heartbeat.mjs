@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * `beat`  — the Kyiv runner, after a finished cycle: "I am publishing."
+ * `beat`  — the Kyiv runner, before it deploys and after a finished cycle: "I am publishing."
+ * `clear` — the Kyiv runner, when its deploy failed: "take over now".
  * `check` — GitHub Actions, before its own cycle: is the Kyiv runner publishing? Writes
  *           `fresh=true|false` to GITHUB_OUTPUT. Never fails the job: when the answer cannot be
  *           read, GitHub publishes itself, because a mirror nobody runs is the worse outcome.
@@ -15,10 +16,10 @@ const SITE = 'koly-svitlo';
 const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
 const command = process.argv[2];
-if (command === 'beat') {
+if (command === 'beat' || command === 'clear') {
   try {
-    await writeBeat({ credentialsPath, site: SITE });
-    console.log('[beat] stamped');
+    await writeBeat({ credentialsPath, site: SITE, clear: command === 'clear' });
+    console.log(command === 'clear' ? '[beat] cleared — GitHub takes over' : '[beat] stamped');
   } catch (error) {
     console.error(`[beat] ${error.message}`);
     process.exitCode = 1;
@@ -38,6 +39,6 @@ if (command === 'beat') {
   }
   if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `fresh=${fresh}\n`);
 } else {
-  console.error('usage: heartbeat.mjs beat|check');
+  console.error('usage: heartbeat.mjs beat|clear|check');
   process.exitCode = 2;
 }
