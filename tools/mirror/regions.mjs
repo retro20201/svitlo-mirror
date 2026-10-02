@@ -4,8 +4,8 @@
  * a comment here. Sources, for the record: Харків/Запоріжжя/Черкаси/Кіровоград come from the operators'
  * own Telegram channels, Тернопіль from api-poweron.toe.com.ua, Івано-Франківськ from be-svitlo.oe.if.ua
  * (the API behind the operator's svitlo.oe.if.ua), Львів from the schedule text at api.loe.lviv.ua,
- * Волинь from the picture its api-voe-poweron.inneti.net publishes, Суми from the picture it
- * posts to Telegram.
+ * Волинь from the picture its api-voe-poweron.inneti.net publishes, Суми and Закарпаття from
+ * the pictures they post to Telegram.
  * Херсон's schedule page answers 200 with an empty body, and has since December 2023.
  *
  * Registry of every region the app can offer, and where its schedule comes from.
@@ -76,7 +76,8 @@ export const REGIONS = [
   { id: 'kharkiv',       title: 'Харківська область',  subtitle: 'область',          operator: 'АТ «Харківобленерго»',                    source: 'kharkiv', status: 'seasonal' },
   { id: 'chernivtsi',    title: 'Чернівецька область', subtitle: 'область',          operator: 'АТ «Чернівціобленерго»',                  source: null, status: 'blocked' },
   { id: 'chernihiv',     title: 'Чернігівська область', subtitle: 'область',         operator: 'АТ «Чернігівобленерго»',                  source: null, status: 'blocked' },
-  { id: 'zakarpattia',   title: 'Закарпатська область', subtitle: 'область',         operator: 'АТ «Закарпаттяобленерго»',                source: null, status: 'blocked' },
+  // The grid the operator posts to @zakarpatenergyofficial, read by colour; the caption dates it.
+  { id: 'zakarpattia',   title: 'Закарпатська область', subtitle: 'область',         operator: 'АТ «Закарпаттяобленерго»',                source: 'zakarpattia', status: 'seasonal' },
 
   // --- noFeed: nothing machine-readable to parse
   { id: 'khmelnytskyi',  title: 'Хмельницька область', subtitle: 'область',          operator: 'АТ «Хмельницькобленерго»',                source: 'khmelnytskyi', status: 'seasonal' , note: 'оператор публікує графік лише зображенням' },
