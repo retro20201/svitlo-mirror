@@ -16,6 +16,32 @@ import { buildSnapshot, kyivDayStart, queueNames, NATIONAL_QUEUES } from './cano
 const DAY_SECONDS = 86400;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Today onward, a day the served copy has and this read has nothing for at all — no hours, no
+ * picture — keeps the served copy. These channels never take a schedule back by deleting its post;
+ * a change is a new post, which this read would have seen. So a day that vanishes is a page served
+ * without the post, or a post caught mid-edit, for one fetch: on 6 October that emptied Суми's day
+ * for five minutes and woke every phone in the oblast twice. Returns whether anything was kept.
+ */
+function keepServedDays(previous, { fact, sheets, from }) {
+  const data = previous?.fact?.data;
+  const days = data && !Array.isArray(data) ? data : {};
+  const covered = (epoch) => fact[epoch] !== undefined || sheets.some((sheet) => sheet.dayStart === epoch);
+  let kept = false;
+  for (const [day, queues] of Object.entries(days)) {
+    const epoch = Number(day);
+    if (epoch < from || covered(epoch)) continue;
+    fact[epoch] = queues;
+    kept = true;
+  }
+  for (const sheet of previous?.sheets ?? []) {
+    if (sheet.dayStart < from || covered(sheet.dayStart)) continue;
+    sheets.push(sheet);
+    kept = true;
+  }
+  return kept;
+}
+
 export async function pictureChannelSnapshot(region, {
   channel, source, dayOf, read, amendment = () => null, now = new Date(), spacing = 500,
   fetchPage = fetchChannelPage, fetchImage = getBytes
@@ -81,6 +107,7 @@ export async function pictureChannelSnapshot(region, {
     }
   }
   const { fact, update } = mergeVersions(versions, { since });
+  const kept = keepServedDays(region.previous, { fact, sheets, from: kyivDayStart(now) });
 
   return buildSnapshot({
     regionId: region.id,
@@ -88,7 +115,7 @@ export async function pictureChannelSnapshot(region, {
     queues: queueNames(NATIONAL_QUEUES),
     fact,
     todayEpoch: kyivDayStart(now),
-    update,
+    update: update ?? (kept ? region.previous.fact?.update ?? null : null),
     sheets: sheets.sort((a, b) => a.dayStart - b.dayStart),
     source
   });

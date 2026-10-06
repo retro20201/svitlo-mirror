@@ -74,6 +74,39 @@ const page = (posts) => posts.map(({ id, at, text, photo }) => `<div class="tgme
   `<div class="tgme_widget_message_text js-message_text" dir="auto">${text}</div>` +
   `<div class="tgme_widget_message_footer"><time datetime="${at}" class="time">x</time></div></div></div>`).join('');
 
+test('a day missing from one fetch of the channel keeps the copy already served', async () => {
+  // 6 October 2026, 09:30: the page came back without the schedule post, and the day went from
+  // published to empty and back within ten minutes.
+  const now = new Date('2026-01-21T08:00:00Z');
+  const jan20 = kyivDayStart(new Date('2026-01-20T12:00:00Z'));
+  const jan21 = kyivDayStart(new Date('2026-01-21T12:00:00Z'));
+  const jan22 = kyivDayStart(new Date('2026-01-22T12:00:00Z'));
+  const day = (state) => ({ 'GPV1.1': Object.fromEntries(Array.from({ length: 24 }, (_, i) => [String(i + 1), state])) });
+  const previous = {
+    fact: { data: { [jan20]: day('no'), [jan21]: day('no') }, update: '2026-01-20T18:29:20+00:00' },
+    sheets: [{ dayStart: jan22, imageUrl: 'https://cdn.example/2603.jpg' }]
+  };
+  const empty = await fetchRegion({ id: 'sumy', title: 'Сумська область', previous }, {
+    now, spacing: 0, fetchPage: async () => page([]), fetchImage: async () => assert.fail('nothing to download')
+  });
+  assert.deepEqual(Object.keys(empty.fact.data).map(Number), [jan21], 'yesterday is not carried');
+  assert.deepEqual(empty.sheets.map((s) => s.dayStart), [jan22]);
+  assert.equal(empty.fact.update, '2026-01-20T18:29:20+00:00');
+
+  // A day the page does carry is read afresh, never overlaid by the served copy.
+  const fresh = await fetchRegion({ id: 'sumy', title: 'Сумська область', previous }, {
+    now, spacing: 0,
+    fetchPage: async () => page([{ id: 2980, at: '2026-01-20T18:29:20+00:00', text: 'Завтра, 21 січня, діятимуть графіки погодинних відключень.', photo: 'https://cdn.example/2985.jpg' }]),
+    fetchImage: async () => fixture('sumy.fixture-2985.jpg')
+  });
+  const read = await fetchRegion({ id: 'sumy', title: 'Сумська область' }, {
+    now, spacing: 0,
+    fetchPage: async () => page([{ id: 2980, at: '2026-01-20T18:29:20+00:00', text: 'Завтра, 21 січня, діятимуть графіки погодинних відключень.', photo: 'https://cdn.example/2985.jpg' }]),
+    fetchImage: async () => fixture('sumy.fixture-2985.jpg')
+  });
+  assert.deepEqual(fresh.fact.data[jan21], read.fact.data[jan21]);
+});
+
 test('the newest picture of a day decides: read, it is hours; unreadable, it is the picture', async () => {
   const now = new Date('2026-01-21T08:00:00Z');
   const html = page([
