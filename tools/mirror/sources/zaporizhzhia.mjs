@@ -3,7 +3,7 @@ import {
   fetchChannel, scheduleFromPosts, parseGpvPost, dayOfPost, mergeVersions, unionHalves, factFromHalves, closingDiv
 } from '../lib/telegram.mjs';
 import { getTextTrusting } from '../lib/https-ca.mjs';
-import { buildSnapshot, halvesFromHours, kyivDayStart, queueNames, NATIONAL_QUEUES } from '../lib/canonical.mjs';
+import { buildSnapshot, halvesFromHours, kyivDayStart, queueNames, stampTime, NATIONAL_QUEUES } from '../lib/canonical.mjs';
 
 /**
  * АТ «Запоріжжяобленерго» — ГПВ tables from two of their own outlets, combined.
@@ -143,7 +143,7 @@ export async function fetchRegion(region, now = new Date(), {
   const halves = unionHalves(...readings.map((reading) => reading.halves));
   const seen = new Set(readings.flatMap((reading) => reading.queues));
   const update = readings.map((reading) => reading.update).filter(Boolean)
-    .sort((a, b) => Date.parse(a) - Date.parse(b)).at(-1) ?? null;
+    .sort((a, b) => stampTime(a) - stampTime(b)).at(-1) ?? null;
 
   return buildSnapshot({
     regionId: region.id,

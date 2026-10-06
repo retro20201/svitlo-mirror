@@ -32,7 +32,9 @@
  */
 export const REGIONS = [
   // --- live: ДТЕК's DisconSchedule, the richest source we have (weekly preset + half-hours)
-  { id: 'kyiv',          title: 'Київ',                subtitle: 'місто',            operator: 'ДТЕК Київські електромережі',            source: 'dtek',     status: 'live' },
+  // Its 60 groups are «N.1»; see sources/dtek.mjs `shape` for why the rest and an empty template go.
+  { id: 'kyiv',          title: 'Київ',                subtitle: 'місто',            operator: 'ДТЕК Київські електромережі',            source: 'dtek',     status: 'live',
+    queuePattern: /^GPV\d+\.1$/, staysLive: true },
   { id: 'kyiv-region',   title: 'Київська область',    subtitle: 'область',          operator: 'ДТЕК Київські регіональні електромережі', source: 'dtek',    status: 'live' },
   { id: 'dnipro',        title: 'Дніпро',              subtitle: 'місто та область', operator: 'ДТЕК Дніпровські електромережі',          source: 'dtek',    status: 'live' },
   { id: 'odesa',         title: 'Одеса',               subtitle: 'місто та область', operator: 'ДТЕК Одеські електромережі',              source: 'dtek',    status: 'live' },

@@ -91,7 +91,7 @@ test('a day missing from one fetch of the channel keeps the copy already served'
   });
   assert.deepEqual(Object.keys(empty.fact.data).map(Number), [jan21], 'yesterday is not carried');
   assert.deepEqual(empty.sheets.map((s) => s.dayStart), [jan22]);
-  assert.equal(empty.fact.update, '2026-01-20T18:29:20+00:00');
+  assert.equal(empty.fact.update, '20.01.2026 20:29');
 
   // A day the page does carry is read afresh, never overlaid by the served copy.
   const fresh = await fetchRegion({ id: 'sumy', title: 'Сумська область', previous }, {

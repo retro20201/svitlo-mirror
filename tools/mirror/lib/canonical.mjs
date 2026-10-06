@@ -78,10 +78,41 @@ export function hourStateFromHalves(first, second) {
  * @param {number|null} [input.todayEpoch]
  * @param {string|null} [input.update]  the operator's own timestamp, shown verbatim
  */
+const KYIV_STAMP = new Intl.DateTimeFormat('uk-UA', {
+  timeZone: 'Europe/Kyiv', day: '2-digit', month: '2-digit', year: 'numeric',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+});
+
+/**
+ * The stamp as the app shows it: verbatim, so an instant (a Telegram post's time) has to arrive
+ * already in Kyiv's wall clock. Sent raw, Суми and Черкаси read «Оновлено 2026-10-06T09:23:43+00:00»
+ * — three hours earlier than the post. Operators' own wording passes through untouched.
+ */
+export function displayStamp(update) {
+  if (typeof update !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(update)) return update;
+  const at = new Date(update);
+  if (Number.isNaN(at.getTime())) return update;
+  return KYIV_STAMP.format(at).replace(',', '');
+}
+
+/** Epoch ms of a stamp in either shape this mirror writes — ISO, or `displayStamp`'s — or NaN. */
+export function stampTime(update) {
+  const shown = /^(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2})$/.exec(update ?? '');
+  if (!shown) return Date.parse(update);
+  const [, day, month, year, hour, minute] = shown.map(Number);
+  // Kyiv wall clock → instant: try both offsets the city uses and keep the one that round-trips.
+  for (const offset of [3, 2]) {
+    const at = Date.UTC(year, month - 1, day, hour - offset, minute);
+    if (displayStamp(new Date(at).toISOString()) === update) return at;
+  }
+  return NaN;
+}
+
 export function buildSnapshot({
-  regionId, title, queues, preset = {}, fact = {}, todayEpoch = null, update = null, source,
+  regionId, title, queues, preset = {}, fact = {}, todayEpoch = null, update: raw = null, source,
   sheets = [], sheetBased = false
 }) {
+  const update = displayStamp(raw);
   return {
     regionId,
     regionAffiliation: title,
@@ -188,6 +219,10 @@ export function hasSchedule(snapshot) {
  */
 export function statusFor(region, snapshot, covered = hasSchedule(snapshot)) {
   if (snapshot.meta?.sheetBased && covered) return 'image';
+  // An operator that publishes a day table every day it cuts, and has no template to show between
+  // them (ДТЕК Київ), is served on a quiet day too: «вимкнень не заплановано» is then the truth,
+  // and the region must not vanish from the picker for whoever installs the app that day.
+  if (region.staysLive) return 'live';
   if (covered && !region.archiveOnly) return 'live';
   if (region.status === 'live') return 'seasonal';
   return region.status;

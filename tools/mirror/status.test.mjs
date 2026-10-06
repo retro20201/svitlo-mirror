@@ -55,3 +55,22 @@ test('a summer-time day is keyed at 21:00Z and a winter one at 22:00Z, whatever 
   // The 25-hour day: midnight is still summer time.
   assert.equal(kyivDayStart(new Date('2026-10-25T23:30:00+02:00')), Date.parse('2026-10-24T21:00:00Z') / 1000);
 });
+
+test('a region that stays live is live on a quiet day too', () => {
+  const quiet = buildSnapshot({ regionId: 'kyiv', title: 'Київ', queues: queueNames(NATIONAL_QUEUES), source: 'dtek' });
+  assert.equal(hasSchedule(quiet), false);
+  assert.equal(statusFor({ status: 'live', staysLive: true }, quiet), 'live');
+  assert.equal(statusFor({ status: 'live' }, quiet), 'seasonal');
+});
+
+test('a post time is shown in Kyiv wall clock; an operator\'s own stamp passes through', async () => {
+  const { displayStamp, stampTime } = await import('./lib/canonical.mjs');
+  assert.equal(displayStamp('2026-10-06T09:23:43+00:00'), '06.10.2026 12:23');
+  assert.equal(displayStamp('2026-01-20T18:29:20+00:00'), '20.01.2026 20:29');
+  assert.equal(displayStamp('6 жовтня 2026 12:09'), '6 жовтня 2026 12:09');
+  assert.equal(displayStamp(null), null);
+  // Ordering survives a stamp read back from the served copy.
+  assert.equal(stampTime('06.10.2026 12:23'), Date.parse('2026-10-06T09:23:00Z'));
+  assert.equal(stampTime('20.01.2026 20:29'), Date.parse('2026-01-20T18:29:00Z'));
+  assert.ok(stampTime('06.10.2026 12:23') > stampTime('2026-10-06T09:00:00Z'));
+});
