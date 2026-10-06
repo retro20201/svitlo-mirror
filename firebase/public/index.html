@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Коли Світло — графік відключень</title>
-<meta name="description" content="Графік відключень електроенергії для вашої черги: таймер на екрані блокування, віджети та сповіщення за 15 хвилин до вимкнення.">
+<meta name="description" content="Графік відключень електроенергії для вашої черги: таймер на екрані блокування, віджети та нагадування перед вимкненням.">
+<!-- Safari on iPhone shows its own «Відкрити в App Store» banner for this. -->
+<meta name="apple-itunes-app" content="app-id=6806010572">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -12,31 +14,34 @@
   <header><span class="logo">Коли Світло</span></header>
   <h1>Скільки лишилось до вимкнення</h1>
   <p class="lead">
-    Графік відключень для вашої черги — сьогодні, завтра й на тиждень уперед,
-    з точністю до півгодини.
+    Графік відключень для вашої черги — сьогодні й завтра, з точністю до півгодини.
+    Графіки операторів перевіряємо кожні пʼять хвилин.
   </p>
+  <p><a class="button" href="https://apps.apple.com/ua/app/id6806010572">Завантажити в App Store</a></p>
 
   <div class="card">
     <h2>Що вміє</h2>
     <ul>
       <li>Таймер до вимкнення на екрані блокування та в Dynamic Island</li>
       <li>Віджети на робочий стіл і на локскрін</li>
-      <li>Сповіщення за 15 хвилин до вимкнення — інтервал налаштовується</li>
+      <li>Нагадування перед вимкненням — інтервал налаштовується</li>
+      <li>Пошук своєї черги за адресою</li>
       <li>Працює без інтернету: розклад зберігається на телефоні</li>
     </ul>
   </div>
 
   <div class="card">
     <h2>Які області підключені</h2>
-    <p>
-      Київ, Київська область, Дніпро та Одеса.
-      Актуальний перелік завжди тут:
-      <a href="/v1/index.json">/v1/index.json</a>.
-    </p>
+    <!-- Filled from the same index the app reads, so this page cannot fall behind it again. -->
+    <div id="regions">
+      <p>
+        Перелік оновлюється сам — він у файлі <a href="/v1/index.json">/v1/index.json</a>,
+        з якого його бере й застосунок.
+      </p>
+    </div>
     <p class="updated">
-      Ми додаємо області в міру того, як їхні оператори починають публікувати графіки
-      у придатному для читання вигляді. Частина операторів оприлюднює таблицю черг лише
-      під час обмежень — такі області зʼявляться, щойно графіки повернуться.
+      Частина операторів оприлюднює таблицю черг лише під час обмежень — така область
+      вмикається сама, щойно оператор опублікує графік. Оновлювати застосунок для цього не треба.
     </p>
   </div>
 
@@ -46,5 +51,32 @@
     <a href="/support">Підтримка</a>
   </footer>
 </main>
+<script>
+(function () {
+  var GROUPS = [
+    { status: 'live', title: 'Графік є зараз' },
+    { status: 'image', title: 'Графік лише картинкою оператора' },
+    { status: 'seasonal', title: 'Увімкнуться самі, щойно оператор опублікує графік' }
+  ];
+  function escape(text) {
+    return String(text).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  fetch('/v1/index.json', { cache: 'no-store' })
+    .then(function (response) { return response.json(); })
+    .then(function (index) {
+      var html = '';
+      GROUPS.forEach(function (group) {
+        var names = index.regions
+          .filter(function (region) { return region.status === group.status; })
+          .map(function (region) { return escape(region.title); });
+        if (names.length) html += '<h3>' + group.title + '</h3><p>' + names.join(', ') + '</p>';
+      });
+      if (html) document.getElementById('regions').innerHTML = html;
+    })
+    .catch(function () { /* the static text above stays */ });
+})();
+</script>
 </body>
 </html>
