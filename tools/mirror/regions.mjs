@@ -97,8 +97,14 @@ export const REGIONS = [
   // `seasonal` promised a season that does not come.
   { id: 'kherson',      title: 'Херсонська область',  subtitle: 'область',          operator: 'АТ «Херсонобленерго»',                    source: null, status: 'noFeed', note: 'оператор не публікує графіків відключень за чергами' },
 
+  // Not `occupied`: the free part — Краматорськ, Слов'янськ, Дружківка — is ДТЕК's, and ДТЕК
+  // publishes its schedule the same way as for Київ. Only on dtek-dem.com.ua, though, behind the
+  // same bot wall as every ДТЕК site (checked 2026-10-06 from Kyiv: a 212-byte challenge page), and
+  // the open outage-data-ua mirror the other ДТЕК regions come from does not carry Донецьк.
+  // «Графіки не публікуються» told people there something untrue.
+  { id: 'donetsk',       title: 'Донецька область',    subtitle: 'область',          operator: 'ДТЕК Донецькі електромережі',             source: null, status: 'blocked', note: 'ДТЕК публікує графік лише на своєму сайті та в чат-боті — автоматично його не отримати' },
+
   // --- occupied
-  { id: 'donetsk',       title: 'Донецька область',    subtitle: 'область',          operator: 'ДТЕК Донецькі електромережі',             source: null, status: 'occupied' },
   { id: 'luhansk',       title: 'Луганська область',   subtitle: 'область',          operator: '—',                                       source: null, status: 'occupied' },
   { id: 'crimea',        title: 'АР Крим',             subtitle: 'автономна республіка', operator: '—',                                   source: null, status: 'occupied' }
 ];
