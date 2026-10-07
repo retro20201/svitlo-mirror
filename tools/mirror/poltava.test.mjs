@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { parseFragment, hoursFromHalves, kyivDate } from './sources/poltava.mjs';
+import { parseFragment, hoursFromHalves, kyivDate, settleSwitching } from './sources/poltava.mjs';
 
 // Verbatim answers of poe.pl.ua's own `newgpv-info.php`, fetched from Kyiv on 1 жовтня 2026: two
 // real in-season grids, the quiet day it returned that afternoon, and the empty body it gives for
@@ -18,12 +18,28 @@ test('a published grid becomes twelve subqueues of half-hours', () => {
   assert.deepEqual(halves['GPV1.1'].slice(0, 4), ['off', 'off', 'possible', 'on']);
 });
 
-test('switching time is "maybe", never folded into light or dark', () => {
+test('the switching half-hour after a cut is the light coming back', () => {
   const hours = hoursFromHalves(parseFragment(FRAGMENTS['16-11-2025'], '16-11-2025').halves);
   assert.equal(hours['GPV1.1']['1'], 'no');
-  assert.equal(hours['GPV1.1']['2'], 'mfirst');
-  // 6.1: off, possible — the dark half wins the hour.
-  assert.equal(hours['GPV6.1']['1'], 'no');
+  // 1.1: dark 00:00–01:00, then the yellow half — no «можливе вимкнення» after the cut.
+  assert.equal(hours['GPV1.1']['2'], 'yes');
+  // 6.1: off, then the yellow half — the cut ends at 00:30, not at 01:00.
+  assert.equal(hours['GPV6.1']['1'], 'first');
+});
+
+test('no «можливе» is left anywhere in a real grid', () => {
+  for (const date of ['16-11-2025', '15-01-2026']) {
+    const hours = hoursFromHalves(parseFragment(FRAGMENTS[date], date).halves);
+    const states = new Set(Object.values(hours).flatMap((queue) => Object.values(queue)));
+    assert.ok(![...states].some((state) => state.startsWith('m')), `${date}: ${[...states]}`);
+  }
+});
+
+test('a yellow half that does not close a cut stays possible', () => {
+  assert.deepEqual(
+    settleSwitching(['possible', 'on', 'off', 'possible', 'possible', 'on', 'possible', 'on']),
+    ['on', 'on', 'off', 'on', 'possible', 'on', 'possible', 'on']
+  );
 });
 
 test('a second real grid parses the same way', () => {

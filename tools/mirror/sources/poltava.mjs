@@ -93,11 +93,29 @@ export function parseFragment(html, date) {
   return { halves, update };
 }
 
+/**
+ * The yellow half-hour that closes every cut — «час, необхідний для перемикань» — as light.
+ *
+ * It was shown as «можливе вимкнення», and where it shared an hour with the cut's last dark half
+ * the hour folded to `no`: a cut ending at 07:30 read as ending at 08:00. People in the region
+ * report the light going and coming exactly on the dark cells (user report, 7 жовтня 2026), and
+ * in every grid seen — two from last winter, the first of this season — the yellow half follows a
+ * dark one, or opens the day as the tail of the night's cut. So there it is the light coming back,
+ * the operator's margin on when. A yellow half anywhere else is left as `possible`: that would be
+ * something new, and not the switching this describes.
+ */
+export function settleSwitching(slots) {
+  return slots.map((state, index) =>
+    state === 'possible' && (index === 0 || slots[index - 1] === 'off') ? 'on' : state
+  );
+}
+
 /** Half-hours → canonical hours, or nothing for a grid with no outage anywhere in it. */
 export function hoursFromHalves(halves) {
-  if (!Object.values(halves).some((slots) => slots.some((state) => state !== 'on'))) return null;
+  if (!Object.values(halves).some((slots) => slots.some((state) => state === 'off'))) return null;
   const queues = {};
-  for (const [key, slots] of Object.entries(halves)) {
+  for (const [key, raw] of Object.entries(halves)) {
+    const slots = settleSwitching(raw);
     queues[key] = {};
     for (let hour = 1; hour <= 24; hour++) {
       queues[key][String(hour)] = hourStateFromHalves(slots[(hour - 1) * 2], slots[(hour - 1) * 2 + 1]);
