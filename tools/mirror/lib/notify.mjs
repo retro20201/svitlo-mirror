@@ -12,6 +12,7 @@
  */
 
 import { accessToken } from './google-auth.mjs';
+import { kyivDayStart } from './canonical.mjs';
 
 const SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
 
@@ -27,7 +28,7 @@ export function topicFor(regionId) {
  * anyone's evening looks like. Only `fact` — the schedule actually published for a given day —
  * is worth spending a wake-up on, for every phone in the oblast at once.
  */
-export function affectsSchedule(previous, next) {
+export function affectsSchedule(previous, next, now = new Date()) {
   // No file yet, `[]` (what ДТЕК sends out of season) and `{}` all mean "no published day". A
   // region seen for the first time with nothing published is not news: treating the missing
   // file as different woke Львів's, Кропивницький's and Волинь's phones on every run.
@@ -35,7 +36,12 @@ export function affectsSchedule(previous, next) {
     const data = payload?.fact?.data;
     return !data || Object.keys(data).length === 0 ? '[]' : JSON.stringify(data);
   };
-  return fact(previous) !== fact(next);
+  // Days the operator declares emergency outages on (YASNO's `EmergencyShutdowns`): the app warns
+  // that the schedule may not hold, and that warning is worth a wake-up as soon as it appears.
+  // Only today's and later: yesterday's flag dropping off at midnight changes nothing on a phone.
+  const today = kyivDayStart(now);
+  const emergency = (payload) => JSON.stringify((payload?.fact?.emergency ?? []).filter((day) => day >= today));
+  return fact(previous) !== fact(next) || emergency(previous) !== emergency(next);
 }
 
 /**

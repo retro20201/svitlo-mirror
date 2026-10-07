@@ -12,6 +12,10 @@ import { buildSnapshot, displayStamp, halvesFromHours, hourStateFromHalves, kyiv
  * (region 25, ДТЕК Київські електромережі 902) and Дніпро (region 3, ДнЕМ 301; ЦЕК 303 publishes
  * the identical tables). Київська область and Одеса are not YASNO's.
  *
+ * A day YASNO marks `EmergencyShutdowns` — the operator cutting beyond any schedule — is carried as
+ * `fact.emergency` (day epochs, today on): the app keeps showing ДТЕК's table but warns that it
+ * may not hold. Only YASNO says so; outage-data-ua has no such field.
+ *
  * Slots are minutes from Kyiv midnight. `Definite` is a cut in the day tables and a likely cut in
  * the weekly plan; `NotPlanned` is light. Any other type, or a boundary off the half-hour grid,
  * fails the read: a changed API must not turn into a guessed schedule.
@@ -191,14 +195,23 @@ export function combine({ upstream, yasno, previous, region, now = new Date(), l
 
   return {
     ...upstream,
-    fact: {
+    fact: withEmergency({
       ...upstream.fact,
       data: Object.keys(days).length ? days : [],
       // The stamp of the copy a shown day came from, so «Оновлено» never predates it.
       ...(tookYasno && yasnoAt > upstreamAt ? { update: displayStamp(yasno.update) } : {})
-    },
+    }, yasno.emergency, now),
     preset
   };
+}
+
+/** `fact` with `emergency` set to the days from today on, or without the key when there are none —
+ *  so a region with no emergency keeps exactly the shape it always had. */
+function withEmergency(fact, days, now) {
+  const { emergency, ...rest } = fact;
+  const today = kyivDayStart(now);
+  const kept = [...new Set((days ?? []).map(Number))].filter((day) => day >= today).sort((a, b) => a - b);
+  return kept.length ? { ...rest, emergency: kept } : rest;
 }
 
 /**
@@ -215,6 +228,8 @@ function holdServed({ upstream, previous, now }) {
   const upstreamAt = stampTime(upstream.fact?.update) || 0;
   const today = kyivDayStart(now);
   const days = { ...upstreamDays };
+  // Only YASNO knows of emergencies; while it is silent, the warning phones have stays.
+  const emergency = previous.fact?.emergency ?? [];
   let held = false;
   for (const [epoch, day] of Object.entries(servedDays)) {
     if (Number(epoch) < today) continue;
@@ -224,10 +239,17 @@ function holdServed({ upstream, previous, now }) {
       held = true;
     }
   }
-  if (!held) return upstream;
+  if (!held) {
+    const fact = withEmergency(upstream.fact ?? {}, emergency, now);
+    return 'emergency' in fact ? { ...upstream, fact } : upstream;
+  }
   return {
     ...upstream,
-    fact: { ...upstream.fact, data: days, ...(servedAt > upstreamAt ? { update: previous.fact.update } : {}) }
+    fact: withEmergency(
+      { ...upstream.fact, data: days, ...(servedAt > upstreamAt ? { update: previous.fact.update } : {}) },
+      emergency,
+      now
+    )
   };
 }
 
@@ -241,7 +263,7 @@ function overlay({ yasno, yasnoAt, previous, region, now }) {
   const today = kyivDayStart(now);
   if (!previous) {
     const queues = [...new Set(Object.values(yasno.fact).flatMap(Object.keys))].sort();
-    return buildSnapshot({
+    const built = buildSnapshot({
       regionId: region.id,
       title: region.title,
       queues: Object.fromEntries(queues.map((key) => [key, `Черга ${key.slice(3)}`])),
@@ -251,6 +273,7 @@ function overlay({ yasno, yasnoAt, previous, region, now }) {
       update: yasno.update,
       source: 'yasno'
     });
+    return { ...built, fact: withEmergency(built.fact, yasno.emergency, now) };
   }
   const servedAt = stampTime(previous.fact?.update) || 0;
   const order = Object.keys(previous.preset?.sch_names ?? {});
@@ -269,11 +292,11 @@ function overlay({ yasno, yasnoAt, previous, region, now }) {
   return {
     ...kept,
     lastUpdated: now.toISOString(),
-    fact: {
+    fact: withEmergency({
       ...previous.fact,
       data: Object.keys(days).length ? days : [],
       today,
       ...(tookYasno && yasnoAt > servedAt ? { update: displayStamp(yasno.update) } : {})
-    }
+    }, yasno.emergency, now)
   };
 }

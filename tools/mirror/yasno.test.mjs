@@ -229,6 +229,38 @@ test('outage-data-ua down: the region fails, offering YASNO\'s part for the mirr
   assert.equal(fine, F.kyivUpstream);
 });
 
+test('an emergency day is carried for the app, wakes phones, and outlasts a silent YASNO', () => {
+  const planned = clone(F.kyivPlanned);
+  for (const group of Object.values(planned)) group.today.status = 'EmergencyShutdowns';
+  const read = factFromPlanned(planned, keepKyiv);
+  const today = Object.keys(kyivYasno().fact).sort()[0];
+  assert.deepEqual(read.emergency, [Number(today)]);
+  assert.equal(read.fact[today], undefined, 'YASNO\'s own table for an emergency day is not used');
+
+  const yasno = { ...kyivYasno(), emergency: read.emergency };
+  const snapshot = combine({ upstream: F.kyivUpstream, yasno, previous: F.kyivUpstream, region: KYIV, now: NOW, log: quiet });
+  assert.deepEqual(validate(snapshot), []);
+  assert.deepEqual(snapshot.fact.emergency, [Number(today)]);
+  assert.deepEqual(snapshot.fact.data, F.kyivUpstream.fact.data, 'ДТЕК\'s table is still shown');
+  assert.equal(affectsSchedule(F.kyivUpstream, snapshot), true, 'phones hear of it at once');
+
+  // YASNO silent next cycle: the warning stays rather than flickering off.
+  const silent = combine({ upstream: F.kyivUpstream, yasno: null, previous: snapshot, region: KYIV, now: NOW, log: quiet });
+  assert.deepEqual(silent.fact.emergency, [Number(today)]);
+  assert.equal(affectsSchedule(snapshot, silent), false);
+
+  // Over: YASNO answers without it, and the key is gone — the shape phones always had.
+  const over = combine({ upstream: F.kyivUpstream, yasno: kyivYasno(), previous: silent, region: KYIV, now: NOW, log: quiet });
+  assert.equal('emergency' in over.fact, false);
+  assert.equal(affectsSchedule(silent, over), true);
+
+  // A past day's emergency is dropped — without waking anyone for it.
+  const tomorrowMorning = new Date(NOW.getTime() + 24 * 3600 * 1000);
+  const later = combine({ upstream: F.kyivUpstream, yasno: null, previous: snapshot, region: KYIV, now: tomorrowMorning, log: quiet });
+  assert.equal('emergency' in later.fact, false);
+  assert.equal(affectsSchedule(snapshot, later, tomorrowMorning), false);
+});
+
 test('a slot off the half-hour grid or of an unknown type fails the read', () => {
   assert.throws(() => slotsToHalves([{ start: 0, end: 45, type: 'Definite' }], 'off'), /half-hour grid/);
   assert.throws(() => slotsToHalves([{ start: 0, end: 60, type: 'Possible' }], 'off'), /unknown yasno slot type/);
