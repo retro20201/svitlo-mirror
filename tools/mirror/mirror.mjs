@@ -104,6 +104,7 @@ async function main() {
     try {
       let snapshot;
       let relayed = null;
+      let partial = false;
       try {
         if (Date.now() - startedAt > CYCLE_BUDGET_MS) {
           notStarted = true;
@@ -119,10 +120,19 @@ async function main() {
         relayed = process.env.RELAY_DIR
           ? await readRelay(process.env.RELAY_DIR, region.id, { previousRow: previousRows.get(region.id), served })
           : null;
-        if (!relayed) throw error;
-        if (error instanceof Deadline) overran = true;
-        console.warn(`[relay] ${region.id}: ${error.message}; publishing GitHub's copy of ${relayed.relayedAt}`);
-        snapshot = relayed.snapshot;
+        if (relayed) {
+          if (error instanceof Deadline) overran = true;
+          console.warn(`[relay] ${region.id}: ${error.message}; publishing GitHub's copy of ${relayed.relayedAt}`);
+          snapshot = relayed.snapshot;
+        } else if (error.fallback) {
+          // Part of the region read another way (Київ and Дніпро from YASNO): better than the old
+          // copy, but still stale — kept on GitHub's list until the region reads whole again.
+          console.warn(`[partial] ${region.id}: ${error.message}; publishing what the adapter could read`);
+          snapshot = error.fallback;
+          partial = true;
+        } else {
+          throw error;
+        }
       }
 
       const previous = await readExisting(file);
@@ -132,7 +142,7 @@ async function main() {
       entry.hasSchedule = hasSchedule(snapshot);
 
       entry.status = statusFor(region, snapshot, entry.hasSchedule);
-      if (relayed) {
+      if (relayed || partial) {
         // Still failing here: kept on the list GitHub reads, so it keeps relaying.
         entry.stale = true;
         entry.staleSince = staleSince(previousRows.get(region.id));

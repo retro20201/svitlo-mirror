@@ -1,5 +1,6 @@
 import { getJSON } from '../lib/http.mjs';
 import { validate } from '../lib/canonical.mjs';
+import { combine, fetchYasno } from './yasno.mjs';
 
 /**
  * ДТЕК regions, taken from the open `outage-data-ua` mirror (MIT) rather than scraped directly.
@@ -54,7 +55,7 @@ export function shape(payload, region) {
   };
 }
 
-export async function fetchRegion(region) {
+async function fetchUpstream(region) {
   const file = REGION_FILES[region.id];
   if (!file) throw new Error(`dtek adapter has no file for "${region.id}"`);
 
@@ -62,5 +63,40 @@ export async function fetchRegion(region) {
 
   const problems = validate(snapshot);
   if (problems.length) throw new Error(problems.join('; '));
+  return snapshot;
+}
+
+/**
+ * Where YASNO carries the region (`region.yasno`), its copy is read too and the two are combined
+ * (sources/yasno.mjs). With outage-data-ua down, YASNO's part is offered to the mirror as
+ * `error.fallback`: published only when no relayed copy stands in, and marked stale either way,
+ * so GitHub keeps reading the region whole.
+ */
+export async function fetchRegion(region) {
+  if (!region.yasno) return fetchUpstream(region);
+  const [upstream, yasno] = await Promise.allSettled([fetchUpstream(region), fetchYasno(region)]);
+  return settle(upstream, yasno, region);
+}
+
+export function settle(upstream, yasno, region, log = (line) => console.log(`[yasno] ${line}`)) {
+  if (yasno.status === 'rejected') log(`${region.id}: yasno failed: ${yasno.reason?.message}`);
+  if (yasno.value?.emergency?.length) log(`${region.id}: emergency shutdowns on ${yasno.value.emergency.join(', ')}`);
+  const combined = (copy) => combine({ upstream: copy, yasno: yasno.value ?? null, previous: region.previous, region, log });
+
+  if (upstream.status === 'rejected') {
+    const error = upstream.reason instanceof Error ? upstream.reason : new Error(String(upstream.reason));
+    if (yasno.status === 'fulfilled') {
+      const fallback = combined(null);
+      if (!validate(fallback).length) error.fallback = fallback;
+    }
+    throw error;
+  }
+  const snapshot = combined(upstream.value);
+  const problems = validate(snapshot);
+  if (problems.length) {
+    // YASNO must never fail a region outage-data-ua alone can serve.
+    log(`${region.id}: combined copy invalid (${problems.join('; ')}); serving outage-data-ua's`);
+    return upstream.value;
+  }
   return snapshot;
 }

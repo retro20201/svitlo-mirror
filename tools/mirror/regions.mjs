@@ -34,9 +34,10 @@ export const REGIONS = [
   // --- live: ДТЕК's DisconSchedule, the richest source we have (weekly preset + half-hours)
   // Its 60 groups are «N.1»; see sources/dtek.mjs `shape` for why the rest and an empty template go.
   { id: 'kyiv',          title: 'Київ',                subtitle: 'місто',            operator: 'ДТЕК Київські електромережі',            source: 'dtek',     status: 'live',
-    queuePattern: /^GPV\d+\.1$/, staysLive: true },
+    queuePattern: /^GPV\d+\.1$/, staysLive: true, yasno: { regionId: 25, dsoId: 902 } },
   { id: 'kyiv-region',   title: 'Київська область',    subtitle: 'область',          operator: 'ДТЕК Київські регіональні електромережі', source: 'dtek',    status: 'live' },
-  { id: 'dnipro',        title: 'Дніпро',              subtitle: 'місто та область', operator: 'ДТЕК Дніпровські електромережі',          source: 'dtek',    status: 'live' },
+  { id: 'dnipro',        title: 'Дніпро',              subtitle: 'місто та область', operator: 'ДТЕК Дніпровські електромережі',          source: 'dtek',    status: 'live',
+    yasno: { regionId: 3, dsoId: 301 } },
   { id: 'odesa',         title: 'Одеса',               subtitle: 'місто та область', operator: 'ДТЕК Одеські електромережі',              source: 'dtek',    status: 'live' },
 
   // --- seasonal: the API answers, but out of season it returns queue names with no hours,
