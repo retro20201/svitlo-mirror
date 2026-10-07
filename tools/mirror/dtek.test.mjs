@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shape } from './sources/dtek.mjs';
+import { shape, upstreamBase } from './sources/dtek.mjs';
 import { validate } from './lib/canonical.mjs';
 import { REGIONS } from './regions.mjs';
 
@@ -42,4 +42,19 @@ test('a region without a pattern keeps its template and every queue', () => {
   const snapshot = shape(payload(), region);
   assert.deepEqual(Object.keys(snapshot.preset.data), ['GPV1.1', 'GPV1.2', 'GPV2.1']);
   assert.equal(Object.keys(snapshot.preset.sch_names).length, 4);
+});
+
+test('outage-data-ua is read at its newest commit, past the raw cache, and by branch if that fails', async () => {
+  const sha = 'c89ea99d615f0123456789abcdef0123456789ab';
+  const asked = [];
+  const base = await upstreamBase(async (url, options) => { asked.push([url, options.headers.accept]); return sha + '\n'; }, 1_000_000_000);
+  assert.equal(base, `https://raw.githubusercontent.com/Baskerville42/outage-data-ua/${sha}/data`);
+  assert.deepEqual(asked, [['https://api.github.com/repos/Baskerville42/outage-data-ua/commits/main', 'application/vnd.github.sha']]);
+  // Within the minute the same hash serves every region, without asking again.
+  assert.equal(await upstreamBase(async () => { throw new Error('asked twice'); }, 1_000_030_000), base);
+  // Later, a failed lookup falls back to the branch path.
+  assert.equal(
+    await upstreamBase(async () => { throw new Error('403 rate limited'); }, 1_000_200_000),
+    'https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/data'
+  );
 });

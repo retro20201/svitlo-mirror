@@ -1,4 +1,4 @@
-import { getJSON } from '../lib/http.mjs';
+import { getJSON, getText } from '../lib/http.mjs';
 import { validate } from '../lib/canonical.mjs';
 import { combine, fetchYasno } from './yasno.mjs';
 
@@ -14,6 +14,30 @@ import { combine, fetchYasno } from './yasno.mjs';
  * on — so this adapter validates and passes it through rather than transforming it.
  */
 const UPSTREAM = 'https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/data';
+const HEAD = 'https://api.github.com/repos/Baskerville42/outage-data-ua/commits/main';
+
+/**
+ * Where to read this cycle's files: the upstream's newest commit, by its hash.
+ *
+ * `raw.githubusercontent.com/…/main/…` is served from a cache for up to five minutes
+ * (`max-age=300`, and a query string does not get past it), on top of the upstream's own
+ * five-minute run and this mirror's: on 7 жовтня 2026 a ДТЕК revision stamped 21:13 reached
+ * Київська область's phones at 21:35. A path by commit hash is never stale. One API call per cycle
+ * for all four regions — well inside the 60 an hour GitHub allows without a token; if it fails, the
+ * branch path as before.
+ */
+let pinned = null;
+export async function upstreamBase(get = getText, now = Date.now()) {
+  if (pinned && now - pinned.at < 60_000) return pinned.base;
+  try {
+    const sha = String(await get(HEAD, { headers: { accept: 'application/vnd.github.sha' }, retries: 0, timeoutMs: 8000 })).trim();
+    if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error(`not a commit hash: ${sha.slice(0, 40)}`);
+    pinned = { at: now, base: `https://raw.githubusercontent.com/Baskerville42/outage-data-ua/${sha}/data` };
+    return pinned.base;
+  } catch {
+    return UPSTREAM;
+  }
+}
 
 const REGION_FILES = {
   kyiv: 'kyiv',
@@ -59,7 +83,7 @@ async function fetchUpstream(region) {
   const file = REGION_FILES[region.id];
   if (!file) throw new Error(`dtek adapter has no file for "${region.id}"`);
 
-  const snapshot = shape(await getJSON(`${UPSTREAM}/${file}.json`), region);
+  const snapshot = shape(await getJSON(`${await upstreamBase()}/${file}.json`), region);
 
   const problems = validate(snapshot);
   if (problems.length) throw new Error(problems.join('; '));
