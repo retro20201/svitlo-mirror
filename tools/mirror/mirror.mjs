@@ -20,6 +20,7 @@ import { affectsSchedule } from './lib/notify.mjs';
 import { unchanged } from './lib/change.mjs';
 import { readRelay, staleSince } from './lib/relay.mjs';
 import { ADAPTERS } from './adapters.mjs';
+import { readsThisCycle } from './lib/lanes.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REGIONS } from './regions.mjs';
@@ -93,6 +94,15 @@ async function main() {
 
     if (!targets.includes(region)) {
       entries.set(region.id, entry);
+      continue;
+    }
+
+    // Not read this cycle (lib/lanes.mjs): its row and its file stay exactly as they are.
+    const previousRow = previousRows.get(region.id);
+    if (!readsThisCycle(region, previousRow, {
+      slowLane: process.env.MIRROR_SLOW_LANE === '1', slowTurn: process.env.MIRROR_SLOW_TURN === '1'
+    })) {
+      entries.set(region.id, previousRow);
       continue;
     }
 

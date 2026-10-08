@@ -242,17 +242,17 @@ test('an emergency day is carried for the app, wakes phones, and outlasts a sile
   assert.deepEqual(validate(snapshot), []);
   assert.deepEqual(snapshot.fact.emergency, [Number(today)]);
   assert.deepEqual(snapshot.fact.data, F.kyivUpstream.fact.data, 'ДТЕК\'s table is still shown');
-  assert.equal(affectsSchedule(F.kyivUpstream, snapshot), true, 'phones hear of it at once');
+  assert.equal(affectsSchedule(F.kyivUpstream, snapshot, NOW), true, 'phones hear of it at once');
 
   // YASNO silent next cycle: the warning stays rather than flickering off.
   const silent = combine({ upstream: F.kyivUpstream, yasno: null, previous: snapshot, region: KYIV, now: NOW, log: quiet });
   assert.deepEqual(silent.fact.emergency, [Number(today)]);
-  assert.equal(affectsSchedule(snapshot, silent), false);
+  assert.equal(affectsSchedule(snapshot, silent, NOW), false);
 
   // Over: YASNO answers without it, and the key is gone — the shape phones always had.
   const over = combine({ upstream: F.kyivUpstream, yasno: kyivYasno(), previous: silent, region: KYIV, now: NOW, log: quiet });
   assert.equal('emergency' in over.fact, false);
-  assert.equal(affectsSchedule(silent, over), true);
+  assert.equal(affectsSchedule(silent, over, NOW), true);
 
   // A past day's emergency is dropped — without waking anyone for it.
   const tomorrowMorning = new Date(NOW.getTime() + 24 * 3600 * 1000);

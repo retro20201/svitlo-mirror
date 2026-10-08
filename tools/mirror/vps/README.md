@@ -1,7 +1,10 @@
 # The mirror on the Kyiv server
 
 `run.sh` is one cycle of `.github/workflows/mirror.yml`, run from a Ukrainian address every
-5 minutes by `svitlo-mirror.timer`. GitHub Actions keeps its cron as the fallback and stands down
+2 minutes by `svitlo-mirror.timer` (regions with nothing published are read every third cycle,
+`lib/lanes.mjs`). A change to the region files is published by `fast-deploy.mjs` — a clone of the
+live site with only `/v1/*.json` replaced, prepared while the operators are read — in seconds;
+anything else on the site goes out by a full `firebase deploy`, once per change of it. GitHub Actions keeps its cron as the fallback and stands down
 while this server has finished a cycle in the last 20 minutes (`lib/heartbeat.mjs`).
 
 The server also runs BenzUA (`/opt/benzua-fetch`, its own timers) and the VPN. Nothing here

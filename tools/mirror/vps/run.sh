@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One mirror cycle on the Kyiv server — the steps of .github/workflows/mirror.yml, from a Ukrainian
-# address. Started by svitlo-mirror.timer every 5 minutes; see README.md in this folder.
+# address. Started by svitlo-mirror.timer every 2 minutes; see README.md in this folder.
 #
 # The whole body is one function, called on the last line: bash reads a script as it runs, and a
 # manual `git pull` mid-cycle would otherwise rewrite the lines still to come.
@@ -57,6 +57,25 @@ main() {
     fi
   done
 
+  # Anything on the site besides the region files — a legal page, the address dictionaries,
+  # firebase.json — goes out by a full `firebase deploy`, once per change of it, whether or not a
+  # region moved. Fingerprinted from git's own blob ids: the checkout is shallow, so no diff.
+  local fingerprint full=false
+  fingerprint=$(git ls-tree -r "$head" -- firebase.json firebase/public \
+    | grep -vE $'\tfirebase/public/v1/[^/]+\\.json$' | sha256sum | cut -c1-64)
+  [ "$(cat "$STATE/site-deployed" 2>/dev/null)" = "$fingerprint" ] || full=true
+
+  # The fast path (fast-deploy.mjs): clone the live site on Firebase's side while the operators
+  # are read, so a change is out in seconds. A clone left by a cycle that died is deleted first.
+  local prepared="$STATE/prepared.json" preparing=""
+  if [ -s "$prepared" ]; then
+    node tools/mirror/fast-deploy.mjs discard "$prepared" > /dev/null 2>&1 || rm -f "$prepared"
+  fi
+  if [ "$full" = "false" ]; then
+    node tools/mirror/fast-deploy.mjs prepare "$prepared" > "$STATE/prepare.log" 2>&1 &
+    preparing=$!
+  fi
+
   # GitHub's copies of regions this server has been failing (lib/relay.mjs). A missing branch or a
   # failed fetch just means there are none; mirror.mjs uses them only where its own read fails.
   rm -rf "$STATE/relay" && mkdir -p "$STATE/relay"
@@ -64,30 +83,76 @@ main() {
     git archive FETCH_HEAD | tar -x -C "$STATE/relay"
   fi
 
-  local outputs changed notify
+  # Regions with nothing published are read on the slow turn (lib/lanes.mjs): once five and a half
+  # minutes have passed since the last one, however long the cycles in between ran.
+  local outputs changed notify now slow_turn=0
+  now=$(date +%s)
+  [ $(( now - $(cat "$STATE/slow-read-at" 2>/dev/null || echo 0) )) -ge 330 ] && slow_turn=1
   outputs=$(mktemp)
-  if ! GITHUB_OUTPUT="$outputs" RELAY_DIR="$STATE/relay" node tools/mirror/mirror.mjs; then
+  if ! GITHUB_OUTPUT="$outputs" RELAY_DIR="$STATE/relay" MIRROR_SLOW_LANE=1 MIRROR_SLOW_TURN=$slow_turn \
+      node tools/mirror/mirror.mjs; then
     rm -f "$outputs"
     echo "[mirror] every adapter failed — not publishing"
     exit 1
   fi
+  [ "$slow_turn" = "1" ] && echo "$now" > "$STATE/slow-read-at"
   changed=$(sed -n 's/^changed=//p' "$outputs")
   notify=$(sed -n 's/^notify=//p' "$outputs")
   rm -f "$outputs"
 
-  if [ "$changed" = "true" ]; then
+  # The clone has had the whole read to finish; a failed one just means the full deploy.
+  if [ -n "$preparing" ] && ! wait "$preparing"; then
+    tail -3 "$STATE/prepare.log"
+    rm -f "$prepared"
+  fi
+  # A clone of a version this server did not release would carry someone else's site forward —
+  # GitHub's, published while this server was away — for as long as no commit touched the site.
+  # The cycle after such a release deploys in full from this checkout instead.
+  if [ -s "$prepared" ] && [ "$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).source)' "$prepared")" \
+      != "$(cat "$STATE/live-version" 2>/dev/null)" ]; then
+    echo "[deploy] live is not what this server released last — deploying in full"
+    node tools/mirror/fast-deploy.mjs discard "$prepared" > /dev/null 2>&1 || rm -f "$prepared"
+    full=true
+  fi
+
+  if [ "$changed" = "true" ] || [ "$full" = "true" ]; then
     # Stamped before the deploy as well as after the cycle: GitHub asks once more right before its
     # own release, and this one may be minutes in flight. A beat that cannot land means GitHub
     # will publish too, so this one does not.
     if ! node tools/mirror/heartbeat.mjs beat; then
       echo "[deploy] skipped — without a beat GitHub publishes, and two writers overwrite each other"
+      [ -s "$prepared" ] && node tools/mirror/fast-deploy.mjs discard "$prepared" > /dev/null 2>&1
       exit 1
     fi
-    if ! "$FIREBASE" deploy --only hosting --project koly-svitlo --non-interactive --message "kyiv ${head:0:9}"; then
-      echo "[deploy] failed — no push; handing over to GitHub"
-      node tools/mirror/heartbeat.mjs clear
-      exit 1
+    local fast=false version rc
+    if [ "$full" = "false" ] && [ -s "$prepared" ]; then
+      version=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).version)' "$prepared")
+      node tools/mirror/fast-deploy.mjs release "$prepared" "kyiv ${head:0:9}"
+      rc=$?
+      if [ "$rc" = "0" ]; then
+        fast=true
+        echo "$version" > "$STATE/live-version"
+      elif [ "$rc" = "3" ]; then
+        # Someone else published during this cycle. A full deploy now would put this cycle's
+        # older baseline over it; the next cycle starts from what is live instead. No push.
+        echo "[deploy] live moved during this cycle — not deploying over it"
+        exit 1
+      else
+        echo "[deploy] fast path failed — deploying in full"
+      fi
     fi
+    if [ "$fast" = "false" ]; then
+      [ -s "$prepared" ] && node tools/mirror/fast-deploy.mjs discard "$prepared" > /dev/null 2>&1
+      if ! "$FIREBASE" deploy --only hosting --project koly-svitlo --non-interactive --message "kyiv ${head:0:9}"; then
+        echo "[deploy] failed — no push; handing over to GitHub"
+        node tools/mirror/heartbeat.mjs clear
+        exit 1
+      fi
+      echo "$fingerprint" > "$STATE/site-deployed"
+      node tools/mirror/fast-deploy.mjs live > "$STATE/live-version" 2>/dev/null || rm -f "$STATE/live-version"
+    fi
+  elif [ -s "$prepared" ]; then
+    node tools/mirror/fast-deploy.mjs discard "$prepared" > /dev/null 2>&1 || rm -f "$prepared"
   fi
 
   # Strictly after the deploy: a phone woken earlier refetches the old file and believes it.
