@@ -2,9 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  encQueue, newsTopic, sheetTopic, emergencyTopic, offMask, kyivClock, windowStart, sheetKey,
-  observeRegion, decide, render, buildMessage, recordSent, isNight, dayLabel, BREAKER, GAP_MS
+  encQueue, newsTopic, sheetTopic, emergencyTopic, kyivClock, windowStart,
+  decide, render, buildMessage, recordSent, isNight, dayLabel, BREAKER, GAP_MS
 } from './lib/news.mjs';
+import { offMask, sheetKey, observeRegion } from './lib/news-observe.mjs';
 import { buildSnapshot, kyivDayStart, kyivTomorrowStart, queueNames, NATIONAL_QUEUES } from './lib/canonical.mjs';
 import { parseFragment, hoursFromHalves } from './sources/poltava.mjs';
 import { regionById } from './regions.mjs';

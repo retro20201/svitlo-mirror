@@ -7,8 +7,8 @@
  * is off or it is ten at night — the ordinary state of a phone during blackouts. They go to opt-in
  * topics only: `q_<region>_<queue>`, `s_<region>` for a day published as a picture, `e_<region>`.
  *
- * Pure: no files, no network, the clock passed in. send-news.mjs feeds it the files being served
- * and a ledger, and does the sending.
+ * Pure: no files, no network, the clock passed in. send-news.mjs feeds it the files being served,
+ * read by lib/news-observe.mjs, and a ledger, and does the sending.
  *
  * The baseline is the ledger of what people were told (or what was adopted without telling them),
  * never the previous fetch. Comparing fetch to fetch is what turns an operator's flap — a day that
@@ -20,7 +20,7 @@
 import { createHash } from 'node:crypto';
 import { kyivDayStart, kyivTomorrowStart } from './canonical.mjs';
 import { SLOW_TURN_SECONDS } from './lanes.mjs';
-import { REGIONS, hasEmergencySignal } from '../regions.mjs';
+import { REGIONS } from '../regions.mjs';
 
 // --- Topics. Byte for byte what the app subscribes to (OutagePushSubscriber.swift); the shared
 // vectors in news.test.mjs are the same table its tests use.
@@ -37,27 +37,11 @@ export const newsTopic = (region, queue) => `q_${region}_${encQueue(queue)}`;   
 export const sheetTopic = (region) => `s_${region}`;
 export const emergencyTopic = (region) => `e_${region}`;
 
-// --- Masks: a day as 48 half-hour bits, bit i = slot i (00:00–00:30 is slot 0).
+// --- Masks: a day as 48 half-hour bits, bit i = slot i (00:00–00:30 is slot 0), kept as the 12 hex
+// chars lib/news-observe.mjs reads them into.
 
 const ALL = (1n << 48n) - 1n;
-const OFF_HALVES = new Map([['no', [0, 1]], ['first', [0]], ['second', [1]]]);
-
-const hex = (mask) => mask.toString(16).padStart(12, '0');
 const bits = (value) => BigInt(`0x${value}`);
-
-/**
- * The half-hours a queue is definitely without light, as 12 hex chars; null for no queue at all.
- * `yes`, the `maybe` family, an unknown state and a missing hour all count as light, as in the
- * app's ScheduleEngine. Not `halvesFromHours`: its default for a missing hour is dark.
- */
-export function offMask(hours) {
-  if (!hours || typeof hours !== 'object') return null;
-  let mask = 0n;
-  for (let hour = 1; hour <= 24; hour++) {
-    for (const half of OFF_HALVES.get(hours[String(hour)]) ?? []) mask |= 1n << BigInt((hour - 1) * 2 + half);
-  }
-  return hex(mask);
-}
 
 export function popcount(mask) {
   let count = 0;
@@ -91,54 +75,6 @@ export function windowStart(day, now = new Date()) {
 }
 
 const windowMask = (start) => ALL ^ ((1n << BigInt(start)) - 1n);
-
-/**
- * A picture's identity. Telegram rotates a photo's CDN url on every page load, so its post link is
- * the identity there; Волинь's and Хмельницький's page links never change, so the picture's own
- * path (a dated file name) is.
- */
-export function sheetKey(sheet) {
-  return /^https:\/\/t\.me\//.test(sheet.sourceUrl ?? '') ? sheet.sourceUrl : sheet.imageUrl;
-}
-
-// --- Reading a served file.
-
-/**
- * What a served region file says about today and tomorrow, and nothing else. A queue missing from
- * a published day is absent — no mask, never "clear": Івано-Франківськ and Вінниця publish partial
- * days. A day comes from the table if there is one, else from Полтава's `quiet`, else from the
- * picture.
- */
-export function observeRegion(meta, snapshot, now = new Date()) {
-  const today = kyivDayStart(now);
-  const tomorrow = kyivTomorrowStart(now);
-  const fact = snapshot?.fact ?? {};
-  const data = fact.data && !Array.isArray(fact.data) ? fact.data : {};
-  const names = snapshot?.preset?.sch_names ?? {};
-  const quiet = Array.isArray(fact.quiet) ? fact.quiet.map(Number) : [];
-  const days = {};
-  const sheets = {};
-  for (const day of [today, tomorrow]) {
-    const queues = data[day];
-    if (queues && typeof queues === 'object' && Object.keys(queues).length) {
-      const masks = {};
-      for (const queue of Object.keys(names)) {
-        const mask = offMask(queues[queue]);
-        if (mask !== null) masks[queue] = mask;
-      }
-      days[day] = { state: 'fact', masks };
-    } else if (quiet.includes(day)) {
-      days[day] = { state: 'quiet', masks: Object.fromEntries(Object.keys(names).map((queue) => [queue, hex(0n)])) };
-    } else {
-      const sheet = (snapshot?.sheets ?? []).filter((candidate) => candidate.dayStart === day).at(-1);
-      if (sheet) sheets[day] = { key: sheetKey(sheet), isRevision: sheet.isRevision === true };
-    }
-  }
-  const emergency = hasEmergencySignal(meta)
-    ? [...new Set((fact.emergency ?? []).map(Number))].filter((day) => day === today || day === tomorrow)
-    : [];
-  return { region: meta.id, title: meta.title, names, days, sheets, emergency };
-}
 
 // --- Deciding.
 

@@ -27,8 +27,9 @@ import { regionById } from './regions.mjs';
 import { kyivTomorrowStart } from './lib/canonical.mjs';
 import { accessToken } from './lib/google-auth.mjs';
 import { sendFcm, FCM_SCOPE } from './lib/notify.mjs';
+import { observeRegion } from './lib/news-observe.mjs';
 import {
-  observeRegion, decide, render, buildMessage, emptyLedger, parseKey,
+  decide, render, buildMessage, emptyLedger, parseKey,
   recordSent, recordAdopted, recordFailed, assumeInflightSent, MAX_ATTEMPTS
 } from './lib/news.mjs';
 

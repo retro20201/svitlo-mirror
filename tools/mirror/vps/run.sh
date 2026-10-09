@@ -164,8 +164,10 @@ main() {
   # Visible news to the opt-in q_/s_/e_ topics (send-news.mjs) — also after the deploy, and read
   # from what is being served. It runs on a cycle with nothing to deploy too: that is the second
   # read a change needs before anyone is told. `news-mode` is written by hand; anything but "on"
-  # is shadow. The fingerprint is the adapter code: a change of it adopts each region's next read
-  # silently, so our own fix is never announced as the operator's change.
+  # is shadow. The fingerprint is the adapter code and lib/news-observe.mjs, which turns a served
+  # file into the masks the ledger keeps: a change of either adopts each region's next read
+  # silently, so our own fix is never announced as the operator's change. lib/news.mjs — settle,
+  # gaps, caps, texts — is left out, so tuning it never swallows a real change in a rebaseline.
   local mode fp
   mode=$(cat "$STATE/news-mode" 2>/dev/null || echo shadow)
   fp=$(git ls-tree -r "$head" -- tools/mirror/lib tools/mirror/sources tools/mirror/regions.mjs \
