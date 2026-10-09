@@ -623,8 +623,17 @@ test('a picture that turns into a table within three hours is the same news; aft
   late.read(t + 2 * MIN, sumyDay(2594, 'https://cdn4.telesco.pe/file/a.jpg'));
   late.read(t + 200 * MIN, table);
   const { sent } = late.read(t + 202 * MIN, table);
-  assert.ok(sent.length > 0 && sent.every((event) => event.kind === 'revised'));
-  assert.equal(sent.find((event) => event.queue === 'GPV3.1').text.title, 'Графік на завтра змінено');
+  assert.equal(sent.length, 12);
+  const darkened = sent.find((event) => event.queue === 'GPV3.1');
+  assert.equal(darkened.kind, 'revised');
+  assert.equal(darkened.text.title, 'Графік на завтра змінено');
+  // A queue the table leaves clear was never told of outages, so none are «скасовано».
+  const clear = sent.filter((event) => event.queue !== 'GPV3.1');
+  assert.ok(clear.every((event) => event.kind === 'published' && event.message.message.data.kind === 'published'));
+  assert.deepEqual(new Set(clear.map((event) => `${event.text.title} · ${event.text.body}`)),
+    new Set(['Зʼявився графік на завтра · Пт, 9 жовтня: вимкнень для вашої черги не заплановано.']));
+  // And render never says it of a queue with nothing before it, whatever the kind.
+  assert.equal(render({ ...clear[0], kind: 'revised', base: null }, new Date(t + 202 * MIN)).title, 'Зʼявився графік на завтра');
 });
 
 // --- The breaker

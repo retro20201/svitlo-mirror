@@ -196,11 +196,13 @@ export function decide({ ledger: input, observations, now = new Date(), fingerpr
     }
     if (kind === 'published') {
       // The picture of this day went out; now it reads as a table. Within three hours that is the
-      // same news; after, the table counts as a change to what people were shown.
+      // same news; after, the table counts as a change to what people were shown — for a queue it
+      // darkens. One it leaves clear stays «зʼявився … не заплановано», gated as above: «скасовано»
+      // would cancel outages no one ever told it of.
       const picture = entries[keyOf(seen.region, SHEET, day)];
       if (picture?.lastSentAt != null) {
         if (at - picture.lastSentAt < PICTURE_HOLD_MS) return adopted(key, kind, target, value, 'picture');
-        kind = 'revised';
+        if ((mask & window) !== 0n) kind = 'revised';
       }
     }
     if (target.sends >= MAX_SENDS) return adopted(key, kind, target, value, 'cap');
@@ -443,7 +445,9 @@ export function render(event, now = new Date()) {
     return { title, subtitle, body: `Далі сьогодні без світла ${intervals(mask)}${note ? ` (${note})` : ''}.` };
   }
 
-  if (event.kind === 'published') {
+  // «Скасовано» only where there were outages to cancel; a clear queue with nothing before it is
+  // the gated «не заплановано», whatever the kind.
+  if (event.kind === 'published' || (!off && !before)) {
     if (off) return { title: 'Зʼявився графік на завтра', subtitle, body: `${capital(date)}: без світла ${intervals(mask)} (разом ${duration(off)}).` };
     return event.quiet
       ? { title: 'Графік на завтра: без вимкнень', subtitle, body: `${capital(date)}: оператор не прогнозує вимкнень за графіком.` }
