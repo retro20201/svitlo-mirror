@@ -173,8 +173,8 @@ main() {
   fp=$(git ls-tree -r "$head" -- tools/mirror/lib tools/mirror/sources tools/mirror/regions.mjs \
          tools/mirror/adapters.mjs tools/mirror/mirror.mjs \
        | grep -vE $'\ttools/mirror/lib/(news|notify|google-auth|heartbeat)\\.mjs$' | sha256sum | cut -c1-16)
-  # The timeout is a backstop: the script stops starting sends after 60 s, and on SIGTERM writes
-  # its ledger and exits 0.
+  # The timeout is a backstop: the script starts no send 60 s after its token exchange began (that
+  # exchange gives up after 15), and on SIGTERM writes its ledger and exits 0.
   timeout -k 10 120 node tools/mirror/send-news.mjs --fresh "$fresh" --ledger "$STATE/news-ledger.json" \
     --mode "$mode" --fingerprint "$fp" >> "$STATE/news.log" 2>&1 || echo "[news] exited $?"
   tail -n 20000 "$STATE/news.log" > "$STATE/news.log.tmp" && mv "$STATE/news.log.tmp" "$STATE/news.log"

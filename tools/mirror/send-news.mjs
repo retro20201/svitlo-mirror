@@ -13,8 +13,10 @@
  * `shadow`, the default — any mode but exactly `on` — decides everything and records it as sent
  * without sending: switching to `on` then sends no backlog, and the rate limits are already in
  * step. In `on`, every send is marked in flight in the ledger before the POST, and a send whose
- * answer a killed run never saw counts as made: a lost banner is better than one repeated every two
- * minutes, and the silent push still re-arms the phone's own reminders.
+ * answer was never seen — a killed run, our own timeout, a connection reset mid-request — counts
+ * as made: FCM has no idempotency key, a lost banner is better than one repeated every two minutes,
+ * and the silent push still re-arms the phone's own reminders. Only a send known not to have
+ * arrived — refused with a 429 or 5xx, or never connected — is tried again.
  *
  * Always exits 0. News is the least of what a cycle does, and run.sh must still reach its heartbeat.
  */
@@ -38,7 +40,10 @@ const SERVED = join(HERE, '..', '..', 'firebase', 'public', 'v1');
 
 const CONCURRENCY = 4;
 const REQUEST_MS = 10_000;
-/** No new send starts after this; run.sh's `timeout` is only the backstop behind it. */
+/**
+ * No new send starts after this, counted from the token exchange (itself bounded in
+ * lib/google-auth.mjs); run.sh's `timeout` is only the backstop behind it.
+ */
 const BUDGET_MS = 60_000;
 const RETRY_FLOOR_MS = 2_000;
 const RETRY_MIN_LEFT_MS = 15_000;
@@ -216,9 +221,16 @@ export async function run({
         counts.shadow++;
       }
     } else if (ready.length) {
-      for (const { event } of ready) ledger.entries[event.key].inflight = { mask: event.mask, kind: event.kind, at };
-      await saveLedger(ledgerPath, ledger, now);
-      await deliver(ready, { ledger, at, credentialsPath, sleep, clock, print, mode, counts });
+      // The budget runs from here, the token exchange included. The exchange comes before anything
+      // is marked in flight: until it answers nothing can have been posted, and a run killed while
+      // it stalls must leave every send settled for the next cycle, not counted as made.
+      const deadline = clock() + BUDGET_MS;
+      const context = { ledger, print, mode, counts };
+      if (await token(credentialsPath, ready, context)) {
+        for (const { event } of ready) ledger.entries[event.key].inflight = { mask: event.mask, kind: event.kind, at };
+        await saveLedger(ledgerPath, ledger, now);
+        await deliver(ready, { ...context, at, deadline, credentialsPath, sleep, clock });
+      }
     }
     await saveLedger(ledgerPath, ledger, now);
   } finally {
@@ -230,35 +242,42 @@ export async function run({
   return counts;
 }
 
-/** Four at a time, ten seconds each, nothing new after a minute; one retry where FCM asks for it. */
-async function deliver(ready, { ledger, at, credentialsPath, sleep, clock, print, mode, counts }) {
-  const deadline = clock() + BUDGET_MS;
-  const failed = (event, why) => {
-    counts.failed++;
-    if (recordFailed(ledger, event) >= MAX_ATTEMPTS) {
-      recordAdopted(ledger, event);
-      print(line(mode, event.key, event.kind, `failed(${why}) adopted(gave-up)`));
-    } else {
-      print(line(mode, event.key, event.kind, `failed(${why})`));
-    }
-  };
+/** A known failure: the send stays settled, and the next cycle decides it again — until it gives up. */
+function failed(event, why, { ledger, print, mode, counts }) {
+  counts.failed++;
+  if (recordFailed(ledger, event) >= MAX_ATTEMPTS) {
+    recordAdopted(ledger, event);
+    print(line(mode, event.key, event.kind, `failed(${why}) adopted(gave-up)`));
+  } else {
+    print(line(mode, event.key, event.kind, `failed(${why})`));
+  }
+}
 
-  // One exchange for the whole wave, before any send: when it fails, every send would fail the same
-  // way, so none is tried and each stays settled for the next cycle.
+/**
+ * One exchange for the whole wave, before any send: when it fails, every send would fail the same
+ * way, so none is tried and each stays settled for the next cycle.
+ */
+async function token(credentialsPath, ready, context) {
   try {
     if (!credentialsPath) throw new Error('GOOGLE_APPLICATION_CREDENTIALS is not set');
     await accessToken(credentialsPath, FCM_SCOPE);
+    return true;
   } catch (error) {
-    print(`[news] no token: ${error.message}`);
-    for (const { event } of ready) failed(event, 'token');
-    return;
+    context.print(`[news] no token: ${error.message}`);
+    for (const { event } of ready) failed(event, 'token', context);
+    return false;
   }
+}
 
+/** Four at a time, ten seconds each, nothing new after the deadline; one retry where FCM asks for it. */
+async function deliver(ready, { ledger, at, deadline, credentialsPath, sleep, clock, print, mode, counts }) {
+  const context = { ledger, print, mode, counts };
   const sendOne = async ({ event, message }) => {
     const attempt = () => sendNews(message, { credentialsPath, signal: AbortSignal.timeout(REQUEST_MS) });
     let result;
     try {
       result = await attempt();
+      // Only a send known not to have arrived; one whose outcome is unknown is never posted twice.
       if (!result.ok && result.retryable) {
         const wait = Math.max(result.retryAfterMs ?? 0, RETRY_FLOOR_MS);
         if (deadline - clock() - wait >= RETRY_MIN_LEFT_MS) {
@@ -273,14 +292,21 @@ async function deliver(ready, { ledger, at, credentialsPath, sleep, clock, print
         print(line(mode, event.key, event.kind, `failed(guard) adopted — ${error.message}`));
         return;
       }
+      // Thrown before the POST — by the token, already in hand — so nothing went out.
       result = { ok: false, status: 0, retryable: true, body: error.message };
     }
     if (result.ok) {
       recordSent(ledger, event, at);
       counts.sent++;
       print(line(mode, event.key, event.kind, 'sent', spoken(message)));
+    } else if (result.unknown) {
+      // It may have reached FCM with only the answer lost: counted as made, like a send a killed run
+      // left in flight. Posted again, it would ring a second time.
+      recordSent(ledger, event, at);
+      counts.failed++;
+      print(line(mode, event.key, event.kind, `assumed-sent(${result.body})`));
     } else if (result.retryable) {
-      failed(event, result.status);
+      failed(event, result.status, context);
     } else {
       // FCM refused the message itself; sending it again would be refused again.
       recordAdopted(ledger, event);

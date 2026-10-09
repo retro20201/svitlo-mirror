@@ -105,10 +105,21 @@ export async function notifyRegion(regionId, { credentialsPath, dryRun = false, 
 }
 
 /**
+ * Failures before a byte of the request left this server: the name did not resolve, or the
+ * connection was refused or never made. Nothing reached FCM, so asking again is safe.
+ */
+const NOT_SENT = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'UND_ERR_CONNECT_TIMEOUT']);
+
+/**
  * One FCM HTTP v1 send. Never throws over the answer: an HTTP error or a dropped connection comes
- * back as `{ ok: false, status, retryable, retryAfterMs, body }` (status 0 for no answer at all),
- * so a caller sending a hundred messages decides per message instead of losing the batch. A token
- * that cannot be had still throws — nothing can be sent without one.
+ * back as `{ ok: false, status, retryable, unknown, retryAfterMs, body }` (status 0 for no answer at
+ * all), so a caller sending a hundred messages decides per message instead of losing the batch. A
+ * token that cannot be had still throws — nothing can be sent without one.
+ *
+ * No answer is not no delivery. Our own timeout, a reset or a socket closed mid-request may each
+ * follow a request FCM accepted and passed on, and FCM v1 has no idempotency key: `unknown` says
+ * so, and such a send is not `retryable` — sent again, a banner would ring twice. Only a failure
+ * to connect at all is.
  */
 export async function sendFcm(message, { credentialsPath, signal } = {}) {
   const { token, projectId } = await accessToken(credentialsPath, FCM_SCOPE);
@@ -121,7 +132,12 @@ export async function sendFcm(message, { credentialsPath, signal } = {}) {
       body: JSON.stringify(message)
     });
   } catch (error) {
-    return { ok: false, status: 0, retryable: true, retryAfterMs: null, body: error.message };
+    // undici rejects with `fetch failed` and the socket's own error as its cause; an aborted signal
+    // rejects with the signal's reason, a `TimeoutError` for AbortSignal.timeout.
+    const code = error?.cause?.code ?? error?.code;
+    const unsent = NOT_SENT.has(code);
+    const why = error?.name === 'TimeoutError' ? 'timeout' : code ?? error?.cause?.message ?? error?.message;
+    return { ok: false, status: 0, retryable: unsent, unknown: !unsent, retryAfterMs: null, body: why };
   }
   let body = '';
   try {
@@ -134,6 +150,7 @@ export async function sendFcm(message, { credentialsPath, signal } = {}) {
     status: response.status,
     // FCM's own advice: back off and retry on 429 and 5xx; any other refusal repeats itself.
     retryable: response.status === 429 || response.status >= 500,
+    unknown: false,
     retryAfterMs: retryAfterMs(response.headers.get('retry-after')),
     body
   };

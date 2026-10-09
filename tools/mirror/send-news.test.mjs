@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { run, parseArgs, sendNews, sendTest, assertNewsTopic, TopicRefused } from './send-news.mjs';
 import { buildSnapshot } from './lib/canonical.mjs';
+import { sendFcm } from './lib/notify.mjs';
 
 // The sender, offline: `fetch` is a stand-in for Google, the key is made here, and signals come from
 // a plain emitter. Nothing in this file reaches the network.
@@ -50,16 +51,19 @@ function server() {
   };
 }
 
-/** Google, played by a function: `fcm(message)` answers each send. Every request is recorded. */
-function google(fcm) {
+const granted = () => new Response(JSON.stringify({ access_token: 'token', expires_in: 3599 }), { status: 200 });
+
+/**
+ * Google, played by functions: `fcm(message)` answers each send, `oauth(init)` the token exchange.
+ * Every request is recorded.
+ */
+function google(fcm, { oauth = granted } = {}) {
   const real = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, init = {}) => {
     url = String(url);
     calls.push(url);
-    if (url === 'https://oauth2.googleapis.com/token') {
-      return new Response(JSON.stringify({ access_token: 'token', expires_in: 3599 }), { status: 200 });
-    }
+    if (url === 'https://oauth2.googleapis.com/token') return oauth(init);
     if (url === 'https://fcm.googleapis.com/v1/projects/koly-svitlo/messages:send') return fcm(JSON.parse(init.body));
     throw new Error(`no network in tests: ${url}`);
   };
@@ -72,6 +76,9 @@ function google(fcm) {
 }
 
 const ok = () => new Response('{"name":"projects/koly-svitlo/messages/1"}', { status: 200 });
+/** What Node's fetch rejects with: our own AbortSignal.timeout, or undici's `fetch failed` over a socket error. */
+const timedOut = () => new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+const socket = (code) => new TypeError('fetch failed', { cause: Object.assign(new Error(`socket: ${code}`), { code }) });
 
 /** Three cycles of Полтава: nothing out (bootstrap), tomorrow out, tomorrow out again — due. */
 async function evening(box, options, queues = { 'GPV3.1': 'Черга 3.1' }, day = { 'GPV3.1': DARK_7_TO_10 }) {
@@ -110,6 +117,122 @@ test('anything but exactly "on" is shadow', () => {
   assert.equal(parseArgs([]).mode, 'shadow');
   assert.deepEqual(parseArgs(['--fresh', '']).fresh, []);
   assert.deepEqual(parseArgs(['--fresh', 'poltava,kyiv']).fresh, ['poltava', 'kyiv']);
+});
+
+test('no answer is not no delivery: only a send that never connected is tried again', async () => {
+  const box = server();
+  const cases = [
+    [() => { throw timedOut(); }, { retryable: false, unknown: true, body: 'timeout' }],
+    [() => { throw new DOMException('This operation was aborted', 'AbortError'); }, { retryable: false, unknown: true }],
+    [() => { throw socket('ECONNRESET'); }, { retryable: false, unknown: true, body: 'ECONNRESET' }],
+    [() => { throw socket('UND_ERR_SOCKET'); }, { retryable: false, unknown: true }],
+    [() => { throw socket('ECONNREFUSED'); }, { retryable: true, unknown: false, body: 'ECONNREFUSED' }],
+    [() => { throw socket('ENOTFOUND'); }, { retryable: true, unknown: false }],
+    [() => { throw socket('UND_ERR_CONNECT_TIMEOUT'); }, { retryable: true, unknown: false }],
+    [() => new Response('{}', { status: 503 }), { ok: false, status: 503, retryable: true, unknown: false }],
+    [() => new Response('{}', { status: 400 }), { ok: false, status: 400, retryable: false, unknown: false }],
+    [() => ok(), { ok: true, status: 200, unknown: false }]
+  ];
+  for (const [answer, expected] of cases) {
+    const fake = google(answer);
+    try {
+      const result = await sendFcm({ message: { topic: 'q_test_GPV1-1' } }, { credentialsPath: box.credentialsPath });
+      for (const [key, value] of Object.entries(expected)) assert.equal(result[key], value, `${JSON.stringify(expected)}: ${key}`);
+    } finally {
+      fake.restore();
+    }
+  }
+});
+
+test('a send whose answer timed out counts as made and is never posted again', async () => {
+  const box = server();
+  const waits = [];
+  const fake = google(() => { throw timedOut(); });
+  try {
+    const { counts, base, next, lines } = await evening(box, { mode: 'on', sleep: async (ms) => { waits.push(ms); } });
+    assert.equal(fake.sends(), 1, 'no retry in the cycle');
+    assert.deepEqual(waits, []);
+    assert.equal(counts.sent, 0);
+    assert.equal(counts.failed, 1);
+    assert.ok(lines.some((line) => line === `[news] on poltava GPV3.1 ${TOMORROW} published assumed-sent(timeout)`));
+    const entry = box.ledger().entries[`poltava|GPV3.1|${TOMORROW}`];
+    assert.equal(entry.told, true);
+    assert.equal(entry.sends, 1);
+    assert.equal(entry.inflight, null);
+    assert.equal(entry.pending, null);
+
+    // Nor in a later cycle.
+    for (const minute of [0, 2, 20]) await run({ ...base, now: new Date(next + minute * MIN) });
+    assert.equal(fake.sends(), 1);
+  } finally {
+    fake.restore();
+  }
+});
+
+test('a send refused before it connected is tried again, in the cycle and the next', async () => {
+  const box = server();
+  let refuse = true;
+  const fake = google(() => {
+    if (refuse) throw socket('ECONNREFUSED');
+    return ok();
+  });
+  try {
+    const { counts, base, next, lines } = await evening(box, { mode: 'on' });
+    assert.equal(fake.sends(), 2);
+    assert.equal(counts.failed, 1);
+    assert.ok(lines.some((line) => line.endsWith('published failed(0)')));
+    const entry = box.ledger().entries[`poltava|GPV3.1|${TOMORROW}`];
+    assert.equal(entry.told, false);
+    assert.equal(entry.attempts, 1);
+    assert.ok(entry.pending);
+
+    refuse = false;
+    assert.equal((await run({ ...base, now: new Date(next) })).sent, 1);
+    assert.equal(fake.sends(), 3);
+  } finally {
+    fake.restore();
+  }
+});
+
+test('killed while the token is fetched: nothing was in flight, and the next run sends it', async () => {
+  const box = server();
+  const signals = new EventEmitter();
+  const exits = [];
+  let onDisk = null;
+  let exchange = null;
+  let stalled = true;
+  const fake = google(() => ok(), {
+    oauth: (init) => {
+      if (!stalled) return granted();
+      exchange = init;
+      // run.sh's `timeout` lands while the exchange hangs; it gives up itself a moment later.
+      signals.emit('SIGTERM');
+      onDisk = box.ledger();
+      throw timedOut();
+    }
+  });
+  try {
+    const { base, next, lines } = await evening(box, { mode: 'on', signals, exit: (code) => exits.push(code) });
+    assert.ok(exchange.signal instanceof AbortSignal, 'the exchange is bounded by a signal of its own');
+    assert.deepEqual(exits, [0]);
+    assert.equal(fake.sends(), 0);
+    const atKill = onDisk.entries[`poltava|GPV3.1|${TOMORROW}`];
+    assert.equal(atKill.inflight, null, 'nothing marked in flight before a POST could be made');
+    assert.ok(atKill.pending);
+    assert.ok(lines.some((line) => line.startsWith('[news] no token:')));
+    assert.ok(lines.some((line) => line.endsWith('published failed(token)')));
+
+    // The run as the kill left it.
+    writeFileSync(box.ledgerPath, JSON.stringify(onDisk));
+    stalled = false;
+    const again = [];
+    const counts = await run({ ...base, now: new Date(next), print: (line) => again.push(line) });
+    assert.ok(!again.some((line) => line.includes('assumed-sent')));
+    assert.equal(counts.sent, 1);
+    assert.equal(fake.sends(), 1);
+  } finally {
+    fake.restore();
+  }
 });
 
 test('on: in flight on disk before the first POST, one token for the wave, one POST per alert', async () => {
