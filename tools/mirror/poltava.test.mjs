@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { parseFragment, hoursFromHalves, kyivDate, settleSwitching } from './sources/poltava.mjs';
+import { parseFragment, hoursFromHalves, kyivDate, settleSwitching, fetchRegion } from './sources/poltava.mjs';
+import { kyivDayStart, validate } from './lib/canonical.mjs';
 
 // Verbatim answers of poe.pl.ua's own `newgpv-info.php`, fetched from Kyiv on 1 жовтня 2026: two
 // real in-season grids, the quiet day it returned that afternoon, and the empty body it gives for
@@ -73,4 +74,55 @@ test('the request date is the Kyiv calendar day, across midnight UTC', () => {
   // 22:30 UTC on 30 вересня is already 1 жовтня in Kyiv.
   assert.equal(kyivDate(new Date('2026-09-30T22:30:00Z')), '01-10-2026');
   assert.equal(kyivDate(new Date('2026-09-30T22:30:00Z'), 1), '02-10-2026');
+});
+
+/** fetchRegion against a stand-in poe.pl.ua: the fragment for each date asked, no network, no waiting. */
+async function offlineRun(fragmentFor, now) {
+  const real = globalThis.fetch;
+  const asked = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const date = JSON.parse(new URLSearchParams(init.body).get('seldate')).date_in;
+    asked.push(date);
+    return new Response(fragmentFor(date), { status: 200 });
+  };
+  try {
+    const snapshot = await fetchRegion({ id: 'poltava', title: 'Полтавська область' }, now, { wait: async () => {} });
+    return { snapshot, asked };
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+/** The 16 листопада grid as another day's answer, every dark cell turned light. */
+const lightGrid = (date) => {
+  const [day] = date.split('-');
+  return FRAGMENTS['16-11-2025'].replaceAll('light_2', 'light_1').replaceAll('16 листопада 2025', `${Number(day)} листопада 2025`);
+};
+
+test('«не прогнозується» is a quiet day; an empty answer is a day not yet published', async () => {
+  // The answers of 1 жовтня 2026: today quiet, tomorrow not out yet.
+  const { snapshot, asked } = await offlineRun((date) => FRAGMENTS[date], new Date('2026-10-01T15:00:00+03:00'));
+  assert.deepEqual(asked, ['01-10-2026', '02-10-2026']);
+  assert.deepEqual(snapshot.fact.quiet, [kyivDayStart(new Date('2026-10-01T12:00:00+03:00'))]);
+  assert.deepEqual(snapshot.fact.data, []);
+  assert.deepEqual(validate(snapshot), []);
+});
+
+test('a grid without a dark cell is quiet too; a real grid is published as it always was', async () => {
+  const grid = FRAGMENTS['16-11-2025'];
+  const { snapshot } = await offlineRun((date) => (date === '16-11-2025' ? grid : lightGrid(date)), new Date('2025-11-16T12:00:00+02:00'));
+  const sixteenth = kyivDayStart(new Date('2025-11-16T12:00:00+02:00'));
+  const seventeenth = kyivDayStart(new Date('2025-11-17T12:00:00+02:00'));
+  assert.deepEqual(snapshot.fact.quiet, [seventeenth]);
+  assert.deepEqual(Object.keys(snapshot.fact.data), [String(sixteenth)]);
+  assert.deepEqual(snapshot.fact.data[sixteenth], hoursFromHalves(parseFragment(grid, '16-11-2025').halves));
+  assert.deepEqual(validate(snapshot), []);
+});
+
+test('days of outages and days not yet published leave the file without a quiet key', async () => {
+  const outages = await offlineRun((date) => (date === '16-11-2025' ? FRAGMENTS[date] : ''), new Date('2025-11-16T12:00:00+02:00'));
+  assert.equal('quiet' in outages.snapshot.fact, false);
+  const nothing = await offlineRun(() => '', new Date('2026-10-02T12:00:00+03:00'));
+  assert.equal('quiet' in nothing.snapshot.fact, false);
+  assert.deepEqual(nothing.snapshot.fact.data, []);
 });

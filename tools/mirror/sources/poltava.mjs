@@ -126,19 +126,28 @@ export function hoursFromHalves(halves) {
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export async function fetchRegion(region, now = new Date()) {
+/**
+ * Today and tomorrow. A day the operator answers for without a single outage — «не прогнозується»,
+ * or a grid with no dark cell — goes into `fact.quiet`: "no outages" is news a day that is merely
+ * not published yet is not, and «Графік на завтра: без вимкнень» is told from it (lib/news.mjs).
+ * An empty answer is the latter, never quiet.
+ */
+export async function fetchRegion(region, now = new Date(), { wait = pause } = {}) {
   const fact = {};
+  const quiet = [];
   let update = null;
   for (const offset of [0, 1]) {
-    if (offset) await pause(SPACING_MS);
+    if (offset) await wait(SPACING_MS);
     const date = kyivDate(now, offset);
     const parsed = parseFragment(await postForm(ENDPOINT, { seldate: JSON.stringify({ date_in: date }) }), date);
     if (!parsed) continue;
     update = parsed.update ?? update;
-    const hours = parsed.halves && hoursFromHalves(parsed.halves);
-    if (!hours) continue;
     const [day, month, year] = date.split('-').map(Number);
-    fact[kyivDayStart(new Date(Date.UTC(year, month - 1, day, 12)))] = hours;
+    const epoch = kyivDayStart(new Date(Date.UTC(year, month - 1, day, 12)));
+    const hours = parsed.halves && hoursFromHalves(parsed.halves);
+    if (parsed.quiet || (parsed.halves && !hours)) quiet.push(epoch);
+    if (!hours) continue;
+    fact[epoch] = hours;
   }
 
   return buildSnapshot({
@@ -148,6 +157,7 @@ export async function fetchRegion(region, now = new Date()) {
     fact,
     todayEpoch: kyivDayStart(now),
     update,
+    quiet,
     source: 'poltava'
   });
 }

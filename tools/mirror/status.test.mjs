@@ -87,3 +87,19 @@ test('only Київ and Дніпро tell the app they carry an emergency signal
   assert.deepEqual(Object.keys(indexEntry(REGIONS.find((region) => region.id === 'mykolaiv'))),
     ['id', 'title', 'subtitle', 'operator', 'status', 'note']);
 });
+
+test('quiet days are written only when there are any, and must be day epochs', async () => {
+  const { validate } = await import('./lib/canonical.mjs');
+  const day = kyivDayStart(new Date('2026-10-01T12:00:00+03:00'));
+  // Every region but Полтава keeps the exact shape the app has always decoded.
+  assert.equal('quiet' in snapshot().fact, false);
+  const quiet = snapshot({ quiet: [day] });
+  assert.deepEqual(quiet.fact.quiet, [day]);
+  assert.deepEqual(quiet.fact.data, []);
+  assert.deepEqual(validate(quiet), []);
+  for (const bad of [day, ['tomorrow'], [day + 0.5], [null]]) {
+    const broken = snapshot();
+    broken.fact.quiet = bad;
+    assert.equal(validate(broken).length, 1, JSON.stringify(bad));
+  }
+});

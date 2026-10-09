@@ -77,6 +77,8 @@ export function hourStateFromHalves(first, second) {
  *        day-start epoch (seconds, Europe/Kyiv midnight) → queue → hour → state.
  * @param {number|null} [input.todayEpoch]
  * @param {string|null} [input.update]  the operator's own timestamp, shown verbatim
+ * @param {number[]} [input.quiet]  day epochs the operator declared free of outages, as opposed to
+ *        not published yet (Полтава's «не прогнозується»)
  */
 const KYIV_STAMP = new Intl.DateTimeFormat('uk-UA', {
   timeZone: 'Europe/Kyiv', day: '2-digit', month: '2-digit', year: 'numeric',
@@ -110,7 +112,7 @@ export function stampTime(update) {
 
 export function buildSnapshot({
   regionId, title, queues, preset = {}, fact = {}, todayEpoch = null, update: raw = null, source,
-  sheets = [], sheetBased = false
+  sheets = [], sheetBased = false, quiet = []
 }) {
   const update = displayStamp(raw);
   return {
@@ -122,7 +124,11 @@ export function buildSnapshot({
       // decoder is tested against that shape — so keep producing it.
       data: Object.keys(fact).length ? fact : [],
       update,
-      today: todayEpoch
+      today: todayEpoch,
+      // A day the operator says will have no outages, which `data` cannot say: a day missing from
+      // it may just not be published yet. Only written when there is one, so every other region's
+      // file keeps the shape it always had; shipped builds ignore the key.
+      ...(quiet.length ? { quiet } : {})
     },
     preset: {
       sch_names: queues,
@@ -258,6 +264,12 @@ export function validate(snapshot) {
       const first = Object.values(queues)[0] ?? {};
       if (Object.keys(first).length !== 24) { problems.push(`fact ${day}: ${Object.keys(first).length} hours`); break; }
     }
+  }
+
+  const quiet = snapshot.fact?.quiet;
+  if (quiet !== undefined) {
+    if (!Array.isArray(quiet)) problems.push('fact.quiet is not a list');
+    else if (!quiet.every((day) => /^\d{9,11}$/.test(String(day)))) problems.push(`fact.quiet ${JSON.stringify(quiet)} is not a list of epochs`);
   }
 
   return problems;

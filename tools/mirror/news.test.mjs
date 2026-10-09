@@ -419,6 +419,20 @@ test('Полтава quiet tomorrow is told after a day of outages, and not afte
   assert.ok(outcomes(quiet.log).every((outcome) => outcome === 'adopted(quiet-gate)'));
 });
 
+test('Полтава\'s adapter output reads as a quiet day, and a day not yet published as nothing', () => {
+  // The shape sources/poltava.mjs now writes for «не прогнозується» (poltava.test.mjs).
+  const written = buildSnapshot({
+    regionId: 'poltava', title: POLTAVA.title, queues: queueNames(NATIONAL_QUEUES), source: 'poltava',
+    fact: { [TODAY]: hoursFromHalves(parseFragment(FRAGMENTS['16-11-2025'], '16-11-2025').halves) }, quiet: [TOMORROW]
+  });
+  const seen = observeRegion(POLTAVA, written, new Date(at('2026-10-08 20:50')));
+  assert.equal(seen.days[TOMORROW].state, 'quiet');
+  assert.equal(Object.keys(seen.days[TOMORROW].masks).length, 12);
+  assert.equal(seen.days[TODAY].state, 'fact');
+  const unpublished = buildSnapshot({ regionId: 'poltava', title: POLTAVA.title, queues: queueNames(NATIONAL_QUEUES), source: 'poltava' });
+  assert.deepEqual(observeRegion(POLTAVA, unpublished, new Date(at('2026-10-08 20:50'))).days, {});
+});
+
 test('Telegram\'s light padding is «не заплановано» only when someone else is dark', () => {
   // A channel table naming a few subqueues is padded with light for the rest (lib/telegram.mjs).
   const kharkiv = regionById('kharkiv');
