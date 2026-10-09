@@ -1,11 +1,18 @@
 /**
- * Wakes the phones of one region after its published schedule changes.
+ * Wakes the phones of one region after its published schedule changes, and sends what every
+ * other FCM message here sends.
  *
- * The message carries no user-facing text — only `{type: "schedule", region}` — and the app turns
- * that into a refetch and a re-armed local alert queue. Pushing the warning itself would put the
- * server in charge of deciding what someone's queue is doing, and make it wrong the moment the
+ * A `region-*` push carries no user-facing text — only `{type: "schedule", region}` — and the app
+ * turns that into a refetch and a re-armed local alert queue. Pushing the warning itself would put
+ * the server in charge of deciding what someone's queue is doing, and make it wrong the moment the
  * two disagree. Local alerts already work with no signal; this exists purely so they are armed
- * against today's plan rather than yesterday's.
+ * against today's plan rather than yesterday's. Every build since 1.0 subscribes to it, and it
+ * stays silent for all of them.
+ *
+ * Visible text goes only to the opt-in topics of «Новий графік і зміни» and «Аварійні
+ * відключення» — `q_<region>_<queue>`, `s_<region>`, `e_<region>` (lib/news.mjs, send-news.mjs) —
+ * and is composed from the same served file the phone then opens, never from a fetch of its own.
+ * The one other banner is the hand-run `send-push.mjs --visible` delivery test.
  *
  * Uses FCM HTTP v1 with a service-account JWT. No SDK: the whole exchange is one signed assertion
  * and one POST, and a dependency here would have to be audited on every CI run.
@@ -14,7 +21,7 @@
 import { accessToken } from './google-auth.mjs';
 import { kyivDayStart } from './canonical.mjs';
 
-const SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
+export const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
 
 /** FCM topic names allow a restricted character set; keep this in step with the app. */
 export function topicFor(regionId) {
@@ -55,7 +62,7 @@ export function affectsSchedule(previous, next, now = new Date()) {
 /**
  * @param {object} [options]
  * @param {{title: string, body: string}} [options.visible] Adds a user-visible alert. Only for
- *   proving delivery by hand: production pushes are silent, because the phone decides what to
+ *   proving delivery by hand: `region-*` pushes are silent, because the phone decides what to
  *   say from the schedule it holds. A visible test push is the one way to confirm the
  *   FCM → APNs → device leg without reading the device log, which needs root.
  */
@@ -66,7 +73,6 @@ export async function notifyRegion(regionId, { credentialsPath, dryRun = false, 
     return { topic, sent: false };
   }
 
-  const { token, projectId } = await accessToken(credentialsPath, SCOPE);
   const message = {
     message: {
       topic,
@@ -92,17 +98,51 @@ export async function notifyRegion(regionId, { credentialsPath, dryRun = false, 
     }
   };
 
-  const response = await fetch(
-    `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
-    {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify(message)
-    }
-  );
-  if (!response.ok) {
-    throw new Error(`FCM ${response.status}: ${await response.text()}`);
-  }
+  const result = await sendFcm(message, { credentialsPath });
+  if (!result.ok) throw new Error(`FCM ${result.status}: ${result.body}`);
   console.log(`[push] notified ${topic}`);
   return { topic, sent: true };
+}
+
+/**
+ * One FCM HTTP v1 send. Never throws over the answer: an HTTP error or a dropped connection comes
+ * back as `{ ok: false, status, retryable, retryAfterMs, body }` (status 0 for no answer at all),
+ * so a caller sending a hundred messages decides per message instead of losing the batch. A token
+ * that cannot be had still throws — nothing can be sent without one.
+ */
+export async function sendFcm(message, { credentialsPath, signal } = {}) {
+  const { token, projectId } = await accessToken(credentialsPath, FCM_SCOPE);
+  let response;
+  try {
+    response = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
+      method: 'POST',
+      signal,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(message)
+    });
+  } catch (error) {
+    return { ok: false, status: 0, retryable: true, retryAfterMs: null, body: error.message };
+  }
+  let body = '';
+  try {
+    body = await response.text();
+  } catch (error) {
+    body = error.message;
+  }
+  return {
+    ok: response.ok,
+    status: response.status,
+    // FCM's own advice: back off and retry on 429 and 5xx; any other refusal repeats itself.
+    retryable: response.status === 429 || response.status >= 500,
+    retryAfterMs: retryAfterMs(response.headers.get('retry-after')),
+    body
+  };
+}
+
+/** `Retry-After` as seconds or as an HTTP date, in ms from now; null when absent or unreadable. */
+export function retryAfterMs(value, now = Date.now()) {
+  if (value == null || value === '') return null;
+  if (/^\d+$/.test(value.trim())) return Number(value.trim()) * 1000;
+  const at = Date.parse(value);
+  return Number.isFinite(at) ? Math.max(0, at - now) : null;
 }

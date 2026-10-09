@@ -23,7 +23,7 @@ import { ADAPTERS } from './adapters.mjs';
 import { readsThisCycle } from './lib/lanes.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { REGIONS } from './regions.mjs';
+import { REGIONS, indexEntry } from './regions.mjs';
 import { validate, hasSchedule, statusFor, kyivDayStart } from './lib/canonical.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -76,6 +76,11 @@ async function main() {
   let failed = 0;
   /** Regions whose published schedule moved — pushed after the deploy, never before. */
   const notify = [];
+  /**
+   * Regions read whole by this server this cycle, changed or not: what send-news.mjs may count as
+   * a fresh look at the operator. A relayed or partial read is not one.
+   */
+  const fresh = [];
   const entries = new Map();
 
   // Regions that failed last cycle go last: a source refusing this server costs its full deadline
@@ -83,14 +88,7 @@ async function main() {
   const order = [...REGIONS].sort((a, b) =>
     Number(Boolean(previousRows.get(a.id)?.stale)) - Number(Boolean(previousRows.get(b.id)?.stale)));
   for (const region of order) {
-    const entry = {
-      id: region.id,
-      title: region.title,
-      subtitle: region.subtitle,
-      operator: region.operator,
-      status: region.status
-    };
-    if (region.note) entry.note = region.note;
+    const entry = indexEntry(region);
 
     if (!targets.includes(region)) {
       entries.set(region.id, entry);
@@ -157,6 +155,7 @@ async function main() {
         entry.stale = true;
         entry.staleSince = staleSince(previousRows.get(region.id));
       }
+      if (!relayed && !partial) fresh.push(region.id);
 
       if (unchanged(previous, snapshot)) {
         console.log(`[same]  ${region.id}`);
@@ -234,7 +233,7 @@ async function main() {
   if (process.env.GITHUB_OUTPUT) {
     await writeFile(
       process.env.GITHUB_OUTPUT,
-      `changed=${changed > 0}\nnotify=${notify.join(',')}\n`,
+      `changed=${changed > 0}\nnotify=${notify.join(',')}\nfresh=${fresh.join(',')}\n`,
       { flag: 'a' }
     );
   }

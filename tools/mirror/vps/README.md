@@ -16,6 +16,15 @@ touches them: the service may write only to the folders listed in `ReadWritePath
 | firebase-tools, pinned | `/root/svitlo-mirror-tools` |
 | service-account key (`firebase-adminsdk-fbsvc@koly-svitlo`), mode 600 | `/root/.config/svitlo-mirror/service-account.json` |
 | last tested commit, last test log | `/var/lib/svitlo-mirror` |
+| schedule news: `news-ledger.json` (what people were told), `news.log`, `news-mode`, `news-breaker.json` | `/var/lib/svitlo-mirror` |
+
+Schedule news (`send-news.mjs`, the visible alerts to the opt-in `q_`/`s_`/`e_` topics) runs after
+every cycle's deploy, in shadow unless `news-mode` says exactly `on`: it decides and logs everything
+to `news.log` and sends nothing. Turn it on with `echo on > /var/lib/svitlo-mirror/news-mode`, and
+off again — the kill switch, from the next cycle — with `echo shadow > /var/lib/svitlo-mirror/news-mode`.
+The ledger is kept in step either way, so neither switch sends a backlog. A `news-breaker.json` means
+more than 180 alerts came due in one cycle and none were sent: look at what changed before anything
+else.
 
 Install or update the units (the script itself updates with every push to main):
 

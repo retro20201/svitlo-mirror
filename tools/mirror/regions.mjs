@@ -116,3 +116,27 @@ export const REGIONS = [
 export function regionById(id) {
   return REGIONS.find((region) => region.id === id) ?? null;
 }
+
+/**
+ * Whether the operator's own data says when it cuts beyond the schedule: YASNO's
+ * `EmergencyShutdowns`, so Київ and Дніпро only. Nowhere else is there anything machine-readable
+ * to base «Аварійні відключення» on, and the app offers that switch only where this is true.
+ */
+export function hasEmergencySignal(region) {
+  return Boolean(region?.yasno);
+}
+
+/** A region's row in `index.json`, before a read adds what it found. */
+export function indexEntry(region) {
+  const entry = {
+    id: region.id,
+    title: region.title,
+    subtitle: region.subtitle,
+    operator: region.operator,
+    status: region.status
+  };
+  if (region.note) entry.note = region.note;
+  // Shipped builds decode named keys only, so the field is invisible to them.
+  if (hasEmergencySignal(region)) entry.emergencySignal = true;
+  return entry;
+}

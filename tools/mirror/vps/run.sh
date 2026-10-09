@@ -85,7 +85,7 @@ main() {
 
   # Regions with nothing published are read on the slow turn (lib/lanes.mjs): once five and a half
   # minutes have passed since the last one, however long the cycles in between ran.
-  local outputs changed notify now slow_turn=0
+  local outputs changed notify fresh now slow_turn=0
   now=$(date +%s)
   [ $(( now - $(cat "$STATE/slow-read-at" 2>/dev/null || echo 0) )) -ge 330 ] && slow_turn=1
   outputs=$(mktemp)
@@ -98,6 +98,7 @@ main() {
   [ "$slow_turn" = "1" ] && echo "$now" > "$STATE/slow-read-at"
   changed=$(sed -n 's/^changed=//p' "$outputs")
   notify=$(sed -n 's/^notify=//p' "$outputs")
+  fresh=$(sed -n 's/^fresh=//p' "$outputs")
   rm -f "$outputs"
 
   # The clone has had the whole read to finish; a failed one just means the full deploy.
@@ -159,6 +160,22 @@ main() {
   if [ -n "$notify" ]; then
     node tools/mirror/send-push.mjs "$notify"
   fi
+
+  # Visible news to the opt-in q_/s_/e_ topics (send-news.mjs) — also after the deploy, and read
+  # from what is being served. It runs on a cycle with nothing to deploy too: that is the second
+  # read a change needs before anyone is told. `news-mode` is written by hand; anything but "on"
+  # is shadow. The fingerprint is the adapter code: a change of it adopts each region's next read
+  # silently, so our own fix is never announced as the operator's change.
+  local mode fp
+  mode=$(cat "$STATE/news-mode" 2>/dev/null || echo shadow)
+  fp=$(git ls-tree -r "$head" -- tools/mirror/lib tools/mirror/sources tools/mirror/regions.mjs \
+         tools/mirror/adapters.mjs tools/mirror/mirror.mjs \
+       | grep -vE $'\ttools/mirror/lib/(news|notify|google-auth|heartbeat)\\.mjs$' | sha256sum | cut -c1-16)
+  # The timeout is a backstop: the script stops starting sends after 60 s, and on SIGTERM writes
+  # its ledger and exits 0.
+  timeout -k 10 120 node tools/mirror/send-news.mjs --fresh "$fresh" --ledger "$STATE/news-ledger.json" \
+    --mode "$mode" --fingerprint "$fp" >> "$STATE/news.log" 2>&1 || echo "[news] exited $?"
+  tail -n 20000 "$STATE/news.log" > "$STATE/news.log.tmp" && mv "$STATE/news.log.tmp" "$STATE/news.log"
 
   # Only a finished cycle stands GitHub down.
   node tools/mirror/heartbeat.mjs beat

@@ -13,8 +13,36 @@ function base64url(input) {
     .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
+/**
+ * Tokens already exchanged, per key file and scope, until five minutes before they expire. One
+ * news wave is a hundred-odd sends from four workers at once; without this each would sign and
+ * exchange its own assertion. The promise is kept, not the token, so the four share the first.
+ */
+const tokens = new Map();
+const EARLY_SECONDS = 300;
+
 /** @returns {Promise<{token: string, projectId: string}>} */
-export async function accessToken(credentialsPath, scope) {
+export function accessToken(credentialsPath, scope) {
+  const key = `${credentialsPath}\n${scope}`;
+  const held = tokens.get(key);
+  if (held && (held.until === undefined || Date.now() < held.until)) return held.promise;
+  const entry = {};
+  entry.promise = exchange(credentialsPath, scope).then(
+    ({ token, projectId, exp }) => {
+      entry.until = (exp - EARLY_SECONDS) * 1000;
+      return { token, projectId };
+    },
+    (error) => {
+      // A failed exchange is not remembered: the next caller tries again.
+      if (tokens.get(key) === entry) tokens.delete(key);
+      throw error;
+    }
+  );
+  tokens.set(key, entry);
+  return entry.promise;
+}
+
+async function exchange(credentialsPath, scope) {
   const account = JSON.parse(await readFile(credentialsPath, 'utf8'));
   const now = Math.floor(Date.now() / 1000);
   const claim = {
@@ -41,5 +69,5 @@ export async function accessToken(credentialsPath, scope) {
   if (!response.ok) {
     throw new Error(`token exchange failed: HTTP ${response.status} ${await response.text()}`);
   }
-  return { token: (await response.json()).access_token, projectId: account.project_id };
+  return { token: (await response.json()).access_token, projectId: account.project_id, exp: claim.exp };
 }

@@ -74,3 +74,16 @@ test('a post time is shown in Kyiv wall clock; an operator\'s own stamp passes t
   assert.equal(stampTime('20.01.2026 20:29'), Date.parse('2026-01-20T18:29:00Z'));
   assert.ok(stampTime('06.10.2026 12:23') > stampTime('2026-10-06T09:00:00Z'));
 });
+
+test('only Київ and Дніпро tell the app they carry an emergency signal', async () => {
+  // YASNO's `EmergencyShutdowns` is the only machine-readable source of «аварійні»; the app offers
+  // that switch only where the index says so. Everywhere else the row stays exactly as it was.
+  const { REGIONS, indexEntry } = await import('./regions.mjs');
+  const flagged = REGIONS.filter((region) => indexEntry(region).emergencySignal === true).map((region) => region.id);
+  assert.deepEqual(flagged, ['kyiv', 'dnipro']);
+  assert.ok(REGIONS.every((region) => ['kyiv', 'dnipro'].includes(region.id) || !('emergencySignal' in indexEntry(region))));
+  assert.deepEqual(Object.keys(indexEntry(REGIONS.find((region) => region.id === 'kyiv'))),
+    ['id', 'title', 'subtitle', 'operator', 'status', 'emergencySignal']);
+  assert.deepEqual(Object.keys(indexEntry(REGIONS.find((region) => region.id === 'mykolaiv'))),
+    ['id', 'title', 'subtitle', 'operator', 'status', 'note']);
+});

@@ -21,6 +21,10 @@ on:
         description: 'Make the test push show a banner — the only way to confirm delivery to a device.'
         type: boolean
         default: false
+      test_news_topic:
+        description: 'Send a canned schedule-news alert to this q_test_* topic (e.g. q_test_GPV1-1). Empty = none.'
+        type: string
+        default: ''
 
 concurrency:
   group: mirror
@@ -144,6 +148,16 @@ jobs:
             node tools/mirror/send-push.mjs "${{ inputs.test_push }}"
           fi
         env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
+
+      # Schedule news itself never runs here: this runner keeps no ledger between runs and cannot
+      # read Полтава. Only its delivery can be proved from here, and only to a q_test_ topic — the
+      # script refuses any other. Passed through the environment, never pasted into the script.
+      - name: Test news push
+        if: inputs.test_news_topic != ''
+        run: node tools/mirror/send-news.mjs --test "$TEST_NEWS_TOPIC"
+        env:
+          TEST_NEWS_TOPIC: ${{ inputs.test_news_topic }}
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/service-account.json
 
       - name: Remove service account
