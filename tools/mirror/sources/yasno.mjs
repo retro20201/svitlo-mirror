@@ -1,5 +1,6 @@
 import { getJSON } from '../lib/http.mjs';
 import { buildSnapshot, displayStamp, halvesFromHours, hourStateFromHalves, kyivDayStart, stampTime } from '../lib/canonical.mjs';
+import { markCarried } from '../lib/carried.mjs';
 
 /**
  * YASNO — ДТЕК's own supplier for Київ and Дніпро — publishes the same day tables as ДТЕК's sites,
@@ -218,7 +219,8 @@ function withEmergency(fact, days, now) {
  * YASNO did not answer this time. A day only it had, or its newer table of a day, is still what
  * phones have — the served copy stands in for it until outage-data-ua catches up, instead of the
  * day vanishing for one cycle and coming back the next (two wake-ups each way, as Суми once did).
- * Only served days from today on, and only against an older outage-data-ua stamp.
+ * Only served days from today on, and only against an older outage-data-ua stamp. What is held is
+ * marked as carried (lib/carried.mjs): it is what phones have, not a second look at YASNO.
  */
 function holdServed({ upstream, previous, now }) {
   if (!upstream || !previous) return upstream;
@@ -230,27 +232,25 @@ function holdServed({ upstream, previous, now }) {
   const days = { ...upstreamDays };
   // Only YASNO knows of emergencies; while it is silent, the warning phones have stays.
   const emergency = previous.fact?.emergency ?? [];
-  let held = false;
+  const held = [];
   for (const [epoch, day] of Object.entries(servedDays)) {
     if (Number(epoch) < today) continue;
     const theirs = upstreamDays[epoch];
     if (!theirs || (servedAt > upstreamAt && !sameDay(common(theirs, day), common(day, theirs)))) {
       days[epoch] = theirs ? { ...theirs, ...day } : day;
-      held = true;
+      held.push(Number(epoch));
     }
   }
-  if (!held) {
+  if (!held.length) {
     const fact = withEmergency(upstream.fact ?? {}, emergency, now);
-    return 'emergency' in fact ? { ...upstream, fact } : upstream;
+    return 'emergency' in fact ? markCarried({ ...upstream, fact }, ['emergency']) : upstream;
   }
-  return {
-    ...upstream,
-    fact: withEmergency(
-      { ...upstream.fact, data: days, ...(servedAt > upstreamAt ? { update: previous.fact.update } : {}) },
-      emergency,
-      now
-    )
-  };
+  const fact = withEmergency(
+    { ...upstream.fact, data: days, ...(servedAt > upstreamAt ? { update: previous.fact.update } : {}) },
+    emergency,
+    now
+  );
+  return markCarried({ ...upstream, fact }, 'emergency' in fact ? [...held, 'emergency'] : held);
 }
 
 /**

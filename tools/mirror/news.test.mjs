@@ -494,6 +494,56 @@ test('a region on the slow lane, read every six minutes, still settles and is no
   assert.equal(kyiv.read(t + 12 * MIN, out).sent.length, 12);
 });
 
+test('a part the adapter carried over from the served copy is no second read', () => {
+  // Чернівці's ?next caught mid-edit, then failing: the served copy stood in for tomorrow.
+  const t = at('2026-10-08 20:30');
+  const good = poltava({ [TOMORROW]: day({ 'GPV3.1': dark('07:00-10:00') }) });
+  const midEdit = poltava({ [TOMORROW]: day({ 'GPV3.1': dark('07:00-13:00') }) });
+  let ledger = null;
+  const read = (minute, snapshot, carried = {}) => {
+    const now = new Date(t + minute * MIN);
+    const result = decide({ ledger, observations: { poltava: observeRegion(POLTAVA, snapshot, now) }, now, fingerprint: 'fp1', freshIds: ['poltava'], carried });
+    ledger = result.ledger;
+    for (const event of result.due) recordSent(ledger, event, now.getTime());
+    return result;
+  };
+  read(0, good);
+  read(2, midEdit);
+  const echoed = read(4, midEdit, { poltava: [TOMORROW] });
+  assert.equal(echoed.due.length, 0, 'the served copy confirmed itself');
+  assert.ok(echoed.log.some((entry) => entry.key === `poltava|GPV3.1|${TOMORROW}` && entry.outcome === 'held(carried)'));
+  assert.equal(ledger.entries[`poltava|GPV3.1|${TOMORROW}`].pending.seen, 1, 'what was settling waits');
+  assert.equal(ledger.regions.poltava.lastFreshAt, t + 4 * MIN, 'the rest of the region was read');
+  // The edit finished: back as it was, and nobody heard of the half-read table.
+  assert.equal(read(6, good).due.length, 0);
+  assert.equal(read(8, good).due.length, 0);
+
+  // A change the next real read confirms still goes out — on that read, not the carried one.
+  read(10, midEdit);
+  assert.equal(read(12, midEdit, { poltava: [TOMORROW] }).due.length, 0);
+  assert.deepEqual(read(14, midEdit).due.map((event) => event.kind), ['revised']);
+});
+
+test('an emergency flag carried while YASNO is silent is no second read', () => {
+  const t = at('2026-10-07 12:00');
+  const plain = YASNO.kyivUpstream;
+  const flagged = structuredClone(plain);
+  flagged.fact.emergency = [1791320400];
+  let ledger = null;
+  const read = (minute, snapshot, carried = {}) => {
+    const now = new Date(t + minute * MIN);
+    const result = decide({ ledger, observations: { kyiv: observeRegion(KYIV, snapshot, now) }, now, fingerprint: 'fp1', freshIds: ['kyiv'], carried });
+    ledger = result.ledger;
+    for (const event of result.due) recordSent(ledger, event, now.getTime());
+    return result.due;
+  };
+  read(-2, plain);
+  assert.equal(read(0, flagged).length, 0);
+  assert.equal(read(2, flagged, { kyiv: ['emergency'] }).length, 0);
+  assert.equal(read(4, flagged, { kyiv: ['emergency'] }).length, 0);
+  assert.deepEqual(read(6, flagged).map((event) => event.kind), ['emergency']);
+});
+
 test('a day adopted at bootstrap that then changes is «змінено», never «зʼявився»', () => {
   const kyiv = reader(POLTAVA);
   const t = at('2026-10-08 21:00');

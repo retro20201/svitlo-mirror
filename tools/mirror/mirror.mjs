@@ -21,6 +21,7 @@ import { unchanged } from './lib/change.mjs';
 import { readRelay, staleSince } from './lib/relay.mjs';
 import { ADAPTERS } from './adapters.mjs';
 import { readsThisCycle } from './lib/lanes.mjs';
+import { carriedParts } from './lib/carried.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REGIONS, indexEntry } from './regions.mjs';
@@ -78,9 +79,12 @@ async function main() {
   const notify = [];
   /**
    * Regions read whole by this server this cycle, changed or not: what send-news.mjs may count as
-   * a fresh look at the operator. A relayed or partial read is not one.
+   * a fresh look at the operator. A relayed or partial read is not one, nor one an adapter built on
+   * the served copy (lib/carried.mjs). The parts of a fresh region the adapter carried over from
+   * that copy are listed apart — `kyiv:emergency`, `chernivtsi:1791493200` — and count as no look.
    */
   const fresh = [];
+  const carried = [];
   const entries = new Map();
 
   // Regions that failed last cycle go last: a source refusing this server costs its full deadline
@@ -155,7 +159,11 @@ async function main() {
         entry.stale = true;
         entry.staleSince = staleSince(previousRows.get(region.id));
       }
-      if (!relayed && !partial) fresh.push(region.id);
+      const parts = carriedParts(snapshot);
+      if (!relayed && !partial && parts !== true) {
+        fresh.push(region.id);
+        if (parts) carried.push(`${region.id}:${parts.join('+')}`);
+      }
 
       if (unchanged(previous, snapshot)) {
         console.log(`[same]  ${region.id}`);
@@ -233,7 +241,7 @@ async function main() {
   if (process.env.GITHUB_OUTPUT) {
     await writeFile(
       process.env.GITHUB_OUTPUT,
-      `changed=${changed > 0}\nnotify=${notify.join(',')}\nfresh=${fresh.join(',')}\n`,
+      `changed=${changed > 0}\nnotify=${notify.join(',')}\nfresh=${fresh.join(',')}\ncarried=${carried.join(',')}\n`,
       { flag: 'a' }
     );
   }

@@ -5,6 +5,7 @@ import { decodeJpeg } from './lib/jpeg.mjs';
 import { readPicture, readSchedulePicture, analyse } from './lib/sumy-picture.mjs';
 import { scheduleDay, halvesFromRows, fetchRegion } from './sources/sumy.mjs';
 import { kyivDayStart } from './lib/canonical.mjs';
+import { carriedParts } from './lib/carried.mjs';
 
 // Pictures as Сумиобленерго posted them: 2594 in the light design of November 2025, 2985 and
 // 3516 in the dark one (a full day and a sparse July one), 2603 one whose rows the reader cannot
@@ -92,6 +93,7 @@ test('a day missing from one fetch of the channel keeps the copy already served'
   assert.deepEqual(Object.keys(empty.fact.data).map(Number), [jan21], 'yesterday is not carried');
   assert.deepEqual(empty.sheets.map((s) => s.dayStart), [jan22]);
   assert.equal(empty.fact.update, '20.01.2026 20:29');
+  assert.deepEqual(carriedParts(empty), [jan21, jan22], 'kept, not read');
 
   // A day the page does carry is read afresh, never overlaid by the served copy.
   const fresh = await fetchRegion({ id: 'sumy', title: 'Сумська область', previous }, {
@@ -105,6 +107,8 @@ test('a day missing from one fetch of the channel keeps the copy already served'
     fetchImage: async () => fixture('sumy.fixture-2985.jpg')
   });
   assert.deepEqual(fresh.fact.data[jan21], read.fact.data[jan21]);
+  assert.deepEqual(carriedParts(fresh), [jan22], 'the day the page carried was read');
+  assert.equal(carriedParts(read), null);
 });
 
 test('the newest picture of a day decides: read, it is hours; unreadable, it is the picture', async () => {

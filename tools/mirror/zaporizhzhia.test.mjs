@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { parseListing, fetchRegion } from './sources/zaporizhzhia.mjs';
 import { scheduleFromPosts, parseGpvPost } from './lib/telegram.mjs';
 import { kyivDayStart, validate } from './lib/canonical.mjs';
+import { carriedParts } from './lib/carried.mjs';
 
 // www.zoe.com.ua/outage/ (pages 7–8 as saved from the Kyiv server on 2026-10-01, posts only) and
 // @Zaporizhzhyaoblenergo_news posts 3076–3096: the same days, 8–10 квітня 2026, from both outlets.
@@ -136,4 +137,7 @@ test('when the site does not answer, what phones have stands in for it — no fl
   }));
   assert.deepEqual(next.fact.data, both.fact.data);
   assert.match(seen.join('\n'), /site: connect ETIMEDOUT/);
+  // The site is the table itself: without it the read is no fresh look at the region at all.
+  assert.equal(carriedParts(next), true);
+  assert.equal(carriedParts(both), null);
 });

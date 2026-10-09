@@ -2,13 +2,14 @@
 /**
  * Sends schedule news — after the deploy, from the files being served. lib/news.mjs decides what.
  *
- *   node tools/mirror/send-news.mjs --fresh poltava,kyiv --ledger /var/lib/svitlo-mirror/news-ledger.json \
- *     --mode on|shadow --fingerprint <hex>
+ *   node tools/mirror/send-news.mjs --fresh poltava,kyiv --carried kyiv:emergency \
+ *     --ledger /var/lib/svitlo-mirror/news-ledger.json --mode on|shadow --fingerprint <hex>
  *   node tools/mirror/send-news.mjs --test q_test_GPV1-1     (one canned alert; no ledger)
  *
  * It reads what is served instead of hooking into mirror.mjs, so a bug here can never fail a region
- * or the cycle publishing it; the mirror only lists the regions it read whole (`fresh=`). Running
- * after the deploy, it can only ever announce what a phone opening the alert will find.
+ * or the cycle publishing it; the mirror only lists the regions it read whole (`fresh=`), and the
+ * parts of them an adapter carried over from the served copy (`carried=`). Running after the
+ * deploy, it can only ever announce what a phone opening the alert will find.
  *
  * `shadow`, the default — any mode but exactly `on` — decides everything and records it as sent
  * without sending: switching to `on` then sends no backlog, and the rate limits are already in
@@ -48,12 +49,25 @@ const BUDGET_MS = 60_000;
 const RETRY_FLOOR_MS = 2_000;
 const RETRY_MIN_LEFT_MS = 15_000;
 
+/** mirror.mjs's `carried=`: `kyiv:emergency+1791493200,chernivtsi:1791579600` → `{ region: parts }`. */
+export function parseCarried(value) {
+  const carried = {};
+  for (const item of value.split(',').map((part) => part.trim()).filter(Boolean)) {
+    const at = item.indexOf(':');
+    if (at <= 0) continue;
+    carried[item.slice(0, at)] = item.slice(at + 1).split('+').filter(Boolean)
+      .map((part) => (/^\d+$/.test(part) ? Number(part) : part));
+  }
+  return carried;
+}
+
 export function parseArgs(argv) {
-  const args = { fresh: [], ledger: null, mode: 'shadow', fingerprint: '', test: null, served: SERVED };
+  const args = { fresh: [], carried: {}, ledger: null, mode: 'shadow', fingerprint: '', test: null, served: SERVED };
   for (let i = 0; i < argv.length; i++) {
     const value = argv[i + 1] ?? '';
     switch (argv[i]) {
       case '--fresh': args.fresh = value.split(',').map((id) => id.trim()).filter(Boolean); i++; break;
+      case '--carried': args.carried = parseCarried(value); i++; break;
       case '--ledger': args.ledger = value; i++; break;
       // Exactly `on`: a typo, a stray space or an empty file keeps it quiet.
       case '--mode': args.mode = value === 'on' ? 'on' : 'shadow'; i++; break;
@@ -145,7 +159,7 @@ const spoken = (message) => {
  * stub `fetch` and a fake clock and signal source.
  */
 export async function run({
-  fresh = [], ledgerPath, mode = 'shadow', fingerprint = '', served = SERVED, now = new Date(),
+  fresh = [], carried = {}, ledgerPath, mode = 'shadow', fingerprint = '', served = SERVED, now = new Date(),
   credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS, signals = process,
   exit = (code) => process.exit(code), sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   clock = () => Date.now(), print = console.log
@@ -189,7 +203,7 @@ export async function run({
       }
     }
 
-    const { ledger, due, log, breaker } = decide({ ledger: loaded.ledger, observations, now, fingerprint, freshIds: ids });
+    const { ledger, due, log, breaker } = decide({ ledger: loaded.ledger, observations, now, fingerprint, freshIds: ids, carried });
     session.ledger = ledger;
     for (const { key, kind, outcome } of log) {
       print(line(mode, key, kind, outcome));
@@ -363,7 +377,7 @@ async function main() {
     if (args.test !== null) {
       await sendTest(args.test);
     } else if (!args.ledger) {
-      console.log('[news] usage: send-news.mjs --fresh <ids> --ledger <path> --mode <on|shadow> --fingerprint <hex> | --test <q_test_…>');
+      console.log('[news] usage: send-news.mjs --fresh <ids> [--carried <id:parts,…>] --ledger <path> --mode <on|shadow> --fingerprint <hex> | --test <q_test_…>');
     } else {
       await run({ ...args, ledgerPath: args.ledger });
     }

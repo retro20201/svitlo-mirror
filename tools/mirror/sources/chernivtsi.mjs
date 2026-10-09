@@ -1,5 +1,6 @@
 import { getText } from '../lib/http.mjs';
 import { buildSnapshot, hourStateFromHalves, kyivDayStart, kyivTomorrowStart } from '../lib/canonical.mjs';
+import { markCarried } from '../lib/carried.mjs';
 
 /**
  * АТ «Чернівціобленерго» — the table on oblenergo.cv.ua/shutdowns/, rendered server-side.
@@ -114,6 +115,7 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function fetchRegion(region, now = new Date(), { fetchPage = getText, wait = pause } = {}) {
   const fact = {};
+  const carried = [];
   const page = parsePage(await fetchPage(PAGE));
   const first = publishable(page, now);
   if (first) fact[first.day] = first.hours;
@@ -135,12 +137,15 @@ export async function fetchRegion(region, now = new Date(), { fetchPage = getTex
       // Today's fresh table still goes out. Tomorrow stays as phones already have it, rather than
       // vanishing for a cycle and coming back — two wake-ups and a disarmed midnight alert.
       const kept = region.previous?.fact?.data?.[tomorrow];
-      if (kept) fact[tomorrow] = kept;
+      if (kept) {
+        fact[tomorrow] = kept;
+        carried.push(tomorrow);
+      }
       console.warn(`[chernivtsi] ?next: ${error.message}; tomorrow ${kept ? 'kept from the last copy' : 'not published'}`);
     }
   }
 
-  return buildSnapshot({
+  return markCarried(buildSnapshot({
     regionId: region.id,
     title: region.title,
     queues: QUEUES,
@@ -148,5 +153,5 @@ export async function fetchRegion(region, now = new Date(), { fetchPage = getTex
     todayEpoch: kyivDayStart(now),
     update: null,
     source: 'chernivtsi'
-  });
+  }), carried);
 }

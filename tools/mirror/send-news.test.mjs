@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { run, parseArgs, sendNews, sendTest, assertNewsTopic, TopicRefused } from './send-news.mjs';
+import { run, parseArgs, parseCarried, sendNews, sendTest, assertNewsTopic, TopicRefused } from './send-news.mjs';
 import { buildSnapshot } from './lib/canonical.mjs';
 import { sendFcm } from './lib/notify.mjs';
 
@@ -117,6 +117,15 @@ test('anything but exactly "on" is shadow', () => {
   assert.equal(parseArgs([]).mode, 'shadow');
   assert.deepEqual(parseArgs(['--fresh', '']).fresh, []);
   assert.deepEqual(parseArgs(['--fresh', 'poltava,kyiv']).fresh, ['poltava', 'kyiv']);
+});
+
+test('the carried parts read back as mirror.mjs wrote them', () => {
+  assert.deepEqual(parseCarried(''), {});
+  assert.deepEqual(parseCarried('kyiv:1791493200+emergency,chernivtsi:1791579600'),
+    { kyiv: [1791493200, 'emergency'], chernivtsi: [1791579600] });
+  assert.deepEqual(parseCarried('kyiv-region:emergency, ,broken'), { 'kyiv-region': ['emergency'] });
+  assert.deepEqual(parseArgs(['--carried', 'sumy:1791493200']).carried, { sumy: [1791493200] });
+  assert.deepEqual(parseArgs([]).carried, {});
 });
 
 test('no answer is not no delivery: only a send that never connected is tried again', async () => {

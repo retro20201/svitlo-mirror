@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parsePage, publishable, fetchRegion, QUEUES } from './sources/chernivtsi.mjs';
 import { kyivDayStart, validate } from './lib/canonical.mjs';
+import { carriedParts } from './lib/carried.mjs';
 
 // Real pages of oblenergo.cv.ua/shutdowns/: in-season ones from the Wayback Machine's raw copies,
 // the off-season one from the Kyiv server on 2026-10-01.
@@ -108,6 +109,9 @@ test('a failed ?next keeps today fresh and tomorrow as phones already have it', 
       wait: async () => {}
     }));
   assert.deepEqual(snapshot.fact.data, published.fact.data);
+  // Tomorrow is the served copy, no look at the operator; today was read.
+  assert.deepEqual(carriedParts(snapshot), [day('2025-11-13')]);
+  assert.equal(carriedParts(published), null);
 
   // With no earlier copy, today alone.
   const { value: alone } = await quietAsync(() => fetchRegion({ id: 'chernivtsi', title: 'Чернівецька область' }, now, {
@@ -115,6 +119,7 @@ test('a failed ?next keeps today fresh and tomorrow as phones already have it', 
     wait: async () => {}
   }));
   assert.deepEqual(Object.keys(alone.fact.data).map(Number), [day('2025-11-12')]);
+  assert.equal(carriedParts(alone), null);
 });
 
 test('a quiet, switched-off today still lets tomorrow\'s outages through', async () => {

@@ -5,6 +5,7 @@ import { combine, factFromPlanned, presetFromProbable, slotsToHalves } from './s
 import { settle } from './sources/dtek.mjs';
 import { halvesFromHours, validate } from './lib/canonical.mjs';
 import { unchanged } from './lib/change.mjs';
+import { carriedParts } from './lib/carried.mjs';
 import { affectsSchedule } from './lib/notify.mjs';
 import { REGIONS } from './regions.mjs';
 
@@ -141,6 +142,8 @@ test('a YASNO read that fails once takes nothing back and wakes nobody', () => {
     for (const [cycle, answer] of [yasno, null, yasno, null].entries()) {
       const snapshot = combine({ upstream, yasno: answer, previous, region: KYIV, now: NOW, log: quiet });
       if (cycle > 0) assert.equal(affectsSchedule(previous, snapshot), false, `${kind}: cycle ${cycle} woke phones`);
+      // Held for phones, but no second look at YASNO (lib/carried.mjs).
+      assert.deepEqual(carriedParts(snapshot), answer ? null : [Number(tomorrow)], `${kind}: cycle ${cycle}`);
       served.push(JSON.stringify(snapshot.fact.data[tomorrow]));
       previous = snapshot;
     }
@@ -157,6 +160,7 @@ test('a YASNO read that fails once takes nothing back and wakes nobody', () => {
   upstream.fact.update = '07.10.2026 12:00';
   const later = combine({ upstream, yasno: null, previous: held, region: KYIV, now: NOW, log: quiet });
   assert.equal(later.fact.data[tomorrow]['GPV1.1']['3'], 'first');
+  assert.equal(carriedParts(later), null);
 });
 
 test('a malformed YASNO plan never fails a region outage-data-ua can serve', () => {
@@ -248,6 +252,9 @@ test('an emergency day is carried for the app, wakes phones, and outlasts a sile
   const silent = combine({ upstream: F.kyivUpstream, yasno: null, previous: snapshot, region: KYIV, now: NOW, log: quiet });
   assert.deepEqual(silent.fact.emergency, [Number(today)]);
   assert.equal(affectsSchedule(snapshot, silent, NOW), false);
+  // Kept from what phones have, so it is no second sighting of the flag either.
+  assert.deepEqual(carriedParts(silent), ['emergency']);
+  assert.equal(carriedParts(snapshot), null);
 
   // Over: YASNO answers without it, and the key is gone — the shape phones always had.
   const over = combine({ upstream: F.kyivUpstream, yasno: kyivYasno(), previous: silent, region: KYIV, now: NOW, log: quiet });
@@ -258,6 +265,7 @@ test('an emergency day is carried for the app, wakes phones, and outlasts a sile
   const tomorrowMorning = new Date(NOW.getTime() + 24 * 3600 * 1000);
   const later = combine({ upstream: F.kyivUpstream, yasno: null, previous: snapshot, region: KYIV, now: tomorrowMorning, log: quiet });
   assert.equal('emergency' in later.fact, false);
+  assert.equal(carriedParts(later), null);
   assert.equal(affectsSchedule(snapshot, later, tomorrowMorning), false);
 });
 

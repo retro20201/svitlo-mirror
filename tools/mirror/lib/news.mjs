@@ -139,7 +139,9 @@ function settle(entry, value, at, { reads = 2, ms = SETTLE_MS } = {}) {
  * Kind comes from whether the ledger has an entry, not from whether anyone was told: a day adopted
  * silently at bootstrap that then changes is «змінено», never «зʼявився».
  */
-export function decide({ ledger: input, observations, now = new Date(), fingerprint, freshIds = [], known = REGIONS.map((region) => region.id) }) {
+export function decide({
+  ledger: input, observations, now = new Date(), fingerprint, freshIds = [], carried = {}, known = REGIONS.map((region) => region.id)
+}) {
   const ledger = structuredClone(input ?? emptyLedger());
   ledger.regions ??= {};
   ledger.entries ??= {};
@@ -266,6 +268,10 @@ export function decide({ ledger: input, observations, now = new Date(), fingerpr
     const rebaseline = !state || state.fp !== fingerprint;
     // 2. Back after a gap: today is adopted, tomorrow is still news.
     const gap = !rebaseline && at - state.lastFreshAt > GAP_MS;
+    // 3. What the adapter carried over from the served copy this time (lib/carried.mjs): the copy
+    // confirming itself, no look at the operator. It settles nothing and fires nothing, and what
+    // was settling waits, untouched, for the next real read.
+    const kept = new Set(carried[region] ?? []);
 
     for (const item of current) {
       const prior = entries[item.key];
@@ -277,6 +283,10 @@ export function decide({ ledger: input, observations, now = new Date(), fingerpr
       if (gap && (item.day === today || item.type === 'emergency')) {
         if (prior?.base !== item.value) log.push({ key: item.key, kind: '-', outcome: 'adopted(gap)' });
         adopt(entry(item.key), item.value);
+        continue;
+      }
+      if (kept.has(item.type === 'emergency' ? 'emergency' : item.day)) {
+        if (prior?.pending || prior?.base !== item.value) log.push({ key: item.key, kind: '-', outcome: 'held(carried)' });
         continue;
       }
       const event = item.type === 'queue' ? queueEvent(seen, item, prior)

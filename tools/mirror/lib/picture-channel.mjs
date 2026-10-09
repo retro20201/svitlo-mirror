@@ -1,6 +1,7 @@
 import { getBytes } from './http.mjs';
 import { fetchChannelPage, parsePhotoPosts, mergeVersions } from './telegram.mjs';
 import { buildSnapshot, kyivDayStart, queueNames, NATIONAL_QUEUES } from './canonical.mjs';
+import { markCarried } from './carried.mjs';
 
 /**
  * The shared half of an adapter for an operator whose only table is a picture it posts to its
@@ -21,23 +22,23 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * picture — keeps the served copy. These channels never take a schedule back by deleting its post;
  * a change is a new post, which this read would have seen. So a day that vanishes is a page served
  * without the post, or a post caught mid-edit, for one fetch: on 6 October that emptied Суми's day
- * for five minutes and woke every phone in the oblast twice. Returns whether anything was kept.
+ * for five minutes and woke every phone in the oblast twice. Returns the days kept.
  */
 function keepServedDays(previous, { fact, sheets, from }) {
   const data = previous?.fact?.data;
   const days = data && !Array.isArray(data) ? data : {};
   const covered = (epoch) => fact[epoch] !== undefined || sheets.some((sheet) => sheet.dayStart === epoch);
-  let kept = false;
+  const kept = [];
   for (const [day, queues] of Object.entries(days)) {
     const epoch = Number(day);
     if (epoch < from || covered(epoch)) continue;
     fact[epoch] = queues;
-    kept = true;
+    kept.push(epoch);
   }
   for (const sheet of previous?.sheets ?? []) {
     if (sheet.dayStart < from || covered(sheet.dayStart)) continue;
     sheets.push(sheet);
-    kept = true;
+    kept.push(sheet.dayStart);
   }
   return kept;
 }
@@ -109,14 +110,15 @@ export async function pictureChannelSnapshot(region, {
   const { fact, update } = mergeVersions(versions, { since });
   const kept = keepServedDays(region.previous, { fact, sheets, from: kyivDayStart(now) });
 
-  return buildSnapshot({
+  // Kept days are no look at the channel (carried.mjs); the days this page did carry are.
+  return markCarried(buildSnapshot({
     regionId: region.id,
     title: region.title,
     queues: queueNames(NATIONAL_QUEUES),
     fact,
     todayEpoch: kyivDayStart(now),
-    update: update ?? (kept ? region.previous.fact?.update ?? null : null),
+    update: update ?? (kept.length ? region.previous.fact?.update ?? null : null),
     sheets: sheets.sort((a, b) => a.dayStart - b.dayStart),
     source
-  });
+  }), kept);
 }

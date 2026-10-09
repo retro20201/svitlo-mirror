@@ -4,6 +4,7 @@ import {
 } from '../lib/telegram.mjs';
 import { getTextTrusting } from '../lib/https-ca.mjs';
 import { buildSnapshot, halvesFromHours, kyivDayStart, queueNames, stampTime, NATIONAL_QUEUES } from '../lib/canonical.mjs';
+import { markCarried } from '../lib/carried.mjs';
 
 /**
  * АТ «Запоріжжяобленерго» — ГПВ tables from two of their own outlets, combined.
@@ -131,7 +132,9 @@ export async function fetchRegion(region, now = new Date(), {
   // alone turned every hour only the site called dark back to light for one cycle and dark again
   // the next — a wake-up for the whole oblast each way, and «світло є» in between. The cost is that
   // a dark hour the channel later cancels stays dark until the site answers or the day is over.
-  if (site.status === 'rejected' && region.previous?.fact?.data && !Array.isArray(region.previous.fact.data)) {
+  // The site is the table itself, so such a read is no fresh look at the region at all (carried.mjs).
+  const leaned = site.status === 'rejected' && region.previous?.fact?.data && !Array.isArray(region.previous.fact.data);
+  if (leaned) {
     const kept = {};
     for (const [epoch, queues] of Object.entries(region.previous.fact.data)) {
       if (Number(epoch) < since) continue;
@@ -145,7 +148,7 @@ export async function fetchRegion(region, now = new Date(), {
   const update = readings.map((reading) => reading.update).filter(Boolean)
     .sort((a, b) => stampTime(a) - stampTime(b)).at(-1) ?? null;
 
-  return buildSnapshot({
+  const snapshot = buildSnapshot({
     regionId: region.id,
     title: region.title,
     queues: { ...queueNames(NATIONAL_QUEUES), ...queueNames([...seen].map((key) => key.replace(/^GPV/, ''))) },
@@ -154,4 +157,5 @@ export async function fetchRegion(region, now = new Date(), {
     update,
     source: 'zaporizhzhia'
   });
+  return leaned ? markCarried(snapshot, true) : snapshot;
 }
