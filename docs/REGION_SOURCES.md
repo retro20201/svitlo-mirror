@@ -86,6 +86,8 @@ In season it gives **volume per time band** (`ГПВ в обсязі 2.5 чер�
 
 **Generalize the "не прогнозується" pattern.** A positive "no restrictions tomorrow" state is worth more to users than an empty screen, and every Telegram region can produce it. Build it as a first-class app state.
 
+**Update 2026-10-09.** The per-queue table did turn up: poe.pl.ua's own widget (`/customs/newgpv-info.php`), read from the Kyiv server (`sources/poltava.mjs`). A day it answers «не прогнозується», or with a grid without a dark cell, is now published as `fact.quiet`, which is what «Графік на завтра: без вимкнень» is told from. **Полтава has no emergency feed:** nothing machine-readable says when the operator cuts beyond the schedule — `@poltavaOE` gives volumes only, and the widget carries the ГПВ grid alone. So schedule news there covers tomorrow's table and same-day revisions, never «Аварійні відключення»; that switch exists only where YASNO marks `EmergencyShutdowns` (Київ, Дніпро). Finding a ГАВ source would need a live look at poe.pl.ua from a Ukrainian address.
+
 ### A9. Чернігів — **1 region, recon only, ~0.5 day from a clean IP**
 `chernihivoblenergo.com.ua` (with an **h**) is the operator and is **not** on Cloudflare. `chernigivoblenergo.com.ua` (with a **g**) is a betting-affiliate squat that *is* on Cloudflare — that is what got scored as blocked. The real site serves Europe fine (200 from CH/DE/ES/FI nodes, 0.2–0.5s) and has greylisted this sandbox's egress IP after chatty probing.
 
