@@ -74,6 +74,21 @@ function splitValues(value) {
   return String(value).split(/\s*[;|]\s*|\s*,\s+/).map((v) => cleanSpaces(v)).filter((v) => v && isCyrillicName(v));
 }
 
+/**
+ * An `old_name` tag is meant to be Ukrainian, but editors put the Russian street name in it too («Патриса Лумумбы»,
+ * «Черноморская дорога», «Семьи сосниных»). Letters Ukrainian never uses (ы э ъ ё) or an ending Russian has and
+ * Ukrainian has not (-ская, -ский without the soft sign, -ая) give it away. Such a value is the Russian form
+ * of the street, not a former name.
+ */
+export function looksRussian(value) {
+  const text = String(value).toLowerCase();
+  if (/[іїєґ]/.test(text)) return /[ыэъё]/.test(text);
+  if (/[ыэъё]/.test(text)) return true;
+  // «вулиця Цхакая»: the Ukrainian kind word says it is Ukrainian, and a Georgian surname ends in -ая.
+  if (/(^|[^а-яіїєґ])(вулиця|провулок|площа|проспект|бульвар|узвіз)([^а-яіїєґ]|$)/.test(text)) return false;
+  return text.split(/[^а-яё]+/).some((w) => w.length >= 5 && /([^ь]ск(ая|ий|ое|ие|ой)|[^ь]цк(ая|ий|ое|ие|ой)|ая|яя)$/.test(w));
+}
+
 function insideBox(element, box) {
   if (!box) return true;
   const c = element.center;
@@ -82,10 +97,10 @@ function insideBox(element, box) {
 }
 
 /** Pure: one town's Overpass answer → source rows (one per distinct pair, with the first way as the note). */
-export function parseOsmTown(json, { scope, box, fetched = '' }) {
+export function parseOsmTown(json, { scope, box, fetched = '', skipWays = null }) {
   const merged = new Map();
   for (const element of json.elements ?? []) {
-    if (element.type !== 'way' || !insideBox(element, box)) continue;
+    if (element.type !== 'way' || !insideBox(element, box) || skipWays?.has(element.id)) continue;
     const tags = element.tags ?? {};
     const newRaw = tags['name:uk'] || tags.name;
     if (!newRaw || !isCyrillicName(newRaw)) continue;
@@ -93,8 +108,21 @@ export function parseOsmTown(json, { scope, box, fetched = '' }) {
     // Two names glued into one tag («Зелена вулиця вулиця Шестакова»): not a name.
     if (current.junk || !current.name) continue;
     for (const g of oldNameGroups(tags)) {
-      const old = g.uk.flatMap(splitValues);
-      const ru = g.ru.flatMap(splitValues);
+      const written = g.uk.flatMap(splitValues);
+      const old = written.filter((v) => !looksRussian(v));
+      const ru = [...g.ru.flatMap(splitValues), ...written.filter((v) => looksRussian(v))];
+      // Only a Russian name was written: it is not a key, but it is the Russian form of this street's former name,
+      // which another source may know in Ukrainian («Екатерининская» / «Катерининська»).
+      if (!old.length) {
+        for (const value of ru) {
+          const parsed = parseName(value);
+          const name = tidyName(parsed.name);
+          if (!name || parsed.junk || parsed.unofficial) continue;
+          const key = ['ru', parsed.type, name, current.type, current.name, g.year].join('|');
+          if (!merged.has(key)) merged.set(key, { old_type: parsed.type, old_name: name, new_type: current.type, new_name: tidyName(current.name), year: g.year, ru: name, part: parsed.part, way: element.id, ruonly: true });
+        }
+        continue;
+      }
       old.forEach((value, i) => {
         const parsed = parseName(value);
         const name = tidyName(parsed.name);
@@ -115,21 +143,36 @@ export function parseOsmTown(json, { scope, box, fetched = '' }) {
   const rows = [...merged.values()].map((m) => row({
     list: 'streets', scope,
     old_type: m.old_type, old_name: m.old_name, new_type: m.new_type, new_name: m.new_name,
-    year: m.year, src: 'osm', flags: m.part ? 'part' : '', ru: m.ru,
+    year: m.year, src: 'osm', flags: [m.ruonly ? 'ruonly' : '', m.part ? 'part' : ''].filter(Boolean).join(','), ru: m.ru,
     note: `way/${m.way}`, url: `https://www.openstreetmap.org/way/${m.way}`, fetched
   }));
   return sortRows(rows, SOURCE_SORT);
 }
 
-/** Reads `raw/osm` (one file per town and the manifest) → rows. */
-export async function parseRaw(dir) {
+/**
+ * Reads `raw/osm` (one file per town and the manifest) → rows. A way that two towns' files both hold (a boundary
+ * between two areas) is published under neither: nothing says whose street it is.
+ */
+export async function parseRaw(dir, { log = () => {} } = {}) {
   const manifest = JSON.parse(await readFile(join(dir, 'manifest.json'), 'utf8'));
-  const all = [];
+  const loaded = [];
+  const owners = new Map();
   for (const [town, cfg] of Object.entries(OSM_TOWNS)) {
     const entry = manifest.files.find((f) => f.path === `${town}.json`);
     if (!entry) throw new Error(`osm/${town}.json is not in the manifest`);
     const json = JSON.parse(await readFile(join(dir, entry.path), 'utf8'));
-    all.push(...parseOsmTown(json, { ...cfg, fetched: (json.osm3s?.timestamp_osm_base ?? entry.fetchedAt).slice(0, 10) }));
+    loaded.push({ town, cfg, entry, json });
+    for (const element of json.elements ?? []) {
+      if (element.type !== 'way' || !insideBox(element, cfg.box)) continue;
+      if (!owners.has(element.id)) owners.set(element.id, new Set());
+      owners.get(element.id).add(town);
+    }
+  }
+  const shared = new Set([...owners].filter(([, towns]) => towns.size > 1).map(([id]) => id));
+  if (shared.size) log(`${shared.size} ways are in the files of two towns and are skipped`);
+  const all = [];
+  for (const { cfg, entry, json } of loaded) {
+    all.push(...parseOsmTown(json, { ...cfg, fetched: (json.osm3s?.timestamp_osm_base ?? entry.fetchedAt).slice(0, 10), skipWays: shared }));
   }
   return sortRows(all, SOURCE_SORT);
 }
@@ -137,7 +180,7 @@ export async function parseRaw(dir) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [dir, out] = process.argv.slice(2);
   if (!dir) { console.error('usage: parse-osm.mjs <raw/osm> [out.tsv]'); process.exit(1); }
-  const rows = await parseRaw(dir);
+  const rows = await parseRaw(dir, { log: (l) => console.error(l) });
   if (out) await writeTsv(out, SOURCE_COLUMNS, rows);
   console.error(`${rows.length} rows`);
 }

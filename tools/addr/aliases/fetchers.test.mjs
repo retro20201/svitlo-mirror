@@ -59,16 +59,13 @@ test('Wikipedia sets: 33 Kyiv pages, 10 other uk pages, 1 ru page, one request e
   assert.equal(new URL(wikiUrl('ru-odesa')).hostname, 'ru.wikipedia.org');
 });
 
-test('Overpass areas: 21 unique cities, each with a relation or a sane box', () => {
+test('Overpass areas: 21 unique towns, each by the boundary relation of the town or its hromada, none by a rectangle', () => {
   assert.equal(OSM_AREAS.length, 21);
   assert.equal(new Set(OSM_AREAS.map((a) => a.id)).size, 21);
+  assert.equal(new Set(OSM_AREAS.map((a) => a.relation)).size, 21);
+  // A rectangle round Dnipro holds Яворницьке, Любимівка and Підгороднє: their ways joined the city's list by name.
   for (const a of OSM_AREAS) {
-    assert.ok(Boolean(a.relation) !== Boolean(a.bbox), `${a.id}: exactly one of relation and bbox`);
-    if (a.bbox) {
-      const [s, w, n, e] = a.bbox;
-      assert.ok(s < n && w < e && s > 44 && n < 53 && w > 22 && e < 41, `${a.id}: box inside Ukraine`);
-      assert.ok((n - s) * (e - w) < 0.2, `${a.id}: a city, not an oblast`);
-    }
+    assert.ok(Number.isInteger(a.relation) && a.relation > 0 && !a.bbox, `${a.id}: a boundary relation`);
   }
 });
 

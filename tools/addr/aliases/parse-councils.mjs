@@ -125,7 +125,13 @@ export function parseBrovary(blocks, { url = '', fetched = '' } = {}) {
   return rows;
 }
 
-/** Pure: Khmelnytskyi annex 3: [№, type, full name, short name, location, year, previous names, code]. */
+/**
+ * Pure: Khmelnytskyi annex 3: [№, type, full name, short name, location, year, previous names, code].
+ * The annex lists EVERY street of the city, with or without previous names. A street without any is no rename, but
+ * its name is somebody's current name: a `census` row says so (the operator's list has 883 streets and misses
+ * some of them, «вул. Лесі Українки» in Ракове among them), so that an old name which is also a current name
+ * somewhere in the city is never offered as a sure answer.
+ */
 export function parseKhmelnytskyi(blocks, { url = '', fetched = '' } = {}) {
   const rows = [];
   const table = blocks.filter((b) => b.kind === 'table').find((b) => b.rows[0]?.some((c) => /Попередні назви/i.test(c)));
@@ -133,9 +139,14 @@ export function parseKhmelnytskyi(blocks, { url = '', fetched = '' } = {}) {
   for (const cells of table.rows.slice(1)) {
     if (cells.length < 7) continue;
     const [, typeWord, fullName, shortName, location, yearCell, previous, code] = cells;
-    if (!previous?.trim()) continue;
     const newName = parseName(`${typeWord} ${fullName}`);
     if (!newName.type || !newName.name) continue;
+    rows.push(row({
+      list: 'streets', scope: 'khmelnytskyi/khmelnytskyi', new_type: newName.type, new_name: tidyName(newName.name),
+      act: 'ХМР 24/2008', src: 'loc', flags: 'census',
+      note: [code ? `код ${code}` : '', location].filter(Boolean).join('; '), url, fetched
+    }));
+    if (!previous?.trim()) continue;
     const year = yearIn(yearCell);
     for (const part of previous.split(/\s*[,;]\s*/)) {
       const r = pairRow({

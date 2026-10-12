@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { decodeXml, readZipEntry } from '../../lib/xlsx.mjs';
 import { decodeBody, isMain, parseArgs, sha256 } from './http.mjs';
 import { checkFile, FILE_SOURCES } from './fetch-files.mjs';
-import { OSM_AREAS } from './fetch-osm.mjs';
+import { OSM_AREAS, overpassQuery } from './fetch-osm.mjs';
 import { RADA_ACTS } from './fetch-rada.mjs';
 import { WIKI_SETS } from './fetch-wikipedia.mjs';
 
@@ -201,6 +201,10 @@ async function verifyOsm(dir) {
     if (s.ways === 0) f.problems.push('no ways');
     if (s.withCenter !== s.ways) f.problems.push(`${s.ways - s.withCenter} ways without a center`);
     if (s.ways && f.entry?.query && f.entry.ways !== s.ways) f.problems.push('way count differs from manifest');
+    // The town by its boundary relation. A file from the rectangle fetch (or any other query) holds the ways of the
+    // villages round it, and they would join the town's streets by name.
+    const area = OSM_AREAS.find((a) => `${a.id}.json` === f.path);
+    if (area && f.entry?.query && f.entry.query !== overpassQuery(area)) f.problems.push('fetched with another query than fetch-osm.mjs sends now (a rectangle?): refetch it');
   }
   notes.push(`${ways} ways in ${files.filter((f) => f.buf).length} files`);
   return finish('osm', files, problems, notes);

@@ -9,7 +9,7 @@ import { yearAndAct, parseKyivPages } from './parse-wikipedia-kyiv.mjs';
 import { parseCityPage, parseDniproLines, columnRoles } from './parse-wikipedia-cities.mjs';
 import { parseSettlementPage } from './parse-wikipedia-settlements.mjs';
 import { parseRuOdesa } from './parse-wikipedia-ru-odesa.mjs';
-import { parseOsmTown, oldNameGroups } from './parse-osm.mjs';
+import { parseOsmTown, oldNameGroups, looksRussian } from './parse-osm.mjs';
 import { parseRadaAct, splitOldPart, raionNominative } from './parse-rada.mjs';
 import { parseBoryspil, parseBilaTserkva, parseBrovary, parseKhmelnytskyi, localityHeading } from './parse-councils.mjs';
 import { parseOda, parseBucha, oldNamesFromNote, layoutItems, nominative } from './parse-pdfs.mjs';
@@ -123,6 +123,29 @@ test('Dnipro list lines: old (district) — new, dated by the heading', () => {
   ]);
 });
 
+test('town lists: an empty header cell over the kinds is the type column; a park or a square is not a street', () => {
+  const text = "=== Список перейменувань 1998—2014 ===\n{| class=\"wikitable\"\n!\n!Стара назва\n!'''Нова назва'''\n!Рік\n!Район\n|-\n|пров.\n|Жовтий\n|'''В'ячеслава Тютіна'''\n|22.10.1998\n|Бабушкінський\n|-\n|парк\n|Воронцова\n|'''Сагайдак'''\n|2016\n|Індустріальний\n|-\n|вул.\n|Леніна\n|'''Героїв'''\n|2016\n|Центральний\n|}";
+  const rows = parseCityPage({ revid: 5, text }, { scope: 'dnipro/dnipro' }, { fetched: 'd' });
+  assert.deepEqual(rowsOf(rows), [
+    "dnipro/dnipro||Жовтий|пров.|В'ячеслава Тютіна|Бабушкінський|1998||wp|",
+    'dnipro/dnipro||Леніна|вул.|Героїв|Центральний|2016||wp|'
+  ]);
+  assert.equal(columnRoles(['', 'Стара назва', 'Нова назва', 'Рік']).type, 0);
+  assert.equal(columnRoles(['Тип', 'Стара назва', 'Нова назва']).type, 0);
+  assert.equal(columnRoles(['Стара назва', 'Нова назва']).type, undefined);
+});
+
+test('Dnipro list lines: the new name is the bold part; an italic note after it is not part of the name', () => {
+  const text = "=== Список перейменувань відповідно до Рішення Дніпровської міської ради від 18 грудня 2024 року ===\n# ''вулиця Артема Веделя''&nbsp;— '''Братська вулиця''' ''(Походження назв вулиці і провулка пов’язано зі спадкоємцями (братами Дієнками))''\n# ''вулиця Олександра Мишуги''&nbsp;— '''вулиця Шаляпіна''' (''порушення закону про деколонізацію'')\n# ''Первозванівська вулиця''&nbsp;— '''вулиця Короленка''' ''(Короленко Антон Петрович (?–1690–1738–?) – нащадок козацько-старшинського роду)''";
+  const rows = parseDniproLines({ revid: 3, text }, { scope: 'dnipro/dnipro' });
+  assert.deepEqual(rowsOf(rows).map((l) => l.split('|').slice(0, 7).join('|')), [
+    'dnipro/dnipro|вул.|Артема Веделя|вул.|Братська||2024',
+    'dnipro/dnipro|вул.|Олександра Мишуги|вул.|Шаляпіна||2024',
+    'dnipro/dnipro|вул.|Первозванівська|вул.|Короленка||2024'
+  ]);
+  assert.match(rows[0].act, /18 грудня 2024/);
+});
+
 test('settlement lists: type, old, raion, new and the act', () => {
   const text = `=== [[Дніпропетровська область]] ===\n{| class="wikitable"\n! Тип\n! Стара назва\n! Район/міськрада\n! Нова назва\n! Посилання\n|-\n| село\n| ''Ленінське''\n| Апостолівський\n| ''[[Грушівка (Криворізький район)|Грушівка]]''\n| ПВРУ 984-VIII\n|}\n=== [[Вінницька область]] ===\n{| class="wikitable"\n! Тип\n! Стара назва\n! Район\n! Нова назва\n! Посилання\n|-\n| село\n| Х\n| Y\n| Z\n| ПВРУ 1-VIII\n|}`;
   const rows = parseSettlementPage({ revid: 2, text }, {});
@@ -159,6 +182,14 @@ test('OSM: a street whose old name is its own, or whose name is Latin, gives not
     { type: 'way', id: 2, tags: { name: 'Main Street', old_name: 'вулиця Х' } }
   ] }, { scope: 'x/y' });
   assert.deepEqual(rows, []);
+});
+
+test('OSM: a Russian value in old_name is the Russian form, not a former name; a way in two towns\' files is nobody\'s', () => {
+  assert.ok(looksRussian('Патриса Лумумбы') && looksRussian('Черноморская дорога') && looksRussian('Абхазский') && looksRussian('Профсоюзная'));
+  assert.ok(!looksRussian('Жовтнева') && !looksRussian('Червоноармійська') && !looksRussian('Октябрьська') && !looksRussian('вулиця Цхакая'));
+  const tags = { name: 'вулиця Героїв', old_name: 'Астрономическая;Планетна', 'old_name:ru': 'Планетная' };
+  const rows = parseOsmTown({ elements: [{ type: 'way', id: 7, tags }, { type: 'way', id: 8, tags }] }, { scope: 'x/y', skipWays: new Set([8]) });
+  assert.deepEqual(rows.map((r) => [r.old_name, r.ru, r.url.split('/').pop()]), [['Планетна', 'Планетная', '7']]);
 });
 
 // ---- Rada ------------------------------------------------------------------------------------
@@ -240,9 +271,12 @@ test('Brovary and Khmelnytskyi: Word annexes', () => {
     ['5', 'вулиця', 'Миколи Амосова', 'Амосова', 'Лезневе', '2016', 'вулиця Лесі Українки,вулиця Д.Коротченка', '220'],
     ['6', 'вулиця', 'Авіаційна', 'Авіаційна', 'Дубове', '1993', '', '001']
   ] }];
+  // Every street of the annex, renamed or not, is also a `census` row: a current name somebody has today.
   assert.deepEqual(rowsOf(parseKhmelnytskyi(khm)), [
     'khmelnytskyi/khmelnytskyi|вул.|Лесі Українки|вул.|Миколи Амосова||2016|ХМР 24/2008|loc|',
-    'khmelnytskyi/khmelnytskyi|вул.|Коротченка|вул.|Миколи Амосова||2016|ХМР 24/2008|loc|'
+    'khmelnytskyi/khmelnytskyi|вул.|Коротченка|вул.|Миколи Амосова||2016|ХМР 24/2008|loc|',
+    'khmelnytskyi/khmelnytskyi|||вул.|Миколи Амосова|||ХМР 24/2008|loc|census',
+    'khmelnytskyi/khmelnytskyi|||вул.|Авіаційна|||ХМР 24/2008|loc|census'
   ]);
 });
 
@@ -264,6 +298,15 @@ test('Odesa ODA order: columns put back together, headings give the locality and
     'odesa/odesa|вул.|Двічі Героя Васильовича|вул.|Нова Назва||2024|ОДА 830/А-2024|loc|',
     'odesa/~с. Петродолинське|вул.|Першотравнева|вул.|Богдана Костіва|Дальницька ТГ|2024|ОДА 830/А-2024|loc|'
   ]);
+});
+
+test('Odesa ODA order: a line the column edge cut is completed from the full-width pass', () => {
+  const items = layoutItems([
+    '1\t2\t451.2\tмісто Одеса',
+    '1\t0\t433.7\tВулиця 41 Гвардійської стрілецької дивіз', '1\t1\t433.7\tВулиця Андрія Число',
+    '1\t2\t433.7\tВулиця 41 Гвардійської стрілецької дивізії', '1\t2\t433.7\tВулиця Андрія Число'
+  ].join('\n'));
+  assert.deepEqual(rowsOf(parseOda(items)), ['odesa/odesa|вул.|41 Гвардійської стрілецької дивізії|вул.|Андрія Число||2024|ОДА 830/А-2024|loc|']);
 });
 
 test('Bucha list: the note says what the street was; a genitive adjective is turned back; squares and corners are skipped', () => {

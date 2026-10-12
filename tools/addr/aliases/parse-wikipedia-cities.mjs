@@ -46,6 +46,11 @@ export function columnRoles(header, rawHeader = []) {
     else if (/^район/.test(h)) set('district');
     else if (/(рік|затверджено)/.test(h)) set('year');
   });
+  // «Список перейменувань 1998—2014»: the kind of the street («пров.», «вул.», «парк») sits in a first
+  // column whose header cell is empty. Without it every row of that table lost its type.
+  if (roles.type === undefined && header.length > 1 && !plain(header[0]) && !String(rawHeader[0] ?? '').replace(/\{\{[^}]*\}\}/g, '').trim()
+    && roles.former !== undefined && (roles.new !== undefined || roles.current !== undefined)
+    && ![roles.former, roles.new, roles.current, roles.district, roles.year].includes(0)) roles.type = 0;
   return roles;
 }
 
@@ -89,6 +94,9 @@ function pairRow(cells, roles, ctx, extra) {
   if (!oldNames.length || !newName.name || newName.junk) return [];
   const typeCell = cellAt(cells, roles.type);
   const kinds = typeCell ? typesOf(typeCell) : [];
+  // A type cell that names no street kind («парк», «сквер», «житловий масив», «затока») is not a street: its
+  // names must not become typeless aliases of the one street that happens to share the new name.
+  if (/\p{L}/u.test(plain(typeCell)) && !kinds.length) return [];
   const newTypes = kinds.length ? kinds : newName.type ? [newName.type] : [];
   const out = [];
   const year = yearIn(cellAt(cells, roles.year)) || extra.year;
@@ -142,10 +150,16 @@ export function parseDniproLines(page, { scope, fetched = '' }) {
   const url = `https://uk.wikipedia.org/?oldid=${page.revid}`;
   for (const item of parseListLines(page.text)) {
     const text = item.text.replace(/&nbsp;/g, ' ');
-    const parts = text.split(/\s+[—–-]\s+/);
+    let parts = text.split(/\s+[—–-]\s+/);
+    // A note after the bold new name may hold dashes of its own («Короленко Антон Петрович (?–1690–1738–?) – нащадок …»):
+    // when the new name is in bold, the first dash splits the line and the rest is the new name and its note.
+    if (parts.length > 2 && /'''.+?'''/.test(parts.slice(1).join(' — '))) parts = [parts[0], parts.slice(1).join(' — ')];
     if (parts.length !== 2) continue;
     const left = plain(parts[0]);
-    const right = plain(parts[1]);
+    // A bold name followed by an italic note: the name is the bold part, and a note left in it made
+    // «Братська вулиця Походження назв …» the new name of the row.
+    const bold = parts[1].match(/'''(.+?)'''/);
+    const right = plain(bold ? bold[1] : parts[1]);
     const dm = left.match(/\(([^()]*?(район|райони)[^()]*)\)\s*$/i);
     const district = dm ? districts(dm[1].replace(/\s*райони?$/i, '')) : '';
     const oldText = dm ? left.slice(0, dm.index) : left;

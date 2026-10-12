@@ -27,9 +27,17 @@ export const OVERPASS = [
 ];
 
 /**
- * Kyiv is Phase 2 and absent on purpose. `relation` = OSM boundary relation (area id =
- * 3600000000 + id); `bbox` = south,west,north,east. Relation ids come from the research runs; the
- * three hromada ones cover villages too.
+ * Kyiv is Phase 2 and absent on purpose. Every area is an OSM BOUNDARY RELATION (the Overpass area id
+ * is 3600000000 + relation). A rectangle is not an option: the box round Dnipro also holds Яворницьке,
+ * Любимівка and Підгороднє, and their `old_name` ways would join, by name, to the city's street list and
+ * become «former names» of streets they have nothing to do with (the review of 2026-10-12 found at least
+ * 218 such targets). Which relation was taken, by town:
+ *   the city's own boundary          Кам'янське (9), Хмельницький (8), Подільськ
+ *   the territorial hromada (level 7) where OSM has no boundary of the city itself: Дніпро, Кривий Ріг,
+ *                                     Нікополь, Павлоград, Одеса, Ізмаїл, Чорноморськ, Білгород-Дністровський
+ *   the hromada, then the parser cuts to the town with `box` (Обухів, Фастів, Переяслав)
+ * Relation ids were read with `is_in(lat, lon)` at each town's centre; the three Kyiv-oblast hromadas
+ * cover villages too.
  */
 export const OSM_AREAS = [
   { id: 'bila-tserkva', name: 'Біла Церква', relation: 2069683 },
@@ -42,17 +50,17 @@ export const OSM_AREAS = [
   { id: 'obukhiv', name: 'Обухів (громада)', relation: 12744970 },
   { id: 'fastiv', name: 'Фастів (громада)', relation: 12544244 },
   { id: 'pereyaslav', name: 'Переяслав (громада)', relation: 11824920 },
-  { id: 'dnipro', name: 'Дніпро', bbox: [48.33, 34.80, 48.62, 35.30] },
-  { id: 'kamianske', name: "Кам'янське", bbox: [48.40, 34.45, 48.62, 34.80] },
-  { id: 'kryvyi-rih', name: 'Кривий Ріг', bbox: [47.80, 33.20, 48.12, 33.65] },
-  { id: 'nikopol', name: 'Нікополь', bbox: [47.50, 34.30, 47.62, 34.50] },
-  { id: 'pavlohrad', name: 'Павлоград', bbox: [48.48, 35.80, 48.60, 36.00] },
-  { id: 'khmelnytskyi', name: 'Хмельницький', bbox: [49.34, 26.90, 49.52, 27.12] },
-  { id: 'odesa', name: 'Одеса', bbox: [46.33, 30.55, 46.60, 30.90] },
-  { id: 'izmail', name: 'Ізмаїл', bbox: [45.31, 28.78, 45.40, 28.92] },
-  { id: 'chornomorsk', name: 'Чорноморськ', bbox: [46.27, 30.60, 46.36, 30.72] },
-  { id: 'bilhorod-dnistrovskyi', name: 'Білгород-Дністровський', bbox: [46.15, 30.28, 46.23, 30.40] },
-  { id: 'podilsk', name: 'Подільськ', bbox: [47.72, 29.50, 47.80, 29.60] }
+  { id: 'dnipro', name: 'Дніпро (міська громада)', relation: 12617747 },
+  { id: 'kamianske', name: "Кам'янське", relation: 2238215 },
+  { id: 'kryvyi-rih', name: 'Кривий Ріг (міська громада)', relation: 12578206 },
+  { id: 'nikopol', name: 'Нікополь (міська громада)', relation: 2865470 },
+  { id: 'pavlohrad', name: 'Павлоград (міська громада)', relation: 12813443 },
+  { id: 'khmelnytskyi', name: 'Хмельницький', relation: 1792913 },
+  { id: 'odesa', name: 'Одеса (міська громада)', relation: 12888405 },
+  { id: 'izmail', name: 'Ізмаїл (міська громада)', relation: 11804408 },
+  { id: 'chornomorsk', name: 'Чорноморськ (міська громада)', relation: 12889090 },
+  { id: 'bilhorod-dnistrovskyi', name: 'Білгород-Дністровський (міська громада)', relation: 13184690 },
+  { id: 'podilsk', name: 'Подільськ', relation: 2318304 }
 ];
 
 /** Overpass data older than this is refused (see checkOverpassAnswer). */

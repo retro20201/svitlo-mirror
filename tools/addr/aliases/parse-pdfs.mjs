@@ -45,8 +45,12 @@ export function parseOda(items, { url = '', fetched = '' } = {}) {
   const isHeadLine = (i) => heads.some((h) => h.page === i.page && Math.abs(h.y - i.y) < 3);
   const events = [];
   const rows = [];
+  // The text layer cuts a line at the column edge («стрілецької дивіз»); the full-width pass of the same page
+  // has the whole line, so a cut line is completed from the line of the same height that starts with it.
+  const whole = items.filter((i) => i.col === 2);
+  const complete = (item) => whole.find((w) => w.page === item.page && Math.abs(w.y - item.y) < 1.5 && w.text.length > item.text.length && w.text.startsWith(item.text))?.text ?? item.text;
   for (const item of items.filter((i) => i.col === 0 && !isHeadLine(i) && (TYPE_WORD.test(i.text) || OTHER_OBJECT.test(i.text)))) {
-    const r = { kind: 'row', page: item.page, y: item.y, old: item.text, new: '', street: TYPE_WORD.test(item.text) };
+    const r = { kind: 'row', page: item.page, y: item.y, old: complete(item), new: '', street: TYPE_WORD.test(item.text) };
     rows.push(r);
     events.push(r);
   }
