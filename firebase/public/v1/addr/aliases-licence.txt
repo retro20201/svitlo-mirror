@@ -1,0 +1,13 @@
+Old and former names of streets and settlements (aliases.json next to each list)
+
+Each target says which sources back it in its "s" field; the file's "src" is the legend.
+  wp   uk/ru.wikipedia lists of streets and renamed places, (c) Wikipedia contributors, CC BY-SA 4.0
+       https://creativecommons.org/licenses/by-sa/4.0/
+  osm  OpenStreetMap old_name tags, (c) OpenStreetMap contributors, ODbL 1.0
+       https://www.openstreetmap.org/copyright
+  vr   acts of the Verkhovna Rada of Ukraine (official acts)
+  loc  decisions of city councils and of the Odesa regional administration (official acts)
+  rdp  rename.dp.ua, a cross-check only; no target rests on it alone
+  man  written by hand
+
+Full note: tools/addr/aliases/LICENCE.md in https://github.com/retro20201/svitlo-mirror
