@@ -1,0 +1,2 @@
+scope	old_name	new_name	reason
+# A pair listed here is never published, whatever the sources say. new_name may be empty: every pair of that old name in the scope.

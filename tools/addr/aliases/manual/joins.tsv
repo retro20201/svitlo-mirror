@@ -1,0 +1,2 @@
+scope	side	type	name	title	reason
+# Manual join of a source name to an operator row (tier T3). side = new|old; type = вул. | просп. | … or empty for any; title = the operator's row exactly as listed.

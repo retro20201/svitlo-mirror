@@ -1,0 +1,46 @@
+kind	uk	ru	note
+# kind=word: one Ukrainian word and its Russian word, applied to every key that holds it (the Soviet vocabulary the app's ending fold cannot guess: Червоно- is Красно-, Жовтня is Октября).
+# kind=name: the whole name and its Russian forms (separated by ;), for irregular names. A form the app already derives from the Ukrainian key (Московский from Московський) is not stored in aliases.json, whatever is listed here.
+word	Червоноармійська	Красноармейская	
+word	Червоноармійський	Красноармейский	
+word	Червоноармійське	Красноармейское	
+word	Червонозоряний	Краснозвездный	
+word	Червонозоряна	Краснозвездная	
+word	Червоний	Красный	
+word	Червона	Красная	
+word	Червоне	Красное	
+word	Червоних	Красных	
+word	Жовтня	Октября	
+word	Жовтневий	Октябрьский	
+word	Жовтнева	Октябрьская	
+word	Жовтневе	Октябрьское	
+word	Жовтневої	Октябрьской	
+word	Перемоги	Победы	
+word	Перемога	Победа	
+word	Радянська	Советская	
+word	Радянський	Советский	
+word	Радянське	Советское	
+word	Радянської	Советской	
+word	Повітрофлотський	Воздухофлотский	
+word	Повітряних	Воздушных	
+word	Возз’єднання	Воссоединения	
+word	40-річчя	40-летия	
+word	50-річчя	50-летия	
+word	60-річчя	60-летия	
+word	30-річчя	30-летия	
+word	70-річчя	70-летия	
+word	10-річчя	10-летия	
+word	20-річчя	20-летия	
+name	Дніпропетровськ	Днепропетровск	
+name	Дніпродзержинськ	Днепродзержинск	
+name	Іллічівськ	Ильичевск; Ильичёвск	
+name	Южне	Южный	
+name	Котовськ	Котовск	
+name	Орджонікідзе	Орджоникидзе	
+name	Переяслав-Хмельницький	Переяслав-Хмельницкий	
+name	Комінтернівське	Коминтерновское	
+name	Фрунзівка	Фрунзовка	
+name	Ювілейне	Юбилейное	
+name	Петрівське	Петровское	
+name	Кам’янське	Каменское	
+name	Тарутине	Тарутино	
