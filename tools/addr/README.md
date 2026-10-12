@@ -97,7 +97,7 @@ withholds because two РЕМ disagree — so a newly published РЕМ is added b
 
     v1/addr/index.json                 {"kyiv": {"shape": "flat", "streets": 2670, "built": 2670,
                                                  "addresses": 50206, "lines": true, "multiLine": 6208,
-                                                 "aliases": true, "aliasKeys": 1090}, …}
+                                                 "aliases": true, "aliasKeys": 1056}, …}
 
 One small file per street keeps the phone's onboarding download at ~1 KB instead of megabytes.
 
@@ -129,8 +129,10 @@ People type «Червоноармійська» for вул. Велика Вас
 says which old name belongs to which row (by index, so it is only as stale as the harvest). It is built by
 `node tools/addr/build-aliases.mjs` from reviewed source tables (Верховна Рада acts, council decisions,
 uk.wikipedia and OpenStreetMap) and is **not** part of the harvest or the 10-minute mirror; run it after any
-`build-addresses.mjs --fresh` swap, then `node tools/addr/check-aliases.mjs`, the publish gate (the tests
-run it too). The file format, the sources, the join rules and the licence are in
+`build-addresses.mjs --fresh` swap, then `node tools/addr/check-aliases.mjs`, the publish gate: strict, it also
+rebuilds in memory and compares, so a list that grew since the last build is named. The tests run it too, but in
+the lenient mode, because they gate the publish of the SCHEDULES and a harvest that appends one street must not
+stop that. The file format, the sources, the join rules and the licence are in
 [aliases/README.md](aliases/README.md) and [aliases/LICENCE.md](aliases/LICENCE.md).
 
 A region with any `aliases.json` gets `"aliases": true` and `"aliasKeys"`, the number of entries across its

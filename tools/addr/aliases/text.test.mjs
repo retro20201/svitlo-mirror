@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseName, isJunkName, isPlausibleKey, tidyName, streetTypeOf, settlementTypeOf } from './text.mjs';
+import { parseName, isJunkName, isPlausibleKey, tidyName, streetTypeOf, settlementTypeOf, trailingKind, actDate, isRespelling, editDistance } from './text.mjs';
 
 const read = (s, kind) => { const r = parseName(s, kind); return { type: r.type, name: r.name, tokens: r.tokens.join(' ') }; };
 
@@ -83,4 +83,37 @@ test('tidyName trims quotes, stray punctuation and spaces', () => {
 test('a key is a name: not a sentence, a list, a note or an alternative', () => {
   for (const bad of ['Арсенальна вулиця Назва походить від слова «арсенал».', 'До 2014 — Калініна', 'Воронцова/Воронцовський', 'Лікаря Ребініна;вулиця Гавриленка', '152-ї Дивізії/49122', 'Як 1201-й кілометр', 'Пушкінська вулицяя', 'а б в г д е ж']) assert.equal(isPlausibleKey(bad), false, bad);
   for (const good of ['Горького', 'Льва Толстого', '40-річчя Жовтня', 'Лук’яненка', 'Героїв 72-ї Бригади', 'Маршала Тимошенка', '2-й Медовий']) assert.equal(isPlausibleKey(good), true, good);
+});
+
+test('a key is not a count, a date range, a side of a street or a lone kind', () => {
+  for (const bad of ['Один з трьох провулків Давидова', 'Одну з трьох вулиць Потічних', 'Одна з п’яти вулиць Черкаських', 'Комсомольський з початку 1930-х років', 'Будівельна - непарна сторона', 'Центральна поперечна північна сторона', 'Перемоги пр-т 15 км', 'Проїзд', 'Вулиця', 'проїзд Білоруський проїзд']) assert.equal(isPlausibleKey(bad), false, bad);
+  // The kinds that are also street names stay names; so do «року», «і», «на» and a hyphen in a word.
+  for (const good of ['Набережна', 'Алея', 'Повстання 1905 року', 'Ільфа і Петрова', 'Поштова на Летичів', 'Московська-1', 'Брест-Литовське шосе', '19 лютого 1861 року']) assert.equal(isPlausibleKey(good), true, good);
+});
+
+test('a kind after the name is the old thing\'s kind: «Дарницьке шосе», «Городній тупик»; a name that is a kind is not', () => {
+  assert.deepEqual(trailingKind(parseName('Дарницьке шосе')), { type: 'шосе', name: 'Дарницьке' });
+  assert.deepEqual(trailingKind(parseName('Городній тупик')), { type: 'тупик', name: 'Городній' });
+  assert.deepEqual(trailingKind(parseName('Білоруський проїзд')), { type: 'проїзд', name: 'Білоруський' });
+  assert.equal(trailingKind(parseName('Січеславська Набережна')), null);
+  assert.equal(trailingKind(parseName('Шосе')), null);
+  assert.equal(trailingKind(parseName('50 років шосе')), null);
+});
+
+test('an act\'s date, in either way councils write it', () => {
+  assert.equal(actDate('Рішення Дніпровської міської ради від 18 грудня 2024 року'), '2024-12-18');
+  assert.equal(actDate('Розпорядження ОДА від 26 липня 2024 року'), '2024-07-26');
+  assert.equal(actDate('згідно рішення міськради від 21.09.2022 № 43/27'), '2022-09-21');
+  assert.equal(actDate('КМР 3200'), '');
+  assert.equal(actDate(''), '');
+});
+
+test('a respelling is one letter off in each of at most two words, never a different name', () => {
+  assert.equal(isRespelling(['короленко'], ['короленка']), true);
+  assert.equal(isRespelling(['братська'], ['веделя', 'артема']), false);
+  assert.equal(isRespelling(['пушкіна'], ['пушкінська']), false);
+  assert.equal(isRespelling(['нова'], ['нове']), false); // short words differ in meaning
+  assert.equal(isRespelling(['леніна'], ['леніна']), false); // the same is not a change
+  assert.equal(editDistance('кіт', 'кит', 1), 1);
+  assert.equal(editDistance('кіт', 'мапа', 1), 2);
 });

@@ -8,7 +8,7 @@
   "lines": true,
   "multiLine": 30190,
   "aliases": true,
-  "aliasKeys": 2412
+  "aliasKeys": 2287
  },
  "khmelnytskyi": {
   "shape": "nested",
@@ -19,7 +19,7 @@
   "lines": true,
   "multiLine": 930,
   "aliases": true,
-  "aliasKeys": 330
+  "aliasKeys": 321
  },
  "kyiv": {
   "shape": "flat",
@@ -29,7 +29,7 @@
   "lines": true,
   "multiLine": 6208,
   "aliases": true,
-  "aliasKeys": 1061
+  "aliasKeys": 1056
  },
  "kyiv-region": {
   "shape": "nested",
@@ -40,7 +40,7 @@
   "lines": true,
   "multiLine": 27021,
   "aliases": true,
-  "aliasKeys": 950
+  "aliasKeys": 947
  },
  "odesa": {
   "shape": "nested",
@@ -51,6 +51,6 @@
   "lines": true,
   "multiLine": 13973,
   "aliases": true,
-  "aliasKeys": 1043
+  "aliasKeys": 1019
  }
 }

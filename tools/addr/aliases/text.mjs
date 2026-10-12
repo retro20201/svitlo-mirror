@@ -66,6 +66,7 @@ const STREET_TYPES = new Map(Object.entries({
  * Words that are also ordinary names («вул. Набережна»), so they count as a type only at the start:
  * «набережна Леніна», but not the end of «Січеславська Набережна».
  */
+const NAMES_TOO = new Set(['набережна', 'набережная', 'алея', 'аллея', 'майдан', 'лінія', 'линия']);
 const WEAK_TYPES = new Set(['набережна', 'наб', 'набережная', 'алея', 'аллея', 'лінія', 'линия', 'майдан', 'майд', 'шосе', 'шоссе', 'тупик', 'туп', 'проїзд', 'пр-д', 'прд', 'проезд']);
 
 /** Settlement kinds. As in the app, «смт», «с-ще», «сел» and «селище» are one kind. */
@@ -111,8 +112,9 @@ export function isJunkName(name) {
 
 /**
  * Whether a key looks like a NAME and not like a sentence, a list or a note that ended up in a table cell
- * («Арсенальна вулиця Назва походить від слова «арсенал».», «До 2014 — Калініна», «Воронцова/Воронцовський»).
- * Applied to every key before it is published, and again by the gate.
+ * («Арсенальна вулиця Назва походить від слова «арсенал».», «До 2014 — Калініна», «Воронцова/Воронцовський»,
+ * «Один з трьох провулків Давидова», «Комсомольський з початку 1930-х років», «Будівельна - непарна сторона»,
+ * «Перемоги пр-т 15 км», or a lone «Проїзд»). Applied to every key before it is published, and again by the gate.
  */
 export function isPlausibleKey(name) {
   const text = cleanSpaces(name);
@@ -121,7 +123,19 @@ export function isPlausibleKey(name) {
   const words = text.split(' ');
   if (words.length > 6) return false;
   if (/^(до|як|за|із|з|від|на|при|біля|це|який|яка)$/i.test(words[0])) return false;
-  if (words.some((w) => /^(походить|який|включає|об’єднано|об'єднано|перейменовано|ділянка|відрізок|вулицяя)$/i.test(w))) return false;
+  // A count or a quantity opens a sentence («Один з трьох …», «Кілька вулиць …»), not a name.
+  if (/^(один|одна|одну|одне|одного|кілька|декілька|дві|два|три|чотири|обидві|усі|всі)$/i.test(words[0]) && words.length > 1) return false;
+  if (words.some((w) => /^(походить|який|включає|об’єднано|об'єднано|перейменовано|ділянка|відрізок|вулицяя|сторона|сторони|сторону|непарна|парна|непарний|парний|початку|кінця|км|кілометр|кілометрів|рр)$/i.test(w))) return false;
+  // «з початку 1930-х років», «з 1991»: a date range is a note.
+  if (/(^|\s)з\s+(початку|кінця|\d)/i.test(text) || /\d{4}-х/.test(text)) return false;
+  // «- непарна сторона»: a dash between words is a note's separator; a hyphen inside a word is not.
+  if (/\s[-‐‑]\s/.test(text)) return false;
+  // A lone type word is a category, not a name («Проїзд»). The few kinds that are also ordinary street names
+  // («вул. Набережна», «вул. Алея», «пл. Майдан») stay.
+  const kind = (w) => STREET_TYPES.has(fold(w).replace(/\.+$/, '')) && !NAMES_TOO.has(fold(w).replace(/\.+$/, ''));
+  if (words.every(kind)) return false;
+  // A name that begins or ends with a type word AND says it twice («проїзд Білоруський проїзд»).
+  if (words.length > 1 && kind(words[0]) && kind(words[words.length - 1])) return false;
   return true;
 }
 
@@ -267,4 +281,73 @@ export function letterCount(name) {
 export function isCyrillicName(name) {
   const text = String(name);
   return (text.match(/[а-яіїєґА-ЯІЇЄҐ]/g) ?? []).length >= 3 && !/[a-zA-Z]/.test(text.replace(/[ʼ'’]/g, ''));
+}
+
+// ---- A kind written after the name, dates in acts, spellings ---------------------------------------
+
+/** Kinds that parseName leaves in the name when they come last («Дарницьке шосе») because they are also plain names. */
+const TRAILING_KINDS = new Set(['шосе', 'шоссе', 'проїзд', 'проезд', 'тупик']);
+
+/**
+ * «Дарницьке шосе», «Якубенківський проїзд», «Байкальський тупик»: an adjective and then the kind. The kind
+ * is the OLD thing's kind, and keeping it in the name next to a type of «вул.» (the new street's) printed
+ * «вул. Дарницьке шосе». Returns `{ type, name }` with the trailing kind taken out, or null when there is none.
+ */
+export function trailingKind(parsed) {
+  const words = parsed.name.split(' ');
+  if (words.length < 2) return null;
+  const last = fold(words[words.length - 1]).replace(/\.+$/, '');
+  if (!TRAILING_KINDS.has(last)) return null;
+  const rest = words.slice(0, -1).join(' ');
+  // The word before must be an adjective («Дарницьке», «Якубенківський», «Городній», «Старокостянтинівського»),
+  // alone or after an ordinal («2-й Рибінський»); not a number or a name's part.
+  const head = rest.replace(/^\d+(-[а-яі]{1,3})?\s+/i, '');
+  if (!/(ий|ій|а|я|е|є|ого|ої)$/i.test(head) || /\d/.test(head)) return null;
+  return { type: streetTypeOf(words[words.length - 1]), name: rest };
+}
+
+const MONTHS = { січня: 1, лютого: 2, березня: 3, квітня: 4, травня: 5, червня: 6, липня: 7, серпня: 8, вересня: 9, жовтня: 10, листопада: 11, грудня: 12 };
+
+/** The date an act is of, as `YYYY-MM-DD`: «від 18 грудня 2024 року», «від 21.09.2022 № 43/27»; '' when there is none. */
+export function actDate(text) {
+  const s = String(text ?? '');
+  let m = s.match(/(?<!\d)(\d{1,2})\.(\d{1,2})\.(\d{4})(?!\d)/);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  m = s.match(/(?<!\d)(\d{1,2})\s+([а-яі]+)\s+(\d{4})(?!\d)/i);
+  if (m && MONTHS[m[2].toLowerCase()]) return `${m[3]}-${String(MONTHS[m[2].toLowerCase()]).padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  return '';
+}
+
+/** Levenshtein distance, stopping early above `limit`. */
+export function editDistance(a, b, limit = 3) {
+  const x = [...a], y = [...b];
+  if (Math.abs(x.length - y.length) > limit) return limit + 1;
+  let prev = Array.from({ length: y.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= x.length; i++) {
+    const cur = [i];
+    let best = i;
+    for (let j = 1; j <= y.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x[i - 1] === y[j - 1] ? 0 : 1));
+      best = Math.min(best, cur[j]);
+    }
+    if (best > limit) return limit + 1;
+    prev = cur;
+  }
+  return prev[y.length];
+}
+
+/**
+ * Whether two token lists are one name in two spellings («Короленко» / «Короленка»): the same number of words,
+ * each the same or one letter off. A pair like that is a correction of the spelling, not a rename.
+ */
+export function isRespelling(a, b) {
+  if (a.length !== b.length || !a.length) return false;
+  const x = [...a].sort(), y = [...b].sort();
+  let changed = 0;
+  for (let i = 0; i < x.length; i++) {
+    if (x[i] === y[i]) continue;
+    if (x[i].length < 5 || editDistance(x[i], y[i], 1) > 1) return false;
+    changed++;
+  }
+  return changed > 0 && changed <= 2;
 }

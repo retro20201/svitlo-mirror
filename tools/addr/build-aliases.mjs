@@ -131,6 +131,9 @@ export async function run({ addr = DEFAULT_ADDR, built, dry = false, aliasesDir 
     const namesakes = [];
     for (const f of files) for (const e of f.out.entries) if (e.namesake) namesakes.push({ file: f.out.id, k: e.entry.k, ty: e.entry.ty ?? '', targets: e.entry.t.length });
     await writeTsv(join(reportDir, 'namesakes.tsv'), ['file', 'k', 'ty', 'targets'], namesakes);
+    const blocked = [];
+    for (const f of files) for (const e of f.out.entries) if (!e.entry.sure) blocked.push({ file: f.out.id, k: e.entry.k, ty: e.entry.ty ?? '', direction: e.direction, blockers: e.blockers.join(' ') });
+    await writeTsv(join(reportDir, 'blockers.tsv'), ['file', 'k', 'ty', 'direction', 'blockers'], blocked);
     await writeFile(join(reportDir, 'counts.json'), JSON.stringify({ input: report.input, used: report.used, dropped: report.dropped, perSource: report.perSource, ruAttached: report.ruAttached, notes: report.notes }, null, 1));
   }
   return { files, texts, report, before, after, minYear: MIN_YEAR };

@@ -32,6 +32,8 @@ and for Dnipro, Kryvyi Rih, Kamianske and others, so they are used and credited.
   is a derived database of those tags; it is offered under the ODbL, and the way of each row is in its `url`.
 - **Official acts.** Rows with code `vr` (Верховна Рада, zakon.rada.gov.ua) and `loc` (Борисполя, Бучі,
   Броварів, Білої Церкви, Хмельницького, the Odesa regional administration) are the acts' own text.
+- **Census rows.** `sources/councils.tsv` also holds the current names of Khmelnytskyi's annex 3 (flag `census`), taken
+  from the same act. They are not republished; they only keep a key that is somebody's current name from being `sure`.
 - **rename.dp.ua** (code `rdp`) states no licence. It is a **cross-check only**: the builder never publishes
   a pair that only it knows, and the gate refuses a target whose sources are `rdp` alone.
 

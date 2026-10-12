@@ -24,7 +24,7 @@ bad entry on its own and treats anything it does not know as «doubtful», never
 |---|---|
 | `v` | schema version, 1. An app that knows less ignores the file |
 | `list` | `streets` or `settlements`: which list the target indices point into |
-| `n` | length of that list when built; every target `i < n` (the gate checks it) |
+| `n` | length of that list when built; every target `i < n`. A list only grows, so `n` below the list's length means the file is stale (run `build-aliases`), not wrong |
 | `built` | ISO date |
 | `cities` | region file only: the `c` that have a `c/<c>/aliases.json` |
 | `src` | legend for the source codes below, only the codes the file uses |
@@ -33,15 +33,34 @@ bad entry on its own and treats anything it does not know as «doubtful», never
 | `a[].ru` | Russian forms the app's ending fold would NOT derive (Красноармейская, Ильичёвск) |
 | `a[].is` | `current`: `k` is the current name and the operator still lists the old one (reverse direction) |
 | `a[].sure` | the evidence supports auto-picking (see below) |
-| `a[].t[]` | targets, 1 to 12, sorted by houses: `i` row index (permanent), `d` district / old raion, `y` year, `h` houses (a ranking hint), `f` flags, `s` source codes |
+| `a[].t[]` | targets, 1 to 12, sorted by houses then index: `i` row index (permanent), `d` where it is (see below), `y` year, `h` houses (a ranking hint), `f` flags, `s` source codes |
 | flags | `part` (only a section renamed), `merge` (the new street took several old ones), `twin` (another operator row reads the same), `both` (the operator ALSO lists the old name), `retype` (the kind changed) |
 
 The file says what the evidence supports; the app decides what the query supports. A key with several
-targets lists every one with its district (`d`; when a source gives no place the target says
-«місце не вказано»). `sure` is set only when ALL hold: one target, no flag on it, an official source
-(`vr`, `loc`, `cad`) or Wikipedia and OpenStreetMap together, an exact join (not a short form), the key
-is not the current name of a row of the same kind, **and the sources do not give the same old name to
-another street, listed or not** (this last condition is stricter than the design).
+targets lists every one of them. `d` says where a target is: the district of the best source that gives one
+(never rename.dp.ua), cleaned of the editors' misspellings and of cells that hold a street, not a district; or,
+for a row the operator itself qualifies («вул. Нижній Вал (Бортничі)»), that qualifier. **When no source says,
+`d` is left out**; the app shows the title and the year and prints nothing in its place (the design asked for `d`
+on every target of a multi-target entry, which made the builder write «місце не вказано», and the app prints `d`
+verbatim).
+
+`sure` is set only when ALL hold (all of them are stricter than the design, after the review of 2026-10-12):
+
+- one target, no flag on it, an exact join (T1 or T3: not a short form, not another kind, not a bare name), and the
+  key has a kind;
+- **every hop of the rename is proved**: an official source (`vr`, `loc`, `cad`) or Wikipedia and OpenStreetMap
+  together. A name renamed twice is two hops, and the evidence of one does not carry the other; a hop that only
+  corrects a spelling («Короленко» → «Короленка») is neither evidence nor a refusal;
+- the key is **not the name of any row of the operator's list, of any kind** (a village «Володарка» next to a town
+  «Володарка»), not a longer or shorter spelling of one (`Лумумби` / `Лумумби Патріса`), and not a current name in the
+  council's own list (the `census` rows of Khmelnytskyi's annex, which lists streets the operator does not);
+- the sources do not give the same old name to another street, listed or not; and, for a current-name entry
+  (`is: current`), no other name the sources give the operator's old row is missing from the operator's list (four
+  villages were «Перше Травня»; with two of the new names still unlisted, neither is sure);
+- the pair is not half of a swap or a revert the dates cannot order (`пл. Незалежності` ↔ `пл. Дерев'янка`, both 2012);
+- for a village, no other old name from another district ends on the same row.
+
+`build-report/blockers.tsv` lists, for every entry that is not sure, each rule that stopped it.
 
 ## The pipeline
 
@@ -55,13 +74,21 @@ another street, listed or not** (this last condition is stricter than the design
     RAW=~/scratch/aliases/raw                       # the fetchers' output, one folder per source
     node tools/addr/aliases/parse-all.mjs $RAW      # rewrites sources/*.tsv: a refresh is a git diff to review
     node tools/addr/build-aliases.mjs               # writes the aliases.json files and index.json
-    node tools/addr/check-aliases.mjs               # exit 1 blocks publishing
-    node --test $(find tools -name '*.test.mjs')    # what CI runs
+    node tools/addr/check-aliases.mjs               # STRICT: exit 1 blocks publishing; rebuilds in memory and compares
+    node --test $(find tools -name '*.test.mjs')    # what CI and the mirror's server run before every publish
 
 `build-aliases.mjs` never writes a list, `s/` or `x/` file: it hashes all of them before and after and
 stops if one changed. Rerun it after `build-addresses.mjs --fresh` swaps a region (a new operator row can
 turn a reverse entry into a forward one), and monthly after re-fetching Wikipedia and OSM and looking
 for new Rada acts. It is not part of the 10-minute mirror.
+
+**Two modes of the gate.** `check-aliases.mjs` is strict by default: `n` equal to the list's length, `h` equal to the
+houses on disk, and every file byte-for-byte what `build-aliases` writes now from the committed sources and lists (so a
+veto that was not rebuilt, or a harvest that grew a list, is caught). The test suite that CI and the mirror's server
+run before **every publish of the schedules** uses the lenient mode (`strict: false`, or `--lenient`): a harvest that
+appends one street must never stop the schedule mirror, it only means `build-aliases` is due. `ALIASES_STRICT=1 node --test
+tools/addr/aliases-published.test.mjs` runs the strict check as a test. Permanence (every target still names the row it
+named) is checked against HEAD and, when the checkout has it, `origin/main`: the commit that holds the files proves nothing.
 
 ### Joining, in short (`aliases/build-core.mjs`)
 
@@ -75,7 +102,15 @@ for new Rada acts. It is not part of the 10-minute mirror.
    «вул. Гоголя Миколи») are both targets. A name renamed twice follows the chain to the row the operator lists.
 3. New name listed → a forward entry (key = old name). Only the old name listed → a reverse entry (`is: current`).
    Neither → nothing published, a line in `build-report/unmatched.tsv`.
-4. Corner records («ріг …»), garden societies, district-prefixed rows and rows without a type are never targets.
+4. Corner records («ріг …»), garden societies (also a society named in a row's brackets, «вул. Центральна (СТ Дружба)»),
+   district-prefixed rows and rows without a type are never targets. A row the operator qualifies with a district
+   («вул. Весняна (Голосіївський р-н.)») is ruled out when the source puts the rename in another district.
+5. **A decision undone by a later one is replaced.** On 26.07.2024 the Dnipro oblast administration renamed 20 streets
+   and on 18.12.2024 the council gave their names back, so the sources hold both A→B and B→A. Each pair carries the date of
+   its act (from the act's text, else its year); the later one is kept and the earlier is dropped as `superseded`. When
+   the dates cannot order them, both stay and neither is sure.
+6. A kind written after the old name («Дарницьке шосе», «Городній тупик») is the old thing's kind: the entry has no `ty`
+   rather than the `вул.` of the street it became.
 
 Policy: pairs whose rename year is before **1991** are dropped (`MIN_YEAR` in `build-core.mjs`); a pair that
 only rename.dp.ua knows is never published; placeholder names (Нова, Проєктна NNN, «№ 4»), «(неоф.)» names and
@@ -109,7 +144,7 @@ Seven fetchers, one folder per source, none of them in this repo:
     node tools/addr/aliases/fetch-wikipedia.mjs kyiv      $RAW/wikipedia-kyiv
     node tools/addr/aliases/fetch-wikipedia.mjs uk-other  $RAW/wikipedia-uk-other
     node tools/addr/aliases/fetch-wikipedia.mjs ru-odesa  $RAW/wikipedia-ru-odesa
-    node tools/addr/aliases/fetch-osm.mjs                 $RAW/osm
+    node tools/addr/aliases/fetch-osm.mjs                 $RAW/osm      # every town by its OSM boundary relation
     node tools/addr/aliases/fetch-wayback.mjs             $RAW/bila-tserkva
     node tools/addr/aliases/fetch-files.mjs odesa-oda     $RAW/odesa-oda
     node tools/addr/aliases/fetch-files.mjs boryspil      $RAW/boryspil
@@ -137,6 +172,11 @@ Rules every fetcher follows (all in `http.mjs`):
     the slow retries.
   - `oda.od.gov.ua` answers the descriptive User-Agent with 403; `fetch-files.mjs` then retries once with a
     browser-like one and the manifest records which was used.
+  - OpenStreetMap is fetched **by boundary relation, never by rectangle**: the box round Dnipro also holds Яворницьке,
+    Любимівка and Підгороднє, and the `old_name` ways of those villages joined, by name, to the city's list (the review of
+    2026-10-12 found at least 218 such targets, 106 of them in Dnipro). Where OSM has no boundary of the city itself the
+    territorial hromada (level 7) is used; `fetch-osm.mjs --list` prints the relation of each town and its header says
+    which. A way that two towns' files both hold is published under neither.
   - Overpass (`overpass-api.de`) answers heavy queries with 504 about half the time; the fetcher checks
     `/api/status` first, waits, retries, and only then tries a public mirror, whose answer is refused if its
     OSM data is more than 3 days old (on 2026-10-12 `overpass.private.coffee` served Pavlohrad from May 2026
@@ -154,6 +194,12 @@ Rules every fetcher follows (all in `http.mjs`):
 | `loc` | `odesa-oda`, `boryspil`, `brovary`, `bucha`, `khmelnytskyi`, `bila-tserkva` / `councils*.tsv` | decisions of councils and the Odesa regional administration | local-government acts; no site licence stated; not objects of copyright |
 | `rdp` | `rename-dp` / `rename-dp.tsv` | rename.dp.ua | **none stated: a cross-check only; no published row may rest on it alone** |
 | `man` | `manual/extra.tsv` | written by hand | — |
+
+Two kinds of row in `sources/*.tsv` are not renames. A row with `flags` = `ruonly` gives only the Russian form of a pair another
+source knows (ru.wikipedia for Odesa; an OSM way with a Russian-only `old_name`) and is attached to the Ukrainian entry of its own
+town, or reported as `ru-without-pair`. A row with `flags` = `census` is a current name from a council's own list (all 1001
+streets of Khmelnytskyi's annex 3, renamed or not): it is never published, it only withholds `sure` from a key that is somebody's
+current name.
 
 Attribution and the licence posture for the published data are in [LICENCE.md](LICENCE.md); the codes of every
 target are in the files (`s`), their legend in `src`.

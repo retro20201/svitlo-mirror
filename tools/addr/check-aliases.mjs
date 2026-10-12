@@ -2,27 +2,35 @@
  * The publish gate for `aliases.json`: a non-zero exit blocks publishing. Run it after
  * `build-aliases.mjs` and before committing (the tests run it over the committed files too, so CI does).
  *
- *   node tools/addr/check-aliases.mjs [--addr=<dir>] [--against=HEAD] [--no-git]
+ *   node tools/addr/check-aliases.mjs [--addr=<dir>] [--against=auto|<rev>] [--no-git] [--lenient] [--no-rebuild]
  *
  * It checks the files as the phone reads them:
- *   schema        version, list, `n` equal to the sibling list's length, every code in `src`, `cities` both ways
- *   entries       keys of at least 3 Cyrillic letters and no placeholder names, 1 to 12 targets, every
- *                 target an index below `n` and an eligible row (never a corner record), `d` on every
- *                 target when there are two or more, every target with source codes, none resting on
- *                 rename.dp.ua alone, no entry twice, no alias of itself
+ *   schema        version, list, `n` not above the sibling list's length (equal, in strict mode), every code in
+ *                 `src`, `cities` both ways
+ *   entries       keys of at least 3 Cyrillic letters and no placeholder names, 1 to 12 targets sorted by houses,
+ *                 each an index below `n` once and an eligible row (never a corner record), every target with source
+ *                 codes, none resting on rename.dp.ua alone, no entry twice, no alias of itself, no key the file
+ *                 does not define
  *   sure          only on a lone, unflagged target backed by an official source or by Wikipedia and OSM
- *                 together, and never on a name that is the current name of a row of the same kind
+ *                 together, and never on a name that is the name of a row of the operator's list, of any kind
  *   size          no file over 400 KB, all of them together under 2 MB
  *   index.json    `aliases` and `aliasKeys` where there are files, and nowhere else
- *   permanence    (git) every target still points at the row it pointed at in the published copy
+ *   permanence    (git) every target still points at the row it pointed at in the published copy: in HEAD, and in
+ *                 origin/main when that exists (HEAD alone is the commit that holds the files, which proves nothing)
  *   corpus        the audit's renamed-name queries still find their street (tools/addr/aliases/corpus)
+ *
+ * Strict mode (the default; `--lenient` or `strict: false` turns it off) adds what goes stale when a list grows:
+ * `n` equal to the list's length, `h` equal to the houses on disk, and the files equal to what build-aliases would
+ * write now from the committed sources and lists. The test suite that CI and the mirror's server run before every
+ * publish of the SCHEDULES uses the lenient mode: a harvest that appends one street must not stop the schedule
+ * mirror, it only means that build-aliases has to run before the aliases are next published.
  */
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { readTsv } from './aliases/tsv.mjs';
-import { readRow, REGION_IDS } from './aliases/operator.mjs';
+import { readRow, countHouses, REGION_IDS } from './aliases/operator.mjs';
 import { nameKey, isJunkName, isCyrillicName, isPlausibleKey, letterCount, parseName } from './aliases/text.mjs';
 import { queryFindsTitle } from './aliases/fold.mjs';
 import { SOURCE_LEGEND } from './aliases/build-core.mjs';
@@ -58,12 +66,23 @@ export async function findAliasFiles(addr) {
   return found;
 }
 
+/** `auto`: origin/main when this checkout has it, else HEAD. */
+function revisionsToCheck(against) {
+  if (against !== 'auto') return [against];
+  const sha = (rev) => { const r = spawnSync('git', ['rev-parse', '--verify', '--quiet', rev], { cwd: ROOT, encoding: 'utf8' }); return r.status === 0 ? r.stdout.trim() : null; };
+  const main = sha('origin/main');
+  return main && main !== sha('HEAD') ? ['HEAD', 'origin/main'] : ['HEAD'];
+}
+
+const ENTRY_KEYS = new Set(['k', 'ty', 'ru', 'is', 'sure', 't']);
+const TARGET_KEYS = new Set(['i', 'd', 'y', 'h', 'f', 's']);
+
 function gitShow(rev, path) {
   const r = spawnSync('git', ['show', `${rev}:${path}`], { cwd: ROOT, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   return r.status === 0 ? r.stdout : null;
 }
 
-export async function checkAliases({ addr = DEFAULT_ADDR, against = 'HEAD', useGit = true, corpus = CORPUS, knownMisses = new Set() } = {}) {
+export async function checkAliases({ addr = DEFAULT_ADDR, against = 'auto', useGit = true, corpus = CORPUS, knownMisses = new Set(), strict = true, rebuild = false } = {}) {
   const errors = [];
   const fail = (rel, message) => errors.push(`${rel}: ${message}`);
   const stats = { files: 0, entries: 0, sure: 0, multi: 0, namesakes: 0, bytes: 0, perRegion: {} };
@@ -75,13 +94,14 @@ export async function checkAliases({ addr = DEFAULT_ADDR, against = 'HEAD', useG
       const kind = f.kind === 'streets' ? 'street' : 'settlement';
       const rows = titles.map((t, i) => readRow(t, i, kind));
       const typeless = kind === 'settlement' && rows.filter((r) => r.parsed.type).length / Math.max(1, rows.length) < 0.05;
-      lists.set(f.list, { titles, rows, typeless, current: new Map() });
+      lists.set(f.list, { titles, rows, typeless, current: new Map(), byTokens: new Set() });
       const entry = lists.get(f.list);
       for (const r of rows) {
         if (!r.eligible && !typeless) continue;
         const key = typeless ? nameKey(r.parsed.tokens) : r.key;
         if (!entry.current.has(key)) entry.current.set(key, []);
         entry.current.get(key).push(r);
+        entry.byTokens.add(nameKey(r.parsed.tokens));
       }
     }
     return lists.get(f.list);
@@ -101,7 +121,9 @@ export async function checkAliases({ addr = DEFAULT_ADDR, against = 'HEAD', useG
 
     if (data.v !== 1) fail(f.rel, `v is ${data.v}`);
     if (data.list !== f.kind) fail(f.rel, `list is "${data.list}", the file beside it is the ${f.kind} list`);
-    if (data.n !== n) fail(f.rel, `n is ${data.n}, the list has ${n} rows`);
+    // A list only grows (indices are permanent), so a file built on a shorter one is stale, not wrong: its targets
+    // are all still rows. Longer than the list is wrong in any mode.
+    if (!Number.isInteger(data.n) || data.n > n || (strict && data.n !== n)) fail(f.rel, `n is ${data.n}, the list has ${n} rows`);
     if (!/^\d{4}-\d\d-\d\d$/.test(data.built ?? '')) fail(f.rel, `built is "${data.built}"`);
     if (!Array.isArray(data.a)) { fail(f.rel, 'a is not an array'); continue; }
     const src = data.src && typeof data.src === 'object' ? data.src : {};
@@ -128,7 +150,16 @@ export async function checkAliases({ addr = DEFAULT_ADDR, against = 'HEAD', useG
       const dup = `${nameKey(parseName(e.k).tokens)}|${e.ty ?? ''}|${e.is ?? ''}`;
       if (seen.has(dup)) fail(label, 'the same key, kind and direction twice');
       seen.add(dup);
+      for (const key of Object.keys(e)) if (!ENTRY_KEYS.has(key)) fail(label, `unknown key "${key}"`);
       if (!Array.isArray(e.t) || e.t.length < 1 || e.t.length > 12) { fail(label, `${e.t?.length} targets`); continue; }
+      const targetsSeen = new Set();
+      e.t.forEach((t, at2) => {
+        for (const key of Object.keys(t ?? {})) if (!TARGET_KEYS.has(key)) fail(label, `target ${t.i} has an unknown key "${key}"`);
+        if (targetsSeen.has(t?.i)) fail(label, `target ${t.i} twice`);
+        targetsSeen.add(t?.i);
+        const before = e.t[at2 - 1];
+        if (before && ((before.h ?? 0) < (t.h ?? 0) || ((before.h ?? 0) === (t.h ?? 0) && before.i > t.i))) fail(label, `targets ${before.i} and ${t.i} are not sorted by houses, then index`);
+      });
       if (e.t.length > 1) stats.multi++;
       const keyTokens = parseName(e.k, f.kind === 'streets' ? 'street' : 'settlement').tokens;
       let official = false;
@@ -137,10 +168,14 @@ export async function checkAliases({ addr = DEFAULT_ADDR, against = 'HEAD', useG
         const row = list.rows[t.i];
         if (!list.typeless && !row.eligible) fail(label, `target ${t.i} «${row.title}» is not a street (a corner record, a society, no type)`);
         if (nameKey(row.parsed.tokens) === nameKey(keyTokens) && (!e.ty || row.parsed.type === e.ty)) fail(label, `target «${row.title}» is the key itself`);
-        if (e.t.length > 1 && !(typeof t.d === 'string' && t.d.trim())) fail(label, `target ${t.i} has no d among ${e.t.length}`);
-        if (t.d !== undefined && typeof t.d !== 'string') fail(label, 'd is a string');
+        if (t.d !== undefined && !(typeof t.d === 'string' && t.d.trim())) fail(label, 'd is a non-empty string');
+        if (t.d !== undefined && /^місце не вказано$/i.test(t.d)) fail(label, 'd says nothing: leave it out');
         if (t.y !== undefined && !(Number.isInteger(t.y) && t.y >= 1900 && t.y <= 2100)) fail(label, `y ${t.y}`);
         if (t.h !== undefined && !(Number.isInteger(t.h) && t.h >= 0)) fail(label, `h ${t.h}`);
+        else if (strict && t.h !== undefined && f.kind === 'streets' && (await exists(join(dirname(f.list), 's')))) {
+          const on = await countHouses(dirname(f.list), t.i);
+          if (on !== t.h) fail(label, `target ${t.i} says ${t.h} houses, the street has ${on}: run build-aliases`);
+        }
         if (t.f !== undefined && (!Array.isArray(t.f) || t.f.some((x) => !FLAGS.has(x)))) fail(label, `flags ${JSON.stringify(t.f)}`);
         if (!Array.isArray(t.s) || !t.s.length) fail(label, `target ${t.i} has no source codes`);
         else {
@@ -153,12 +188,15 @@ export async function checkAliases({ addr = DEFAULT_ADDR, against = 'HEAD', useG
       const key = list.typeless ? nameKey(keyTokens) : `${e.ty ?? ''}|${nameKey(keyTokens)}`;
       const namesake = e.is !== 'current' && (list.current.has(key) || (!e.ty && !list.typeless && [...list.current.keys()].some((k) => k.endsWith(`|${nameKey(keyTokens)}`))));
       if (namesake) stats.namesakes++;
+      // For `sure` the kind does not matter: a village «Володарка» next to a town «Володарка» is the same trap.
+      const namesakeAny = list.byTokens.has(nameKey(keyTokens));
       if (e.sure) {
         stats.sure++;
         if (e.t.length !== 1) fail(label, 'sure needs exactly one target');
         else if (e.t[0].f?.length) fail(label, 'sure with a flagged target');
         if (!official) fail(label, 'sure without an official source or Wikipedia and OSM together');
-        if (namesake) fail(label, 'sure on a name that is a current street of the same kind');
+        if (namesakeAny) fail(label, 'sure on a name that is the name of a row of the list');
+        if (!e.ty && !list.typeless) fail(label, 'sure without a kind');
       }
     }
     regionKeys.set(f.region, (regionKeys.get(f.region) ?? 0) + used);
@@ -192,28 +230,55 @@ export async function checkAliases({ addr = DEFAULT_ADDR, against = 'HEAD', useG
   // Permanence: the published copy's targets still name the same rows.
   if (useGit) {
     const rel = (p) => p.slice(ROOT.length + 1);
-    for (const f of files) {
-      if (!f.file.startsWith(`${ROOT}/`)) continue; // a copy outside this checkout has no history here
-      const old = gitShow(against, rel(f.file));
-      if (!old) continue;
-      const oldList = gitShow(against, rel(f.list));
-      if (!oldList) continue;
-      let oldData, oldTitles;
-      try { oldData = JSON.parse(old); oldTitles = JSON.parse(oldList); } catch { continue; }
-      const nowTitles = (await loadList(f)).titles;
-      for (const e of oldData.a ?? []) {
-        for (const t of e.t ?? []) {
-          if (oldTitles[t.i] !== undefined && nowTitles[t.i] !== oldTitles[t.i]) errors.push(`${f.rel}: «${e.k}» points at ${t.i}, which was «${oldTitles[t.i]}» in ${against} and is «${nowTitles[t.i]}» now`);
+    for (const rev of revisionsToCheck(against)) {
+      for (const f of files) {
+        if (!f.file.startsWith(`${ROOT}/`)) continue; // a copy outside this checkout has no history here
+        const old = gitShow(rev, rel(f.file));
+        if (!old) continue;
+        const oldList = gitShow(rev, rel(f.list));
+        if (!oldList) continue;
+        let oldData, oldTitles;
+        try { oldData = JSON.parse(old); oldTitles = JSON.parse(oldList); } catch { continue; }
+        const nowTitles = (await loadList(f)).titles;
+        for (const e of oldData.a ?? []) {
+          for (const t of e.t ?? []) {
+            if (oldTitles[t.i] !== undefined && nowTitles[t.i] !== oldTitles[t.i]) errors.push(`${f.rel}: «${e.k}» points at ${t.i}, which was «${oldTitles[t.i]}» in ${rev} and is «${nowTitles[t.i]}» now`);
+          }
         }
       }
     }
   }
+
+  // The files are what build-aliases writes now (strict mode, when asked): a veto added, a source refreshed or a
+  // list grown and the aliases not rebuilt would otherwise go out as they were.
+  if (strict && rebuild) errors.push(...(await rebuildErrors(addr, files)));
 
   // Corpus regression.
   const corpusStats = await checkCorpus({ addr, corpus, files, knownMisses });
   stats.corpus = corpusStats.summary;
   errors.push(...corpusStats.errors);
   return { errors, stats };
+}
+
+/** Runs the builder in memory over the committed sources and lists and compares every file with what is on disk. */
+export async function rebuildErrors(addr, files) {
+  const { run } = await import('./build-aliases.mjs');
+  const builtDates = new Map();
+  for (const f of files) {
+    const built = JSON.parse(await readFile(f.file, 'utf8')).built;
+    builtDates.set(built, (builtDates.get(built) ?? 0) + 1);
+  }
+  const built = [...builtDates].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const { texts } = await run({ addr, built, dry: true, reportDir: null });
+  const errors = [];
+  const byPath = new Map(files.map((f) => [f.file, f]));
+  for (const [path, text] of texts) {
+    const f = byPath.get(path);
+    if (!f) { errors.push(`${path.slice(addr.length + 1)}: build-aliases would write this file and it is not there`); continue; }
+    if ((await readFile(path, 'utf8')) !== text) errors.push(`${f.rel}: not what build-aliases writes from the committed sources and lists: run it`);
+  }
+  for (const f of files) if (!texts.has(f.file)) errors.push(`${f.rel}: build-aliases would not write this file any more`);
+  return errors;
 }
 
 /** Replays the audit's renamed-name queries: each must find its street among the alias targets. */
@@ -260,9 +325,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (await exists(knownFile)) for (const r of await readTsv(knownFile)) known.add(r.id);
   const { errors, stats } = await checkAliases({
     addr: typeof args.addr === 'string' ? args.addr : DEFAULT_ADDR,
-    against: typeof args.against === 'string' ? args.against : 'HEAD',
+    against: typeof args.against === 'string' ? args.against : 'auto',
     useGit: !args['no-git'],
-    knownMisses: known
+    knownMisses: known,
+    strict: !args.lenient,
+    rebuild: !args.lenient && !args['no-rebuild']
   });
   console.log(`${stats.files} files, ${stats.entries} entries (${stats.sure} sure, ${stats.multi} with several targets, ${stats.namesakes} namesakes), ${stats.bytes} bytes`);
   if (stats.corpus) console.log(`corpus: ${stats.corpus.rescued} of ${stats.corpus.cases} renamed-name queries find their street${stats.corpus.missed.length ? ` (missed: ${stats.corpus.missed.join(', ')})` : ''}`);

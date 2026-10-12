@@ -8,7 +8,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readList, readRow } from './aliases/operator.mjs';
-import { buildAliases, joinName, serializeFile, collectRussian, displayKey, MIN_YEAR, NO_PLACE } from './aliases/build-core.mjs';
+import { buildAliases, joinName, serializeFile, collectRussian, displayKey, MIN_YEAR } from './aliases/build-core.mjs';
 import { checkAliases, MAX_FILE_BYTES } from './check-aliases.mjs';
 import { row } from './aliases/rows.mjs';
 import { parseName } from './aliases/text.mjs';
@@ -49,7 +49,7 @@ test('T1: the same kind and the same words, in any order; rows of one key are on
   assert.deepEqual(e.t.map((t) => t.i), [1, 0]); // by houses, then index: 11 then 10
   assert.deepEqual(e.t.map((t) => t.f), [['twin'], ['twin']]);
   assert.equal(e.sure, undefined);
-  assert.ok(e.t.every((t) => t.d === NO_PLACE)); // two targets: each says where, or that the source does not
+  assert.ok(e.t.every((t) => t.d === undefined)); // the source gives no place: nothing is printed in its stead
 });
 
 test('T1 respects the kind: просп. Південне is not вул. Південне; a lone other kind is accepted as a retype', async () => {
@@ -94,6 +94,11 @@ test('a corner record is never a target, and a row without a type is not a stree
   assert.equal(readRow('ріг вул. А/пр. Б', 0, 'street').eligible, false);
   assert.equal(readRow('Дарницький р-н, вул. Лугова', 0, 'street').eligible, false);
   assert.equal(readRow('с-т Весна', 0, 'street').eligible, false);
+  // A street of a garden society, named in the brackets, is not a street of the town; a place or a district is no society.
+  assert.equal(readRow('вул. Центральна (СТ "Дружба"-2)', 0, 'street').eligible, false);
+  assert.equal(readRow('вул. Щаслива (СТСтадне)', 0, 'street').eligible, false);
+  assert.equal(readRow('вул. Нижній Вал (Бортничі)', 0, 'street').eligible, true);
+  assert.equal(readRow('вул. Весняна (Голосіївський р-н.)', 0, 'street').eligible, true);
 });
 
 test('a short and a long spelling of one street are both targets; a plain noun is not a long form', async () => {
@@ -215,6 +220,161 @@ test('rename.dp.ua is never the only witness; with another source it is just a c
   assert.deepEqual(entryOf(r.city, 'Друга').t[0].s, ['wp', 'rdp']);
 });
 
+// ---- sure: the rules the review of 2026-10-12 added ------------------------------------------
+
+test('sure needs every hop proved: a Wikipedia-only first hop sinks a chain whose last hop is official', async () => {
+  const op = operator({ streets: ['вул. Остання'] });
+  const r = await build(op, [
+    st('Перша', 'Середня', { src: 'wp', year: '2005' }),
+    st('Середня', 'Остання', { src: 'loc', year: '2024' }), st('Середня', 'Остання', { src: 'osm' })
+  ]);
+  assert.deepEqual(entryOf(r.city, 'Перша').t.map((t) => t.i), [0]);
+  assert.equal(entryOf(r.city, 'Перша').sure, undefined);
+  assert.equal(entryOf(r.city, 'Середня').sure, true);
+  const both = await build(op, [
+    st('Перша', 'Середня', { src: 'wp' }), st('Перша', 'Середня', { src: 'osm' }),
+    st('Середня', 'Остання', { src: 'loc' })
+  ]);
+  assert.equal(entryOf(both.city, 'Перша').sure, true);
+});
+
+test('a hop that only corrects a spelling is no evidence, and not a refusal either', async () => {
+  const op = operator({ streets: ['вул. Кирилівська'] });
+  const r = await build(op, [
+    st('Короленко', 'Короленка', { src: 'wp' }),
+    st('Короленка', 'Кирилівська', { src: 'osm' })
+  ]);
+  assert.equal(entryOf(r.city, 'Короленко').sure, undefined); // OSM alone says it
+  const ok = await build(op, [
+    st('Короленко', 'Короленка', { src: 'wp' }),
+    st('Короленка', 'Кирилівська', { src: 'wp' }), st('Короленка', 'Кирилівська', { src: 'osm' })
+  ]);
+  assert.equal(entryOf(ok.city, 'Короленко').sure, true);
+});
+
+test('a current-name entry is not sure while another name the sources give the operator\'s old row is not listed', async () => {
+  // Act 3984-IX: four villages were «Перше Травня»; the operator already lists two of the new names and has ONE row left.
+  const op = operator({ settlements: ['с. Перше Травня', 'с. Гудимове', 'с. Димівка'] });
+  const village = (name, d) => row({ list: 'settlements', scope: 'dnipro', old_type: 'с.', old_name: 'Перше Травня', new_type: 'с.', new_name: name, district: d, year: '2024', src: 'vr' });
+  const two = await build(op, [village('Княже', 'Бориспільський р-н'), village('Роська', 'Білоцерківський р-н'), village('Гудимове', 'Обухівський р-н'), village('Димівка', 'Броварський р-н')]);
+  assert.equal(entryOf(two.settlements, 'Княже').is, 'current');
+  assert.equal(entryOf(two.settlements, 'Княже').sure, undefined);
+  assert.equal(entryOf(two.settlements, 'Роська').sure, undefined);
+  // Only one unlisted name left: the row is its.
+  const one = await build(op, [village('Княже', 'Бориспільський р-н'), village('Гудимове', 'Обухівський р-н'), village('Димівка', 'Броварський р-н')]);
+  assert.equal(entryOf(one.settlements, 'Княже').sure, true);
+});
+
+test('the operator lists the old name as a longer spelling: both is set and nothing is sure', async () => {
+  const op = operator({ streets: ['вул. Гоголя Миколи', 'вул. Гірська', 'вул. Лумумби Патріса', 'вул. Лісова'] });
+  const r = await build(op, [st('Гоголя', 'Гірська', { src: 'loc' }), st('Лумумби', 'Лісова', { src: 'loc' })]);
+  assert.deepEqual(entryOf(r.city, 'Гоголя').t[0].f, ['both']);
+  assert.equal(entryOf(r.city, 'Гоголя').sure, undefined);
+  // «Патріса» is no first name the join knows, so no flag, but the key is not unknown to the operator either.
+  assert.equal(entryOf(r.city, 'Лумумби').sure, undefined);
+});
+
+test('sure is withheld for a key that names a row of ANY kind, and for one the council lists as a current street', async () => {
+  const op = operator({ settlements: ['смт Володарка', 'с. Левковичі', 'с. Інше'] });
+  const r = await build(op, [row({ list: 'settlements', scope: 'dnipro', old_type: 'с.', old_name: 'Володарка', new_type: 'с.', new_name: 'Левковичі', district: 'Поліський р-н', year: '2024', src: 'vr' })]);
+  assert.equal(entryOf(r.settlements, 'Володарка').sure, undefined);
+
+  const streets = operator({ streets: ['вул. Амосова', 'вул. Інша'] });
+  const rows = [st('Лесі Українки', 'Амосова', { src: 'loc' }), row({ list: 'streets', scope: 'dnipro/dnipro', new_type: 'вул.', new_name: 'Лесі Українки', src: 'loc', flags: 'census', url: 'u', fetched: 'f' })];
+  const c = await build(streets, rows);
+  assert.equal(entryOf(c.city, 'Лесі Українки').sure, undefined);
+  const dropped = Object.values(c.report.dropped).reduce((a, b) => a + b, 0);
+  assert.equal(c.report.used + dropped, c.report.input);
+});
+
+test('a decision undone by a later one is replaced: only the later pair is used', async () => {
+  const op = operator({ streets: ['вул. Веделя Артема', 'вул. Друга'] });
+  const r = await build(op, [
+    st('Братська', 'Веделя Артема', { src: 'wp', act: 'Розпорядження ОДА від 26 липня 2024 року' }),
+    st('Веделя Артема', 'Братська', { src: 'wp', act: 'Рішення міської ради від 18 грудня 2024 року' }),
+    st('Веделя Артема', 'Братська', { src: 'osm' })
+  ]);
+  assert.equal(r.report.dropped.superseded, 1);
+  const e = entryOf(r.city, 'Братська');
+  assert.equal(e.is, 'current'); // the council gave the old name back; the operator still lists the July one
+  assert.equal(e.sure, true);
+  assert.equal(r.city.entries.filter((x) => x.entry.k === 'Братська').length, 1);
+});
+
+test('two pairs that undo each other with no dates between them stay, and neither is sure', async () => {
+  const op = operator({ streets: ['пл. Незалежності', 'пл. Дерев’янка'], });
+  const swap = (a, b) => st(a, b, { old_type: 'пл.', new_type: 'пл.', year: '2012' });
+  const r = await build(op, [swap('Незалежності', 'Дерев’янка'), swap('Дерев’янка', 'Незалежності'), st('Незалежності', 'Дерев’янка', { old_type: 'пл.', new_type: 'пл.', src: 'osm', year: '2012' })]);
+  for (const e of r.city.entries) assert.equal(e.entry.sure, undefined);
+});
+
+test('a row the operator qualifies with a district is not the street the source puts in another district', async () => {
+  const op = operator({ streets: ['вул. Весняна', 'вул. Весняна (Голосіївський р-н.)', 'вул. Нова-а'] });
+  const r = await build(op, [st('Делоне', 'Весняна', { district: 'Солом’янський' })]);
+  assert.deepEqual(entryOf(r.city, 'Делоне').t.map((t) => t.i), [0]);
+  const there = await build(op, [st('Делоне', 'Весняна', { district: 'Голосіївський' })]);
+  assert.deepEqual(entryOf(there.city, 'Делоне').t.map((t) => t.i).sort(), [0, 1]); // the unqualified row is not ruled out
+});
+
+test('an abbreviated district in a qualifier («Поділ. р-н») still names its district', async () => {
+  const op = operator({ streets: ['вул. Лінія (Поділ. р-н)', 'вул. Нова-а'] });
+  assert.deepEqual(entryOf((await build(op, [st('Стара', 'Лінія', { district: 'Подільський' })])).city, 'Стара').t.map((t) => t.i), [0]);
+  assert.equal((await build(op, [st('Стара', 'Лінія', { district: 'Дарницький' })])).city, undefined);
+});
+
+test('a qualifier that is not a district is printed as the place, not the source\'s district', async () => {
+  const op = operator({ streets: ['вул. Нижній Вал', 'вул. Нижній Вал (Бортничі)'] });
+  const r = await build(op, [st('Кімівська', 'Нижній Вал', { district: 'Подільський' })]);
+  const byRow = Object.fromEntries(entryOf(r.city, 'Кімівська').t.map((t) => [t.i, t.d]));
+  assert.equal(byRow[1], 'Бортничі');
+  assert.equal(byRow[0], 'Подільський');
+});
+
+test('a kind written after the old name is its kind: «Дарницьке шосе» has no «вул.»; the word is not said twice', async () => {
+  const op = operator({ streets: ['вул. Нова-а', 'вул. Нова-б'] });
+  const r = await build(op, [
+    st('Дарницьке шосе', 'Нова-а', { old_type: '' }),
+    st('Білоруський проїзд', 'Нова-б', { old_type: 'проїзд' })
+  ]);
+  const shosse = r.city.entries.find((e) => e.entry.k === 'Дарницьке шосе').entry;
+  assert.equal(shosse.ty, undefined);
+  assert.equal(shosse.sure, undefined);
+  const proizd = r.city.entries.find((e) => e.entry.k === 'Білоруський').entry;
+  assert.equal(proizd.ty, 'проїзд');
+});
+
+test('districts: a misspelling joins the frequent label, a rare label that is no district goes, rename.dp.ua gives none', async () => {
+  const labels = [];
+  for (let i = 0; i < 100; i++) labels.push(['Індустріальний', `Стара${i}`, `Нова${i}`]);
+  for (let i = 0; i < 6; i++) labels.push(['Індустріальній', `Хиба${i}`, `Хибна${i}`]);
+  labels.push(['Гагаріна', 'Одна', 'Єдина']);
+  const streets = [...labels.map((l) => `вул. ${l[2]}`), 'вул. Лише-рдп'];
+  const op = operator({ streets });
+  const rows = labels.map(([d, a, b]) => st(a, b, { district: d }));
+  rows.push(st('Рдпшна', 'Лише-рдп', { src: 'rdp', district: 'Придумане' }), st('Рдпшна', 'Лише-рдп', { src: 'osm' }));
+  const r = await build(op, rows);
+  assert.equal(entryOf(r.city, 'Хиба3').t[0].d, 'Індустріальний');
+  assert.equal(entryOf(r.city, 'Одна').t[0].d, undefined);
+  assert.equal(entryOf(r.city, 'Рдпшна').t[0].d, undefined);
+});
+
+test('two old names of different districts on one village row: neither picks it', async () => {
+  const op = operator({ settlements: ['с. Мирне', 'с. Інше'] });
+  const village = (old, d) => row({ list: 'settlements', scope: 'dnipro', old_type: 'с.', old_name: old, new_type: 'с.', new_name: 'Мирне', district: d, year: '2024', src: 'vr' });
+  const r = await build(op, [village('Котовське', 'Широківський р-н'), village('Новий Посьолок', 'Синельниківський р-н')]);
+  assert.equal(entryOf(r.settlements, 'Котовське').sure, undefined);
+  assert.equal(entryOf(r.settlements, 'Новий Посьолок').sure, undefined);
+  const alone = await build(op, [village('Котовське', 'Широківський р-н')]);
+  assert.equal(alone.settlements && entryOf(alone.settlements, 'Котовське').sure, true);
+});
+
+test('the Russian form is stored only when every word is Russian; a current-name entry takes none from the old name', () => {
+  const russian = [{ kind: 'word', uk: 'Червоних', ru: 'Красных' }, { kind: 'word', uk: 'козаків', ru: 'казаков' }];
+  assert.deepEqual(collectRussian('Червоних козаків', new Set(), russian), ['Красных казаков']);
+  assert.deepEqual(collectRussian('Червоних бійців', new Set(), russian), []); // «бійців» has no Russian word yet: no half-form
+  assert.deepEqual(collectRussian('Червоних Партизан', new Set(), russian), ['Красных Партизан']); // a name reads the same
+});
+
 // ---- policy ----------------------------------------------------------------------------------
 
 test('rows from before 1991, vetoed pairs, placeholders and non-Cyrillic keys never get in; every row is accounted for', async () => {
@@ -265,6 +425,16 @@ test('ru: only what the app\'s folding cannot derive is stored; the Soviet vocab
   assert.deepEqual(collectRussian('Московський', new Set(['Московский']), russian), []); // derivable
   assert.deepEqual(collectRussian('Ватутіна', new Set(['Ватутина', 'Ватутін']), russian), ['Ватутін']);
   assert.deepEqual(collectRussian('25-річчя Жовтня', new Set(), [{ kind: 'word', uk: 'Жовтня', ru: 'Октября' }]), ['25-летия Октября']);
+});
+
+test('a Russian-only row attaches its form to the Ukrainian entry of its own town, and to no other', async () => {
+  const op = operator({ streets: ['вул. Нова-а'] });
+  const ruRow = (scope) => row({ list: 'streets', scope, old_type: 'вул.', old_name: 'Будённого', new_type: 'вул.', new_name: 'Нова-а', src: 'osm', flags: 'ruonly', ru: 'Будённого', url: 'u', fetched: 'f' });
+  const here = await build(op, [st('Будьонного', 'Нова-а'), ruRow('dnipro/dnipro')]);
+  assert.deepEqual(entryOf(here.city, 'Будьонного').ru, ['Будённого']);
+  const elsewhere = await build(op, [st('Будьонного', 'Нова-а'), ruRow('dnipro/kryvyi-rih')]);
+  assert.equal(entryOf(elsewhere.city, 'Будьонного').ru, undefined);
+  assert.equal(elsewhere.report.dropped['ru-without-pair'], 1);
 });
 
 // ---- output ----------------------------------------------------------------------------------
@@ -323,7 +493,9 @@ test('gate: schema — version, list, n against the list, codes, dates', async (
 test('gate: targets — in range, a real street, not the key itself, a district when there are several, sources', async () => {
   assert.match((await problems((f) => { f.a[0].t[1].i = 9; })).join(), /target 9 is outside 0\.\.3/);
   assert.match((await problems((f) => { f.a[0].t[1].i = 3; })).join(), /not a street/);
-  assert.match((await problems((f) => { delete f.a[0].t[1].d; })).join(), /has no d among 2/);
+  assert.deepEqual(await problems((f) => { delete f.a[0].t[1].d; }), []); // no place in the sources: nothing is printed
+  assert.match((await problems((f) => { f.a[0].t[1].d = 'місце не вказано'; })).join(), /d says nothing/);
+  assert.match((await problems((f) => { f.a[0].t[1].d = ''; })).join(), /non-empty string/);
   assert.match((await problems((f) => { f.a[0].t[0].s = []; })).join(), /no source codes/);
   assert.match((await problems((f) => { f.a[0].t[0].s = ['rdp']; })).join(), /rename\.dp\.ua alone/);
   assert.match((await problems((f) => { f.a.push({ k: 'Толстого', ty: 'вул.', t: [{ i: 2, s: ['wp'] }] }); })).join(), /the key itself/);
@@ -341,8 +513,39 @@ test('gate: sure — one target, no flag, an official source or two community on
   assert.match((await problems((f) => { f.a[1].t.push({ i: 1, d: 'x', s: ['wp', 'osm'] }); })).join(), /sure needs exactly one target/);
   assert.match((await problems((f) => { f.a[1].t[0].f = ['both']; })).join(), /sure with a flagged target/);
   assert.match((await problems((f) => { f.a[1].t[0].s = ['wp']; })).join(), /sure without an official source/);
-  assert.match((await problems((f) => { f.a.push({ k: 'Толстого', ty: 'вул.', sure: true, t: [{ i: 1, s: ['wp', 'osm'] }] }); })).join(), /sure on a name that is a current street/);
+  assert.match((await problems((f) => { f.a.push({ k: 'Толстого', ty: 'вул.', sure: true, t: [{ i: 1, s: ['wp', 'osm'] }] }); })).join(), /sure on a name that is the name of a row of the list/);
   assert.deepEqual(await problems((f) => { f.a[1].t[0].s = ['loc']; f.src.loc = 'x'; }), []); // an official source alone is enough
+});
+
+test('gate: a list that grew makes the file stale, not wrong: n below the length passes the lenient gate and fails the strict one', async () => {
+  assert.deepEqual(await problems((f) => { f.n = 3; }, { strict: false }), []);
+  assert.match((await problems((f) => { f.n = 3; })).join(), /n is 3, the list has 4 rows/);
+  assert.match((await problems((f) => { f.n = 5; }, { strict: false })).join(), /n is 5, the list has 4 rows/); // longer than the list is wrong in any mode
+});
+
+test('gate: a target once and sorted by houses, and no key the file does not define', async () => {
+  assert.match((await problems((f) => { f.a[0].t[1].i = 0; })).join(), /target 0 twice/);
+  assert.match((await problems((f) => { f.a[0].t.reverse(); })).join(), /not sorted by houses/);
+  assert.match((await problems((f) => { f.a[0].t[0].x = 1; })).join(), /unknown key "x"/);
+  assert.match((await problems((f) => { f.a[0].extra = true; })).join(), /unknown key "extra"/);
+});
+
+test('gate: sure is refused for a key that is the name of a row of ANY kind, and for one without a kind', async () => {
+  assert.match((await problems((f) => { f.a.push({ k: 'Толстого', ty: 'пров.', sure: true, t: [{ i: 1, s: ['wp', 'osm'] }] }); })).join(), /name of a row of the list/);
+  assert.match((await problems((f) => { delete f.a[1].ty; })).join(), /sure without a kind/);
+});
+
+test('gate: strict mode counts the houses on disk; lenient mode lets a harvest move them', async () => {
+  const dir = await gateFixture((f) => { f.a[0].t[0].h = 2; f.a[0].t[1].h = 1; f.a[1].t[0].h = 9; });
+  try {
+    await mkdir(join(dir, 'kyiv', 's'), { recursive: true });
+    await writeFile(join(dir, 'kyiv', 's', '0.json'), JSON.stringify({ 1: 'GPV1.1', 2: 'GPV1.1' }));
+    await writeFile(join(dir, 'kyiv', 's', '1.json'), JSON.stringify({ 1: 'GPV1.1' }));
+    const strict = (await checkAliases({ addr: dir, useGit: false, corpus: '/nonexistent' })).errors.join('\n');
+    assert.match(strict, /target 0 says 9 houses, the street has 2/);
+    assert.doesNotMatch(strict, /target 1 says/);
+    assert.deepEqual((await checkAliases({ addr: dir, useGit: false, corpus: '/nonexistent', strict: false })).errors, []);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
 test('gate: size and index.json', async () => {

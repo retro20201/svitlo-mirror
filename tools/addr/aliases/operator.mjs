@@ -48,6 +48,9 @@ export function readRow(title, index, kind) {
   const first = fold(text.split(' ')[0]).replace(/\.+$/, '');
   if (NOT_STREETS.has(first) || /[,;]/.test(text.replace(/\([^)]*\)/g, ''))) eligible = false;
   if (/(^|\s)р-н(\s|,|$)/i.test(text)) eligible = false;
+  // «вул. Центральна (СТ "Дружба"-2)»: a street of a garden society is not a street of the town, and must not
+  // become one of the targets of the town's «Центральна».
+  if (/^(СТ|С\/Т|СК|СНТ|ГО|ГК|ОК|ТОВ|ЖБК|КП|ДК|ГСК)(?![а-яіїєґ])/.test(parsed.locality)) eligible = false;
   // The kind itself must be one of the plain ones.
   if (kind === 'street' && !['вул.', 'просп.', 'бул.', 'пров.', 'пл.', 'узвіз', 'проїзд', 'тупик', 'шосе', 'наб.', 'алея', 'майдан', 'лінія'].includes(parsed.type)) eligible = false;
   if (kind === 'settlement' && !['м.', 'смт', 'с.', 'хут.'].includes(parsed.type)) eligible = false;
