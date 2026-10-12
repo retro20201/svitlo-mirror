@@ -91,8 +91,13 @@ withholds because two РЕМ disagree — so a newly published РЕМ is added b
     v1/addr/kyiv/x/<i>.json            {"95": ["GPV5.1", "GPV3.1"], …}
     v1/addr/odesa/c/<c>/x/<s>.json     {"4": ["GPV1.1", "GPV1.2"], …}
 
+    v1/addr/kyiv/aliases.json          {"v": 1, "list": "streets", "n": 2670, "a": [{"k": "Горького", "ty": "вул.", "t": […]}, …]}
+    v1/addr/odesa/aliases.json         the same for settlements (list = "settlements", "cities": [c, …])
+    v1/addr/odesa/c/<c>/aliases.json   the same for one city's streets
+
     v1/addr/index.json                 {"kyiv": {"shape": "flat", "streets": 2670, "built": 2670,
-                                                 "addresses": 50206, "lines": true, "multiLine": 6208}, …}
+                                                 "addresses": 50206, "lines": true, "multiLine": 6208,
+                                                 "aliases": true, "aliasKeys": 1090}, …}
 
 One small file per street keeps the phone's onboarding download at ~1 KB instead of megabytes.
 
@@ -117,6 +122,21 @@ Written by `write-index.mjs`, one entry per region: `shape`, `streets`, `built` 
 any `x/` file also gets `"lines": true` and `"multiLine"`, the number of houses across its `x/`
 files. The app requests `x/` only where `lines` is true; without it, no extra request per street.
 A region without `x/` has exactly the entry it had before these fields existed.
+
+### Old and former names: `aliases.json`
+
+People type «Червоноармійська» for вул. Велика Васильківська. `aliases.json` sits next to each list and
+says which old name belongs to which row (by index, so it is only as stale as the harvest). It is built by
+`node tools/addr/build-aliases.mjs` from reviewed source tables (Верховна Рада acts, council decisions,
+uk.wikipedia and OpenStreetMap) and is **not** part of the harvest or the 10-minute mirror; run it after any
+`build-addresses.mjs --fresh` swap, then `node tools/addr/check-aliases.mjs`, the publish gate (the tests
+run it too). The file format, the sources, the join rules and the licence are in
+[aliases/README.md](aliases/README.md) and [aliases/LICENCE.md](aliases/LICENCE.md).
+
+A region with any `aliases.json` gets `"aliases": true` and `"aliasKeys"`, the number of entries across its
+files, in `index.json`; a region without one keeps the entry it had. The app asks for the files only where
+`aliases` is set, so `"aliases": false` in `index.json` switches the feature off for a region without a release,
+and a bad pair is removed by adding it to `aliases/manual/vetoes.tsv` and rebuilding.
 
 ### Indices are permanent
 
