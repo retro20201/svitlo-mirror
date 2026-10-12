@@ -42,7 +42,9 @@ Rules every fetcher follows (all in `http.mjs`):
   - `oda.od.gov.ua` answers the descriptive User-Agent with 403; `fetch-files.mjs` then retries once with a
     browser-like one and the manifest records which was used.
   - Overpass (`overpass-api.de`) answers heavy queries with 504 about half the time; the fetcher checks
-    `/api/status` first, waits, retries, and only then tries a public mirror. Kyiv is Phase 2 and is not fetched.
+    `/api/status` first, waits, retries, and only then tries a public mirror, whose answer is refused if its
+    OSM data is more than 3 days old (on 2026-10-12 `overpass.private.coffee` served Pavlohrad from May 2026
+    and missed 64 of 242 ways; `--refetch=pavlohrad` replaces one city). Kyiv is Phase 2 and is not fetched.
   - `bc-rada.gov.ua` now serves a placeholder; `fetch-wayback.mjs` takes the newest Wayback capture
     that really is the rename table (its `id_` form: the page as the council served it).
 

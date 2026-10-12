@@ -73,10 +73,14 @@ export function radaRenames(text) {
 
 const TYPE_WORDS = /^(?:вулиця|провулок|проспект|площа|бульвар|узвіз|проїзд|тупик|шосе|набережна|сквер|міст|алея|дорога|завулок|майдан|парк)(?!\p{L})/iu;
 
-/** ODA order text: lines holding an old and a new street type word, i.e. one rename pair. */
-export function odaPairLines(text) {
-  const types = /(?:^|\s)(?:вулиця|провулок|проспект|площа|бульвар|узвіз|проїзд|тупик|шосе|набережна|сквер|алея|завулок)\s/gi;
-  return text.split('\n').filter((l) => (l.match(types) ?? []).length >= 2).length;
+/**
+ * ODA order text → rename pairs, estimated as half the capitalised street-type words ("Вулиця",
+ * "Провулок" …). The text layer runs several rows of a column into one line ("…Танцюри Вулиця
+ * Генерала Ратова…"), so counting lines undercounts; every row has a type word on each side.
+ */
+export function odaPairs(text) {
+  const words = text.match(/(?:Вулиця|Провулок|Проспект|Площа|Бульвар|Узвіз|Проїзд|Тупик|Шосе|Набережна|Сквер|Алея|Завулок|Парк|Майдан|Міст|Дорога|Лінія|Спуск)(?![а-яіїєґ'’])/gu) ?? [];
+  return Math.floor(words.length / 2);
 }
 
 export const odaLocalities = (text) => text.split('\n').filter((l) => /^(?:місто|село|селище(?: міського типу)?)\s+\S/i.test(l.trim()) && !TYPE_WORDS.test(l.trim())).length;
@@ -249,8 +253,8 @@ async function verifyFiles(source, dir, { pdf = true } = {}) {
       const letters = (text.match(/\p{L}/gu) ?? []).length;
       if (letters < 1000) f.problems.push(`only ${letters} letters in the text layer (a scan?)`);
       f.detail = `${pages} pages, ${letters} letters`;
-      if (source === 'odesa-oda') { f.rows = odaPairLines(text); f.detail += `, ${odaLocalities(text)} locality headings`; }
-      if (source === 'bucha') { f.rows = (text.match(/перейменовано\s+з/gi) ?? []).length; f.detail += ', rows = «перейменовано з» notes'; }
+      if (source === 'odesa-oda') { f.rows = odaPairs(text); f.detail += `, ${odaLocalities(text)} locality headings`; }
+      if (source === 'bucha') { f.rows = (text.match(/перейменовано/gi) ?? []).length; f.detail += ', rows = «перейменовано» notes'; }
     }
   }
   return finish(source, files, problems, notes);

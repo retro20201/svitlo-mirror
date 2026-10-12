@@ -1,9 +1,10 @@
 /**
  * Fetches the OpenStreetMap ways that carry an `old_name*` tag, one Overpass query per city.
  *
- *   node tools/addr/aliases/fetch-osm.mjs <outDir> [--resume] [--only=boryspil,dnipro] [--list]
+ *   node tools/addr/aliases/fetch-osm.mjs <outDir> [--resume] [--only=boryspil,dnipro] [--refetch=pavlohrad] [--list]
  *
- * Writes <outDir>/<city>.json (the Overpass answer as received) plus manifest.json. Queries run
+ * Writes <outDir>/<city>.json (the Overpass answer as received) plus manifest.json. `--refetch=id`
+ * replaces one already-downloaded city (for example one a mirror served stale data for). Queries run
  * strictly one at a time with a pause between them, after asking /api/status whether a slot is
  * free. The main instance often answers 504 for a heavy query; this backs off and retries, and
  * only after that goes to a public mirror (the manifest says which server served each file).
@@ -54,6 +55,9 @@ export const OSM_AREAS = [
   { id: 'podilsk', name: 'Подільськ', bbox: [47.72, 29.50, 47.80, 29.60] }
 ];
 
+/** Overpass data older than this is refused (see checkOverpassAnswer). */
+const MAX_AGE_MS = 3 * 24 * 3600 * 1000;
+
 const FILTER = '["highway"]["name"][~"^old_name"~"."]';
 
 export function overpassQuery(area, timeout = 180) {
@@ -64,16 +68,20 @@ export function overpassQuery(area, timeout = 180) {
 }
 
 /**
- * Why this body is not a complete answer, or null. Overpass reports a query that ran out of time
- * or memory with a 200 and a `remark`, and the elements it did manage to return — a partial
+ * Why this body is not a complete, current answer, or null. Overpass reports a query that ran out
+ * of time or memory with a 200 and a `remark`, and the elements it did manage to return — a partial
  * answer that looks like a small city. That must never be saved as a download.
  */
-export function checkOverpassAnswer(buf) {
+export function checkOverpassAnswer(buf, { maxAgeMs = MAX_AGE_MS, now = Date.now() } = {}) {
   let json;
   try { json = JSON.parse(decodeBody(buf)); } catch { return `not JSON (${buf.subarray(0, 60).toString('utf8').replace(/\s+/g, ' ')})`; }
   if (!Array.isArray(json.elements)) return 'no elements array';
   if (json.remark && /runtime error|timed out|out of memory|too many|rate_limit/i.test(json.remark)) return `remark: ${json.remark}`;
-  if (!json.osm3s?.timestamp_osm_base) return 'no timestamp_osm_base';
+  const base = json.osm3s?.timestamp_osm_base;
+  if (!base) return 'no timestamp_osm_base';
+  // A public mirror may lag the main instance by months (overpass.private.coffee served data from
+  // 2026-05-06 on 2026-10-12); old names are being added all the time, so stale data is refused.
+  if (now - Date.parse(base) > maxAgeMs) return `OSM data from ${base} is older than ${Math.round(maxAgeMs / 86400000)} days`;
   return null;
 }
 
@@ -84,13 +92,13 @@ export function parseSlotWait(statusText) {
   return m ? Number(m[1]) : 0;
 }
 
-export async function run(outDir, { resume = false, only = null, pauseMs = 8000, servers = OVERPASS, client = createClient({ minDelayMs: 2000, jitterMs: 1000, baseBackoffMs: 30000, maxBackoffMs: 120000, timeoutMs: 200000, maxAttempts: 4 }) } = {}) {
+export async function run(outDir, { resume = false, only = null, refetch = [], pauseMs = 8000, servers = OVERPASS, client = createClient({ minDelayMs: 2000, jitterMs: 1000, baseBackoffMs: 30000, maxBackoffMs: 120000, timeoutMs: 200000, maxAttempts: 4 }) } = {}) {
   const folder = await openRawFolder(outDir, { source: 'osm', tool: 'fetch-osm.mjs', resume });
   const areas = OSM_AREAS.filter((a) => !only || only.includes(a.id));
   let first = true;
   for (const area of areas) {
     const rel = `${area.id}.json`;
-    if (resume && (await folder.has(rel))) continue;
+    if (resume && !refetch.includes(area.id) && (await folder.has(rel))) continue;
     if (!first) await sleep(pauseMs);
     first = false;
     const query = overpassQuery(area);
@@ -131,8 +139,8 @@ export async function run(outDir, { resume = false, only = null, pauseMs = 8000,
 if (isMain(import.meta.url)) {
   const { flags, positional } = parseArgs(process.argv.slice(2));
   if (flags.list) { for (const a of OSM_AREAS) console.log(a.id, a.relation ?? a.bbox.join(','), a.name); process.exit(0); }
-  if (!positional[0]) { process.stderr.write('usage: fetch-osm.mjs <outDir> [--resume] [--only=id,id] [--list]\n'); process.exit(64); }
-  run(positional[0], { resume: !!flags.resume, only: flags.only ? String(flags.only).split(',') : null })
+  if (!positional[0]) { process.stderr.write('usage: fetch-osm.mjs <outDir> [--resume] [--only=id,id] [--refetch=id,id] [--list]\n'); process.exit(64); }
+  run(positional[0], { resume: !!flags.resume || !!flags.refetch, only: flags.only ? String(flags.only).split(',') : null, refetch: flags.refetch ? String(flags.refetch).split(',') : [] })
     .then((m) => process.exit(reportRun(m)))
     .catch((err) => { process.stderr.write(`${err.message}\n`); process.exit(1); });
 }

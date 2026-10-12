@@ -7,7 +7,7 @@ import { OSM_AREAS, checkOverpassAnswer, overpassQuery, parseSlotWait } from './
 import { RADA_ACTS, checkRadaPage, radaUrl } from './fetch-rada.mjs';
 import { TARGET, captureUrl, cdxUrl, checkTable, parseCdx } from './fetch-wayback.mjs';
 import { WIKI_SETS, checkWikiAnswer, wikiUrl } from './fetch-wikipedia.mjs';
-import { docxRows, htmlTableRows, odaPairLines, osmStats, pairRows, radaRenames } from './verify-raw.mjs';
+import { docxRows, htmlTableRows, odaPairs, osmStats, pairRows, radaRenames } from './verify-raw.mjs';
 
 // --- what is fetched ------------------------------------------------------------------------
 
@@ -84,12 +84,16 @@ test('Overpass queries: relation → area, box → bbox; any old_name* key; tags
 });
 
 test('an Overpass answer that ran out of time is not a download, even with a 200 and elements', () => {
+  const now = Date.parse('2026-10-12T16:00:00Z');
   const ok = JSON.stringify({ osm3s: { timestamp_osm_base: '2026-10-12T15:44:36Z' }, elements: [{ type: 'way', tags: { name: 'x' } }] });
-  assert.equal(checkOverpassAnswer(Buffer.from(ok)), null);
+  assert.equal(checkOverpassAnswer(Buffer.from(ok), { now }), null);
+  // A mirror that serves a five-month-old planet is as bad as a partial answer.
+  const stale = JSON.stringify({ osm3s: { timestamp_osm_base: '2026-05-06T03:25:00Z' }, elements: [{ type: 'way', tags: { name: 'x' } }] });
+  assert.match(checkOverpassAnswer(Buffer.from(stale), { now }), /older than 3 days/);
   const partial = JSON.stringify({ osm3s: { timestamp_osm_base: 'x' }, remark: 'runtime error: Query timed out in "query" at line 1 after 181 seconds.', elements: [{}] });
   assert.match(checkOverpassAnswer(Buffer.from(partial)), /remark: runtime error/);
   assert.match(checkOverpassAnswer(Buffer.from('<html><body>Too Many Requests</body></html>')), /not JSON/);
-  assert.match(checkOverpassAnswer(Buffer.from('{"elements": []}')), /timestamp_osm_base/);
+  assert.match(checkOverpassAnswer(Buffer.from('{"elements": []}'), { now }), /timestamp_osm_base/);
 });
 
 test('the Overpass status text says whether to wait', () => {
@@ -220,9 +224,9 @@ test('Rada rename sentences are counted across the wordings the acts use', () =>
   assert.equal(radaRenames('Про перейменування міста Дніпродзержинськ'), 0);
 });
 
-test('Odesa order lines holding an old and a new street type count as pairs', () => {
-  const text = 'місто Одеса\nВулиця Адмірала Лазарева Вулиця Михайла Болтенка\nПровулок Бадаєва Провулок Марії Станішевської\nГагарінське плато Аркадійське плато\nВулиця Генерала Петрова';
-  assert.equal(odaPairLines(text), 2);
+test('Odesa order pairs are half the street-type words, so rows run together by the text layer still count', () => {
+  const text = 'місто Одеса\nВулиця Адмірала Лазарева Вулиця Михайла Болтенка\nПровулок Бадаєва Провулок Марії Станішевської\nГагарінське плато Аркадійське плато\nВулиця Генерала Петрова Вулиця Євгенія ТанцюриВулиця Генерала Ратова Вулиця Генерала Швигіна';
+  assert.equal(odaPairs(text), 4);
 });
 
 test('Overpass stats count ways, names, old_name keys and points', () => {
