@@ -28,7 +28,8 @@ test('a query finds a title by the app\'s own readings', () => {
 });
 
 test('the Russian key and one-edit guesses', () => {
-  assert.equal(russianKey(loose('Котовськ')), russianKey(loose('Котовск')) + 'к'.slice(0, 0) || true);
+  assert.equal(russianKey(loose('котовськ')), russianKey(loose('котовск'))); // ь is dropped
+  assert.equal(russianKey(loose('ильичевск')), russianKey(loose('іллічівськ'))); // and a doubled letter is one
   assert.equal(isOneEdit('крещат', 'хрещатик'), true);
   assert.equal(isOneEdit('брещат', 'хрещатик'), true);
   assert.equal(isOneEdit('мрещат', 'хрещатик'), true);

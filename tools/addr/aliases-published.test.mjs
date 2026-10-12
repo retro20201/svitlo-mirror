@@ -165,3 +165,25 @@ test('the source tables are the form the builder reads: columns, sorted, every r
     }
   }
 });
+
+test('two queries the audit filed as «absent» are found now: Тарутино → Бессарабське and Екатерининская → Європейська', async () => {
+  const { load } = await live();
+  const settlements = (await load('odesa/settlements.json')).map(normalize);
+  const regional = await load('odesa/aliases.json');
+  const tarutyne = regional.a.find((e) => e.k === 'Тарутине');
+  assert.deepEqual(tarutyne.t.map((t) => settlements[t.i]), ['с-ще Бессарабське']);
+  assert.deepEqual(tarutyne.ru, ['Тарутино']);
+  const odesa = (await load('odesa/settlements.json')).findIndex((s) => normalize(s) === 'м. Одеса');
+  const streets = (await load(`odesa/c/${odesa}/streets.json`)).map(normalize);
+  const aliases = await load(`odesa/c/${odesa}/aliases.json`);
+  const katerynynska = aliases.a.find((e) => e.k === 'Катерининська' && e.ty === 'пл.');
+  assert.deepEqual(katerynynska.t.map((t) => streets[t.i]), ['пл. Європейська']);
+});
+
+test('a hand-written pair joins like any other: Проскурів is Хмельницький', async () => {
+  const { load } = await live();
+  const settlements = (await load('khmelnytskyi/settlements.json')).map(normalize);
+  const e = (await load('khmelnytskyi/aliases.json')).a.find((x) => x.k === 'Проскурів');
+  assert.deepEqual(e.t.map((t) => [settlements[t.i], t.s]), [['Хмельницький', ['man']]]);
+  assert.equal(e.sure, undefined);
+});

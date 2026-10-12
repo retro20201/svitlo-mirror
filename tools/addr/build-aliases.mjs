@@ -74,7 +74,7 @@ export const BASELINE = join(ALIASES, 'baseline.json');
 /** Pairs left unmatched may grow by this much between builds before a person has to look (a source changed shape, a parser broke). */
 export const UNMATCHED_GROWTH = 0.05;
 
-export async function run({ addr = DEFAULT_ADDR, built, dry = false, aliasesDir = ALIASES, reportDir = join(ALIASES, 'build-report'), log = console.error } = {}) {
+export async function run({ addr = DEFAULT_ADDR, built, dry = false, aliasesDir = ALIASES, reportDir = join(ALIASES, 'build-report') } = {}) {
   const before = await hashLists(addr);
   const operator = await loadOperator(addr);
   const inputs = await loadInputs(aliasesDir);
@@ -133,7 +133,6 @@ export async function run({ addr = DEFAULT_ADDR, built, dry = false, aliasesDir 
     await writeTsv(join(reportDir, 'namesakes.tsv'), ['file', 'k', 'ty', 'targets'], namesakes);
     await writeFile(join(reportDir, 'counts.json'), JSON.stringify({ input: report.input, used: report.used, dropped: report.dropped, perSource: report.perSource, ruAttached: report.ruAttached, notes: report.notes }, null, 1));
   }
-  void log;
   return { files, texts, report, before, after, minYear: MIN_YEAR };
 }
 

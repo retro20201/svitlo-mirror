@@ -121,9 +121,7 @@ export function parseTables(text) {
   const addCells = (line, header) => {
     // `|a || b || c` or `!a !! b`; each may start with attributes ending in a lone `|`.
     const body = line.slice(1);
-    const sep = header ? /!!|\|\|/ : /\|\|/;
     const parts = splitTop(body, header ? '!!' : '||').flatMap((p) => (header ? splitTop(p, '||') : [p]));
-    void sep;
     for (let part of parts) {
       part = stripCellAttributes(part);
       row ??= [];

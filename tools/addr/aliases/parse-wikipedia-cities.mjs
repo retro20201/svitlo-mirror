@@ -14,7 +14,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pagesOf, parseTables, parseListLines, plain } from './wikitext.mjs';
-import { parseName, tidyName, streetTypeOf } from './text.mjs';
+import { parseName, tidyName } from './text.mjs';
 import { districts, formerNames, typesOf, yearIn, headingYear, headingAct } from './wiki-common.mjs';
 import { row, SOURCE_COLUMNS, SOURCE_SORT } from './rows.mjs';
 import { writeTsv, sortRows } from './tsv.mjs';

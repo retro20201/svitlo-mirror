@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { readList, readRow } from './aliases/operator.mjs';
 import { buildAliases, joinName, serializeFile, collectRussian, displayKey, MIN_YEAR, NO_PLACE } from './aliases/build-core.mjs';
 import { checkAliases, MAX_FILE_BYTES } from './check-aliases.mjs';

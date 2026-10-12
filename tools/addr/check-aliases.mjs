@@ -25,7 +25,7 @@ import { readTsv } from './aliases/tsv.mjs';
 import { readRow, REGION_IDS } from './aliases/operator.mjs';
 import { nameKey, isJunkName, isCyrillicName, isPlausibleKey, letterCount, parseName } from './aliases/text.mjs';
 import { queryFindsTitle } from './aliases/fold.mjs';
-import { SOURCE_LEGEND, SOURCE_ORDER } from './aliases/build-core.mjs';
+import { SOURCE_LEGEND } from './aliases/build-core.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
@@ -274,4 +274,3 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
   console.log('ok');
 }
-void SOURCE_ORDER;
