@@ -64,6 +64,34 @@ test('a nested region is marked when any settlement has x/, and x-only houses ar
   });
 });
 
+test('a region with aliases files says so, counting every entry; a region without keeps exactly its old entry', async (t) => {
+  const root = await fixture({
+    'kyiv/streets.json': ['вул. А'], 'kyiv/s/0.json': { 1: 'GPV1.1' },
+    'kyiv/aliases.json': { v: 1, a: [{}, {}] },
+    'odesa/settlements.json': ['м. Б'], 'odesa/c/0/streets.json': ['вул. В'], 'odesa/c/0/s/0.json': { 1: 'GPV1.1' },
+    'odesa/aliases.json': { v: 1, a: [{}, {}, {}], cities: [0] }, 'odesa/c/0/aliases.json': { v: 1, a: [{}] },
+    'dnipro/settlements.json': ['м. Г'], 'dnipro/c/0/streets.json': ['вул. Д'], 'dnipro/c/0/s/0.json': { 1: 'GPV1.1' }
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const index = await buildIndex(root);
+  assert.deepEqual(index, {
+    dnipro: { shape: 'nested', settlements: 1, streets: 1, built: 1, addresses: 1 },
+    kyiv: { shape: 'flat', streets: 1, built: 1, addresses: 1, aliases: true, aliasKeys: 2 },
+    odesa: { shape: 'nested', settlements: 1, streets: 1, built: 1, addresses: 1, aliases: true, aliasKeys: 4 }
+  });
+  // Byte for byte what it was before aliases existed.
+  assert.equal(JSON.stringify(index.dnipro), '{"shape":"nested","settlements":1,"streets":1,"built":1,"addresses":1}');
+});
+
+test('aliases and x/ files side by side: the alias fields come after the lines fields', async (t) => {
+  const root = await fixture({
+    'kyiv/streets.json': ['вул. А'], 'kyiv/s/0.json': { 1: 'GPV1.1' }, 'kyiv/x/0.json': { 1: ['GPV1.1', 'GPV2.1'] },
+    'kyiv/aliases.json': { v: 1, a: [{}] }
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(JSON.stringify((await buildIndex(root)).kyiv), '{"shape":"flat","streets":1,"built":1,"addresses":1,"lines":true,"multiLine":1,"aliases":true,"aliasKeys":1}');
+});
+
 test('a rebuild in progress and the copy it replaced are not regions', async (t) => {
   // `--fresh` leaves `kyiv.new/` mid-harvest and `kyiv.old/` after the swap.
   const root = await fixture({

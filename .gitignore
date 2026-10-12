@@ -16,3 +16,6 @@ firebase-debug.*.log
 firebase/public/v1/addr/*.new/
 firebase/public/v1/addr/*.old/
 firebase/public/v1/addr/**/.*.tmp
+
+# build-aliases.mjs: what it could not join, was unsure of or dropped, for a human to read.
+tools/addr/aliases/build-report/

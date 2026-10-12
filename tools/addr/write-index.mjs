@@ -10,6 +10,11 @@
  * черга) also gets `lines: true` and `multiLine`, the number of such houses. The app requests `x/`
  * only where `lines` is set, so a region without it costs no extra request per street — and the
  * entry of a region without `x/` is exactly what it was before these files existed.
+ *
+ * The same goes for `aliases.json` (old and former names, tools/addr/aliases/): a region that has
+ * any gets `aliases: true` and `aliasKeys`, the number of entries across its files, and a region
+ * without one keeps the entry it had. The app asks for `aliases.json` only where `aliases` is set,
+ * and `"aliases": false` in index.json switches the feature off for a region without a release.
  */
 import { readdir, readFile, writeFile, stat } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
@@ -35,6 +40,23 @@ async function countLines(dir) {
 /** Adds the two fields only when there is something to say; otherwise the entry is untouched. */
 const withLines = (entry, { files, houses }) => (files ? { ...entry, lines: true, multiLine: houses } : entry);
 
+/** Same for aliases: `files` aliases.json files holding `keys` entries between them. */
+const withAliases = (entry, { files, keys }) => (files ? { ...entry, aliases: true, aliasKeys: keys } : entry);
+
+/** The `aliases.json` of a region: its own (and Kyiv's) and those under `c/<c>/`. */
+async function countAliases(dir) {
+  let files = 0, keys = 0;
+  const one = async (file) => {
+    const data = await readJSON(file).catch(() => null);
+    if (!data || !Array.isArray(data.a)) return;
+    files++;
+    keys += data.a.length;
+  };
+  await one(join(dir, 'aliases.json'));
+  for (const c of await readdir(join(dir, 'c')).catch(() => [])) await one(join(dir, 'c', c, 'aliases.json'));
+  return { files, keys };
+}
+
 async function countFlat(dir) {
   const streets = await readJSON(join(dir, 'streets.json'));
   let built = 0, addresses = 0;
@@ -44,7 +66,7 @@ async function countFlat(dir) {
     built++;
     addresses += Object.keys(await readJSON(f)).length;
   }
-  return withLines({ shape: 'flat', streets: streets.length, built, addresses }, await countLines(join(dir, 'x')));
+  return withAliases(withLines({ shape: 'flat', streets: streets.length, built, addresses }, await countLines(join(dir, 'x'))), await countAliases(dir));
 }
 
 async function countNested(dir) {
@@ -67,7 +89,7 @@ async function countNested(dir) {
     lines.files += city.files;
     lines.houses += city.houses;
   }
-  return withLines({ shape: 'nested', settlements: settlements.length, streets, built, addresses }, lines);
+  return withAliases(withLines({ shape: 'nested', settlements: settlements.length, streets, built, addresses }, lines), await countAliases(dir));
 }
 
 /** Every region under `addr`, keyed by its directory name. */
@@ -91,6 +113,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   for (const [r, v] of Object.entries(index)) {
     const done = v.streets ? Math.round((v.built / v.streets) * 100) : 0;
     const lines = v.lines ? `, ${v.multiLine} on several lines` : '';
-    console.log(`${r.padEnd(12)} ${v.shape.padEnd(7)} ${v.built}/${v.streets} streets (${done}%), ${v.addresses} addresses${lines}`);
+    const aliases = v.aliases ? `, ${v.aliasKeys} alias keys` : '';
+    console.log(`${r.padEnd(12)} ${v.shape.padEnd(7)} ${v.built}/${v.streets} streets (${done}%), ${v.addresses} addresses${lines}${aliases}`);
   }
 }
