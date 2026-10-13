@@ -23,13 +23,13 @@
  },
  "kyiv": {
   "shape": "flat",
-  "streets": 2670,
-  "built": 2670,
-  "addresses": 50206,
+  "streets": 2796,
+  "built": 2796,
+  "addresses": 53221,
   "lines": true,
-  "multiLine": 6208,
+  "multiLine": 1141,
   "aliases": true,
-  "aliasKeys": 1056
+  "aliasKeys": 1061
  },
  "kyiv-region": {
   "shape": "nested",
