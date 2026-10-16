@@ -1,14 +1,14 @@
 {
  "dnipro": {
   "shape": "nested",
-  "settlements": 1153,
-  "streets": 18304,
-  "built": 18304,
-  "addresses": 472195,
+  "settlements": 1168,
+  "streets": 18669,
+  "built": 18669,
+  "addresses": 475420,
   "lines": true,
-  "multiLine": 30190,
+  "multiLine": 31424,
   "aliases": true,
-  "aliasKeys": 2287
+  "aliasKeys": 2307
  },
  "khmelnytskyi": {
   "shape": "nested",
@@ -33,24 +33,24 @@
  },
  "kyiv-region": {
   "shape": "nested",
-  "settlements": 1191,
-  "streets": 25379,
-  "built": 25379,
-  "addresses": 628600,
+  "settlements": 1203,
+  "streets": 25893,
+  "built": 25893,
+  "addresses": 638298,
   "lines": true,
-  "multiLine": 27021,
+  "multiLine": 19205,
   "aliases": true,
-  "aliasKeys": 947
+  "aliasKeys": 948
  },
  "odesa": {
   "shape": "nested",
-  "settlements": 939,
-  "streets": 14311,
-  "built": 14311,
-  "addresses": 381863,
+  "settlements": 975,
+  "streets": 15384,
+  "built": 15384,
+  "addresses": 406095,
   "lines": true,
-  "multiLine": 13973,
+  "multiLine": 32726,
   "aliases": true,
-  "aliasKeys": 1019
+  "aliasKeys": 1061
  }
 }
