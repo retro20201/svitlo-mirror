@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const PORT = 9333;
+const PORT = Number(process.env.SVITLO_CHROME_PORT || 9333);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
