@@ -97,3 +97,22 @@ test('on the Kyiv server, only a region with nothing out waits for the slow turn
   // Off the Kyiv server, every region every time.
   assert.equal(readsThisCycle(region, quiet, { slowTurn: false }), true);
 });
+
+test('a region that asks to be read politely is not read again inside its interval, failing or not', () => {
+  const vinnytsia = { id: 'vinnytsia', minIntervalMinutes: 15 };
+  const now = Date.parse('2026-10-18T20:00:00Z');
+  const at = (minutesAgo) => new Date(now - minutesAgo * 60_000).toISOString();
+
+  // Failing (stale) would have it read every cycle: the interval comes first.
+  const failing = (minutesAgo) => ({ status: 'seasonal', stale: true, readAt: at(minutesAgo) });
+  assert.equal(readsThisCycle(vinnytsia, failing(2), { slowLane: true, now }), false);
+  assert.equal(readsThisCycle(vinnytsia, failing(14), { slowLane: true, now }), false);
+  assert.equal(readsThisCycle(vinnytsia, failing(15), { slowLane: true, now }), true);
+  // Also off the Kyiv server, where every other region is read every time.
+  assert.equal(readsThisCycle(vinnytsia, failing(5), { now }), false);
+  // With a schedule out, as well: the operator is asked no more often.
+  assert.equal(readsThisCycle(vinnytsia, { status: 'live', hasSchedule: true, readAt: at(3) }, { slowLane: true, now }), false);
+  // A row without the field (the first read after this shipped) is read, and so is any other region.
+  assert.equal(readsThisCycle(vinnytsia, { status: 'seasonal', stale: true }, { slowLane: true, now }), true);
+  assert.equal(readsThisCycle({ id: 'lviv' }, { status: 'live', hasSchedule: true, readAt: at(1) }, { slowLane: true, now }), true);
+});

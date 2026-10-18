@@ -107,6 +107,8 @@ async function main() {
       entries.set(region.id, previousRow);
       continue;
     }
+    // When this region was last asked, for `minIntervalMinutes` (lib/lanes.mjs).
+    entry.readAt = new Date().toISOString();
 
     const file = join(OUT_DIR, `${region.id}.json`);
     // What phones have now, for an adapter that must not drop a day just because one of its
