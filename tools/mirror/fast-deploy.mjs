@@ -116,10 +116,20 @@ export async function discard(call, prepared) {
   await call(`/${prepared.version}`, { method: 'DELETE' });
 }
 
-/** This cycle's region files as the site serves them: /v1/<name>.json, never the dictionaries. */
+/**
+ * This cycle's region files as the site serves them: /v1/<name>.json and the calendars
+ * /v1/ics/<region>/<queue>.ics (lib/ics.mjs), never the dictionaries.
+ */
 export async function regionFiles(dir = V1) {
   const names = (await readdir(dir)).filter((name) => /^[a-z0-9-]+\.json$/.test(name)).sort();
-  return Promise.all(names.map(async (name) => [`/v1/${name}`, await readFile(join(dir, name))]));
+  const files = await Promise.all(names.map(async (name) => [`/v1/${name}`, await readFile(join(dir, name))]));
+  let regions = [];
+  try { regions = (await readdir(join(dir, 'ics'))).filter((name) => /^[a-z0-9-]+$/.test(name)).sort(); } catch { /* none yet */ }
+  for (const region of regions) {
+    const calendars = (await readdir(join(dir, 'ics', region))).filter((name) => /^[A-Za-z0-9._-]+\.ics$/.test(name)).sort();
+    for (const name of calendars) files.push([`/v1/ics/${region}/${name}`, await readFile(join(dir, 'ics', region, name))]);
+  }
+  return files;
 }
 
 async function cli() {

@@ -72,10 +72,28 @@ test('discard deletes the clone', async () => {
   assert.deepEqual(calls, [['DELETE', `/${CLONE}`, undefined]]);
 });
 
-test('only the region files are released, never the address dictionaries', async () => {
+test('only the region files and the calendars are released, never the address dictionaries', async () => {
   const files = await regionFiles();
   assert.ok(files.length > 0);
-  assert.ok(files.every(([path]) => /^\/v1\/[a-z0-9-]+\.json$/.test(path)), files.map(([p]) => p).join(', '));
+  assert.ok(
+    files.every(([path]) => /^\/v1\/[a-z0-9-]+\.json$/.test(path) || /^\/v1\/ics\/[a-z0-9-]+\/[A-Za-z0-9._-]+\.ics$/.test(path)),
+    files.map(([p]) => p).join(', ')
+  );
+});
+
+test('the calendars of a region go out with its file, from a tree of their own', async () => {
+  const { mkdtemp, mkdir, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'v1-'));
+  await mkdir(join(dir, 'ics', 'kyiv'), { recursive: true });
+  await mkdir(join(dir, 'addr', 'kyiv'), { recursive: true });
+  await writeFile(join(dir, 'kyiv.json'), '{}');
+  await writeFile(join(dir, 'ics', 'kyiv', 'GPV3.1.ics'), 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n');
+  await writeFile(join(dir, 'ics', 'kyiv', 'notes.txt'), 'no');
+  await writeFile(join(dir, 'addr', 'kyiv', 'streets.json'), '[]');
+  const files = await regionFiles(dir);
+  assert.deepEqual(files.map(([path]) => path), ['/v1/kyiv.json', '/v1/ics/kyiv/GPV3.1.ics']);
 });
 
 test('on the Kyiv server, only a region with nothing out waits for the slow turn', () => {

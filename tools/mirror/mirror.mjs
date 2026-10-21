@@ -25,6 +25,7 @@ import { carriedParts } from './lib/carried.mjs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REGIONS, indexEntry } from './regions.mjs';
+import { writeCalendars } from './lib/ics.mjs';
 import { validate, hasSchedule, statusFor, kyivDayStart } from './lib/canonical.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -226,6 +227,15 @@ async function main() {
   if (only && previousIndex?.regions) {
     const before = new Map(previousIndex.regions.map((row) => [row.id, row]));
     merged = index.map((row) => (row.id === only ? row : before.get(row.id) ?? row));
+  }
+
+  // The same files as calendars people subscribe to (lib/ics.mjs), from what is on disk now — all of them
+  // every cycle, because a full deploy starts from this tree. Never allowed to stop the schedules going out.
+  try {
+    const written = await writeCalendars(OUT_DIR, REGIONS.filter((region) => region.source));
+    if (written) console.log(`[ics]   ${written} calendar file(s) written`);
+  } catch (error) {
+    console.warn(`[ics]   skipped: ${error.message}`);
   }
 
   const payload = { generatedAt: new Date().toISOString(), regions: merged };
