@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Додати чергу — Коли Світло</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <header><a class="logo" href="/">← Коли Світло</a></header>
+  <h1 id="title">Додати чергу в «Коли Світло»</h1>
+
+  <div class="card">
+    <p id="what" class="lead"></p>
+  </div>
+
+  <p><a class="button" id="open" href="#">Відкрити в застосунку</a></p>
+  <p id="hint"></p>
+  <p><a class="button" id="store" href="https://apps.apple.com/ua/app/id6806010572">Завантажити в App Store</a></p>
+
+  <footer>
+    <a href="/">Головна</a> · <a href="/privacy">Політика конфіденційності</a> · <a href="/support">Підтримка</a>
+  </footer>
+</main>
+<script>
+// The link in «Поділитися» opens this page: the app takes the queue (`svitlo://add`), and anyone
+// without the app is told which queue to choose. Only a region and a queue are in the address —
+// never a street, a name or anything about the person who sent it.
+(function () {
+  var texts = {
+    uk: { title: 'Додати чергу в «Коли Світло»', what: 'Вам поділилися чергою: ', open: 'Відкрити в застосунку', store: 'Завантажити в App Store',
+          hint: 'Ще немає застосунку? Завантажте його й оберіть: ', queue: 'Черга', group: 'Група', none: 'Відкрийте застосунок «Коли Світло» — графік відключень і таймер.' },
+    ru: { title: 'Добавить очередь в «Коли Світло»', what: 'Вам поделились очередью: ', open: 'Открыть в приложении', store: 'Скачать в App Store',
+          hint: 'Ещё нет приложения? Скачайте его и выберите: ', queue: 'Очередь', group: 'Группа', none: 'Откройте приложение «Коли Світло» — график отключений и таймер.' },
+    en: { title: 'Add a queue in Svitlo', what: 'A queue was shared with you: ', open: 'Open in the app', store: 'Get it on the App Store',
+          hint: 'Don’t have the app yet? Install it and choose: ', queue: 'Queue', group: 'Group', none: 'Open the Svitlo app — power outage schedule and timer.' }
+  };
+  var code = (navigator.language || 'uk').slice(0, 2);
+  var t = texts[code] || texts.uk;
+  document.documentElement.lang = texts[code] ? code : 'uk';
+  document.title = t.title;
+  document.getElementById('title').textContent = t.title;
+  document.getElementById('open').textContent = t.open;
+  document.getElementById('store').textContent = t.store;
+
+  var params = new URLSearchParams(location.search);
+  var region = params.get('region') || '';
+  var queue = params.get('queue') || '';
+  var valid = /^[A-Za-z0-9._-]{1,40}$/;
+  var what = document.getElementById('what');
+  var open = document.getElementById('open');
+  var hint = document.getElementById('hint');
+  if (!valid.test(region) || !valid.test(queue)) {
+    what.textContent = t.none;
+    open.href = 'svitlo://today';
+    hint.style.display = 'none';
+    return;
+  }
+  open.href = 'svitlo://add?region=' + encodeURIComponent(region) + '&queue=' + encodeURIComponent(queue);
+
+  function word(name) {
+    return name.replace(/^Черга /, t.queue + ' ').replace(/^Група /, t.group + ' ');
+  }
+  function show(regionTitle, queueTitle) {
+    var line = queueTitle + (regionTitle ? ' · ' + regionTitle : '');
+    what.textContent = t.what + line;
+    hint.textContent = t.hint + (regionTitle ? regionTitle + ' → ' : '') + queueTitle;
+  }
+  show('', queue.replace(/^GPV/, t.queue + ' '));
+  fetch('/v1/index.json').then(function (r) { return r.json(); }).then(function (index) {
+    var found = (index.regions || []).filter(function (r) { return r.id === region; })[0];
+    var regionTitle = found ? found.title : '';
+    return fetch('/v1/' + encodeURIComponent(region) + '.json').then(function (r) { return r.json(); }).then(function (data) {
+      var names = (data.preset && data.preset.sch_names) || {};
+      show(regionTitle, word(names[queue] || queue.replace(/^GPV/, 'Черга ')));
+    }, function () { show(regionTitle, word(queue.replace(/^GPV/, 'Черга '))); });
+  }).catch(function () {});
+}());
+</script>
+</body>
+</html>
