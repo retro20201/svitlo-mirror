@@ -33,12 +33,12 @@
 export const REGIONS = [
   // --- live: ДТЕК's DisconSchedule, the richest source we have (weekly preset + half-hours)
   // Its 60 groups are «N.1»; see sources/dtek.mjs `shape` for why the rest and an empty template go.
-  { id: 'kyiv',          title: 'Київ',                subtitle: 'місто',            operator: 'ДТЕК Київські електромережі',            source: 'dtek',     status: 'live',
+  { id: 'kyiv',          title: 'Київ',                subtitle: 'місто',            operator: 'ДТЕК Київські електромережі',            source: 'dtek', site: 'https://www.dtek-kem.com.ua/ua/shutdowns',     status: 'live',
     queuePattern: /^GPV\d+\.1$/, staysLive: true, yasno: { regionId: 25, dsoId: 902 } },
-  { id: 'kyiv-region',   title: 'Київська область',    subtitle: 'область',          operator: 'ДТЕК Київські регіональні електромережі', source: 'dtek',    status: 'live' },
-  { id: 'dnipro',        title: 'Дніпро',              subtitle: 'місто та область', operator: 'ДТЕК Дніпровські електромережі',          source: 'dtek',    status: 'live',
+  { id: 'kyiv-region',   title: 'Київська область',    subtitle: 'область',          operator: 'ДТЕК Київські регіональні електромережі', source: 'dtek', site: 'https://www.dtek-krem.com.ua/ua/shutdowns',    status: 'live' },
+  { id: 'dnipro',        title: 'Дніпро',              subtitle: 'місто та область', operator: 'ДТЕК Дніпровські електромережі',          source: 'dtek', site: 'https://www.dtek-dnem.com.ua/ua/shutdowns',    status: 'live',
     yasno: { regionId: 3, dsoId: 301 } },
-  { id: 'odesa',         title: 'Одеса',               subtitle: 'місто та область', operator: 'ДТЕК Одеські електромережі',              source: 'dtek',    status: 'live' },
+  { id: 'odesa',         title: 'Одеса',               subtitle: 'місто та область', operator: 'ДТЕК Одеські електромережі',              source: 'dtek', site: 'https://www.dtek-oem.com.ua/ua/shutdowns',    status: 'live' },
 
   // --- seasonal: the API answers, but out of season it returns queue names with no hours,
   //     so the app must not offer it as a working region until schedules come back
@@ -59,28 +59,28 @@ export const REGIONS = [
   { id: 'lviv',          title: 'Львівська область',   subtitle: 'область',          operator: 'ПрАТ «Львівобленерго»',        source: 'lviv', status: 'seasonal' },
   // Read from the operator's district Telegram channels, which carry the oblast-wide table verbatim.
   { id: 'kirovohrad',    title: 'Кіровоградська область', subtitle: 'область',       operator: 'АТ «Кіровоградобленерго»',     source: 'kirovohrad', status: 'seasonal' },
-  { id: 'zhytomyr',      title: 'Житомирська область', subtitle: 'область',          operator: 'АТ «Житомиробленерго»',        source: 'zhytomyr', status: 'seasonal', probe: 'https://www.ztoe.com.ua/' },
+  { id: 'zhytomyr',      title: 'Житомирська область', subtitle: 'область',          operator: 'АТ «Житомиробленерго»',        source: 'zhytomyr', site: 'https://www.ztoe.com.ua/', status: 'seasonal', probe: 'https://www.ztoe.com.ua/' },
   // Read off the picture the operator posts to @SumyEnergo — its site's own schedule comes from a
   // robots-disallowed /api/. See sources/sumy.mjs and lib/sumy-picture.mjs.
   { id: 'sumy',          title: 'Сумська область',     subtitle: 'область',          operator: 'АТ «Сумиобленерго»',           source: 'sumy', status: 'seasonal' },
-  { id: 'rivne',         title: 'Рівненська область',  subtitle: 'область',          operator: 'АТ «Рівнеобленерго»',          source: 'rivne', status: 'seasonal', probe: 'https://www.ez.rv.ua/grafiky-pogodynnyh-vidklyuchen/' },
+  { id: 'rivne',         title: 'Рівненська область',  subtitle: 'область',          operator: 'АТ «Рівнеобленерго»',          source: 'rivne', site: 'https://www.ez.rv.ua/', status: 'seasonal', probe: 'https://www.ez.rv.ua/grafiky-pogodynnyh-vidklyuchen/' },
 
   // The «403 to every automated request» was Cloudflare refusing non-Ukrainian addresses: from the
   // Kyiv server the operator's address search answers. One house per підчерга (sources/vinnytsia.mjs).
-  { id: 'vinnytsia',     title: 'Вінницька область',   subtitle: 'область',          operator: 'АТ «Вінницяобленерго»',                   source: 'vinnytsia', status: 'seasonal', minIntervalMinutes: 15 },
+  { id: 'vinnytsia',     title: 'Вінницька область',   subtitle: 'область',          operator: 'АТ «Вінницяобленерго»',                   source: 'vinnytsia', site: 'https://www.voe.com.ua/', status: 'seasonal', minIntervalMinutes: 15 },
   // energy.volyn.ua answers only Ukrainian IPs, but its schedule is an iframe of the operator's
   // «poweron» service, whose API hands out the day's picture — read by colour, see sources/volyn.mjs.
-  { id: 'volyn',         title: 'Волинська область',   subtitle: 'область',          operator: 'ПрАТ «Волиньобленерго»',                  source: 'volyn', status: 'seasonal' },
+  { id: 'volyn',         title: 'Волинська область',   subtitle: 'область',          operator: 'ПрАТ «Волиньобленерго»',                  source: 'volyn', site: 'https://energy.volyn.ua/', status: 'seasonal' },
   // Day-ahead from be-svitlo.oe.if.ua, the open API behind the operator's own svitlo.oe.if.ua —
   // checked 2026-10-01: CloudFront, robots.txt `Allow: /`, no Cloudflare challenge any more.
   // /uk/shutdowns_table on oe.if.ua stays untouched (its robots.txt disallows it). Out of season the
   // API answers `[]`, so the region reports itself seasonal until today or tomorrow is published.
-  { id: 'ivano-frankivsk', title: 'Івано-Франківська область', subtitle: 'область',  operator: 'АТ «Прикарпаттяобленерго»',               source: 'ivano-frankivsk', status: 'seasonal' },
+  { id: 'ivano-frankivsk', title: 'Івано-Франківська область', subtitle: 'область',  operator: 'АТ «Прикарпаттяобленерго»',               source: 'ivano-frankivsk', site: 'https://oe.if.ua/', status: 'seasonal' },
   { id: 'ternopil',      title: 'Тернопільська область', subtitle: 'область',        operator: 'АТ «Тернопільобленерго»',                 source: 'ternopil', status: 'seasonal' },
   { id: 'kharkiv',       title: 'Харківська область',  subtitle: 'область',          operator: 'АТ «Харківобленерго»',                    source: 'kharkiv', status: 'seasonal' },
   // «Blocked» was Cloudflare refusing non-Ukrainian addresses. The operator's own «Група 1–12»,
   // not national підчерги (sources/chernivtsi.mjs).
-  { id: 'chernivtsi',    title: 'Чернівецька область', subtitle: 'область',          operator: 'АТ «Чернівціобленерго»',                  source: 'chernivtsi', status: 'seasonal' },
+  { id: 'chernivtsi',    title: 'Чернівецька область', subtitle: 'область',          operator: 'АТ «Чернівціобленерго»',                  source: 'chernivtsi', site: 'https://oblenergo.cv.ua/', status: 'seasonal' },
   // The tables and free-text amendments the operator posts to @chernigivoblenergo; its website
   // bans an address for fetching robots.txt and is not touched.
   { id: 'chernihiv',     title: 'Чернігівська область', subtitle: 'область',         operator: 'АТ «Чернігівобленерго»',                  source: 'chernihiv', status: 'seasonal' },
@@ -88,12 +88,12 @@ export const REGIONS = [
   { id: 'zakarpattia',   title: 'Закарпатська область', subtitle: 'область',         operator: 'АТ «Закарпаттяобленерго»',                source: 'zakarpattia', status: 'seasonal' },
 
   // --- noFeed: nothing machine-readable to parse
-  { id: 'khmelnytskyi',  title: 'Хмельницька область', subtitle: 'область',          operator: 'АТ «Хмельницькобленерго»',                source: 'khmelnytskyi', status: 'seasonal' , note: 'оператор публікує графік лише зображенням' },
+  { id: 'khmelnytskyi',  title: 'Хмельницька область', subtitle: 'область',          operator: 'АТ «Хмельницькобленерго»',                source: 'khmelnytskyi', site: 'https://hoe.com.ua/', status: 'seasonal' , note: 'оператор публікує графік лише зображенням' },
   { id: 'cherkasy',      title: 'Черкаська область',   subtitle: 'область',          operator: 'АТ «Черкасиобленерго»',                   source: 'cherkasy', status: 'seasonal' },
-  { id: 'zaporizhzhia',  title: 'Запорізька область',  subtitle: 'область',          operator: 'АТ «Запоріжжяобленерго»',                 source: 'zaporizhzhia', status: 'seasonal' },
+  { id: 'zaporizhzhia',  title: 'Запорізька область',  subtitle: 'область',          operator: 'АТ «Запоріжжяобленерго»',                 source: 'zaporizhzhia', site: 'https://www.zoe.com.ua/', status: 'seasonal' },
   // The table the old note denied exists: poe.pl.ua's own widget fetches it (sources/poltava.mjs).
   // The site refuses non-Ukrainian addresses, so it only ever arrives from the Kyiv server.
-  { id: 'poltava',       title: 'Полтавська область',  subtitle: 'область',          operator: 'АТ «Полтаваобленерго»',                   source: 'poltava', status: 'seasonal' },
+  { id: 'poltava',       title: 'Полтавська область',  subtitle: 'область',          operator: 'АТ «Полтаваобленерго»',                   source: 'poltava', site: 'https://www.poe.pl.ua/', status: 'seasonal' },
   // Checked 2026-10-01 from a Kyiv IP: the operator's whole «Відключення» section has answered 200
   // with an empty body since December 2023, winter 2025–26 included, and neither its channel nor
   // the ОВА's has ever carried an hourly table by черга. Outages there follow the shelling.
@@ -138,5 +138,8 @@ export function indexEntry(region) {
   if (region.note) entry.note = region.note;
   // Shipped builds decode named keys only, so the field is invisible to them.
   if (hasEmergencySignal(region)) entry.emergencySignal = true;
+  // Where the person can ask the operator about an outage that is not in the schedule. Only the
+  // operators whose own site we already read; a build that does not know the key skips it.
+  if (region.site) entry.operatorSite = region.site;
   return entry;
 }

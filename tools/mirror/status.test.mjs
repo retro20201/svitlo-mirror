@@ -83,7 +83,7 @@ test('only Київ and Дніпро tell the app they carry an emergency signal
   assert.deepEqual(flagged, ['kyiv', 'dnipro']);
   assert.ok(REGIONS.every((region) => ['kyiv', 'dnipro'].includes(region.id) || !('emergencySignal' in indexEntry(region))));
   assert.deepEqual(Object.keys(indexEntry(REGIONS.find((region) => region.id === 'kyiv'))),
-    ['id', 'title', 'subtitle', 'operator', 'status', 'emergencySignal']);
+    ['id', 'title', 'subtitle', 'operator', 'status', 'emergencySignal', 'operatorSite']);
   assert.deepEqual(Object.keys(indexEntry(REGIONS.find((region) => region.id === 'mykolaiv'))),
     ['id', 'title', 'subtitle', 'operator', 'status', 'note']);
 });
@@ -102,4 +102,20 @@ test('quiet days are written only when there are any, and must be day epochs', a
     broken.fact.quiet = bad;
     assert.equal(validate(broken).length, 1, JSON.stringify(bad));
   }
+});
+
+test('a region names its operator\'s site only when we know it, and always over https', async () => {
+  const { REGIONS, indexEntry } = await import('./regions.mjs');
+  const named = REGIONS.map(indexEntry).filter((entry) => 'operatorSite' in entry);
+  assert.ok(named.length >= 10, 'the regions people write from are covered');
+  for (const entry of named) {
+    const url = new URL(entry.operatorSite);
+    assert.equal(url.protocol, 'https:', entry.id);
+    assert.ok(!url.search && !url.hash, `${entry.id}: a plain page, no tracking`);
+  }
+  // The four ДТЕК regions open the page that looks an address up; ЖОЕ opens its front page.
+  const byId = Object.fromEntries(named.map((entry) => [entry.id, entry.operatorSite]));
+  assert.match(byId.kyiv, /dtek-kem\.com\.ua\/ua\/shutdowns$/);
+  assert.equal(byId.zhytomyr, 'https://www.ztoe.com.ua/');
+  assert.equal('operatorSite' in indexEntry(REGIONS.find((region) => region.id === 'mykolaiv')), false);
 });
