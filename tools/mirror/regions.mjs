@@ -35,7 +35,9 @@ export const REGIONS = [
   // Its 60 groups are «N.1»; see sources/dtek.mjs `shape` for why the rest and an empty template go.
   { id: 'kyiv',          title: 'Київ',                subtitle: 'місто',            operator: 'ДТЕК Київські електромережі',            source: 'dtek', site: 'https://www.dtek-kem.com.ua/ua/shutdowns',     status: 'live',
     queuePattern: /^GPV\d+\.1$/, staysLive: true, yasno: { regionId: 25, dsoId: 902 } },
-  { id: 'kyiv-region',   title: 'Київська область',    subtitle: 'область',          operator: 'ДТЕК Київські регіональні електромережі', source: 'dtek', site: 'https://www.dtek-krem.com.ua/ua/shutdowns',    status: 'live' },
+  { id: 'kyiv-region',   title: 'Київська область',    subtitle: 'область',          operator: 'ДТЕК Київські регіональні електромережі', source: 'dtek', site: 'https://www.dtek-krem.com.ua/ua/shutdowns',    status: 'live',
+    // YASNO has nothing for the oblast: ДТЕК's own channel announces each order of Укренерго (lib/dtek-emergency.mjs).
+    emergencyTelegram: { area: 'oblast' } },
   { id: 'dnipro',        title: 'Дніпро',              subtitle: 'місто та область', operator: 'ДТЕК Дніпровські електромережі',          source: 'dtek', site: 'https://www.dtek-dnem.com.ua/ua/shutdowns',    status: 'live',
     yasno: { regionId: 3, dsoId: 301 } },
   { id: 'odesa',         title: 'Одеса',               subtitle: 'місто та область', operator: 'ДТЕК Одеські електромережі',              source: 'dtek', site: 'https://www.dtek-oem.com.ua/ua/shutdowns',    status: 'live' },
@@ -123,7 +125,7 @@ export function regionById(id) {
  * to base «Аварійні відключення» on, and the app offers that switch only where this is true.
  */
 export function hasEmergencySignal(region) {
-  return Boolean(region?.yasno);
+  return Boolean(region?.yasno || region?.emergencyTelegram);
 }
 
 /** A region's row in `index.json`, before a read adds what it found. */
