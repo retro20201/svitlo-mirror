@@ -61,7 +61,9 @@ export const REGIONS = [
   { id: 'lviv',          title: 'Львівська область',   subtitle: 'область',          operator: 'ПрАТ «Львівобленерго»',        source: 'lviv', status: 'seasonal' },
   // Read from the operator's district Telegram channels, which carry the oblast-wide table verbatim.
   { id: 'kirovohrad',    title: 'Кіровоградська область', subtitle: 'область',       operator: 'АТ «Кіровоградобленерго»',     source: 'kirovohrad', status: 'seasonal' },
-  { id: 'zhytomyr',      title: 'Житомирська область', subtitle: 'область',          operator: 'АТ «Житомиробленерго»',        source: 'zhytomyr', site: 'https://www.ztoe.com.ua/', status: 'seasonal', probe: 'https://www.ztoe.com.ua/' },
+  { id: 'zhytomyr',      title: 'Житомирська область', subtitle: 'область',          operator: 'АТ «Житомиробленерго»',        source: 'zhytomyr', site: 'https://www.ztoe.com.ua/', status: 'seasonal', probe: 'https://www.ztoe.com.ua/',
+    // Its channel says «зміни у ГПВ» before its table does (lib/operator-changes.mjs).
+    changesTelegram: { channel: 'ztoe_ua' } },
   // Read off the picture the operator posts to @SumyEnergo — its site's own schedule comes from a
   // robots-disallowed /api/. See sources/sumy.mjs and lib/sumy-picture.mjs.
   { id: 'sumy',          title: 'Сумська область',     subtitle: 'область',          operator: 'АТ «Сумиобленерго»',           source: 'sumy', status: 'seasonal' },
