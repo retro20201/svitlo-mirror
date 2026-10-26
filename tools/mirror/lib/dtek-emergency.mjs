@@ -24,7 +24,9 @@ export const MAX_AGE_MS = 12 * 3600 * 1000;
 /** The preview page holds ~16 posts, two or three days; anything older is not looked at. */
 const LOOKBACK_MS = 36 * 3600 * 1000;
 
-const APPLIED = /(?:застосован|запроваджен)\S*\s+екстрен\S*\s+відключен/iu;
+// «застосовані / запроваджено екстрені відключення» (an order of Укренерго), «діють екстрені відключення» (after an
+// attack, in the districts a post names: «Через пошкодження на магістральних мережах … діють екстрені відключення»).
+const APPLIED = /(?:(?:застосован|запроваджен)\S*\s+|діють\s+)екстрен\S*\s+відключен/iu;
 const ENDED = [
   /екстрен\S*\s+відключен\S*\s+скасован/iu,
   /скасован\S*\s+екстрен\S*\s+відключен/iu,

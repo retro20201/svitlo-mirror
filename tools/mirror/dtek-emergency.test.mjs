@@ -74,3 +74,21 @@ test('an empty page, and a post with no time, say nothing', () => {
   assert.deepEqual(readEmergency([], { now: at('2026-10-24T08:00:00Z') }), { active: false, since: null, note: null });
   assert.equal(readEmergency([{ id: 1, postedAt: undefined, text: '‼️Київщина: застосовані екстрені відключення' }], { now: at('2026-10-24T08:00:00Z') }).active, false);
 });
+
+test('«діють екстрені відключення» after an attack is an order too, with its districts', () => {
+  const posts = [post(82, '2026-10-30T09:29:00Z', '💡Київщина: 170 000 родин знову зі світлом після масованої атаки\n\nЧерез пошкодження на магістральних мережах в частині Бучанського і Фастівського районах області діють екстрені відключення.\n\nЕнергетики працюють в посиленому режимі.')];
+  const now = readEmergency(posts, { now: at('2026-10-30T10:00:00Z') });
+  assert.equal(now.active, true);
+  const ended = [...posts, post(83, '2026-10-30T14:00:00Z', '💡Київщина: повертаємось до графіків відключень')];
+  assert.equal(readEmergency(ended, { now: at('2026-10-30T15:00:00Z') }).active, false);
+});
+
+test('a morning of schedules and a war memorial are not orders (26 October 2026)', () => {
+  const posts = [
+    post(4690, '2026-10-26T05:32:00Z', '‼️Дніпропетровщина: графіки відключень на 26 жовтня'),
+    post(4694, '2026-10-26T18:27:00Z', '🕯️Ще одна непоправна втрата в родині ДТЕК — росія вбила нашого колегу'),
+    post(4695, '2026-10-26T18:43:00Z', '‼️Київщина: графіки відключень на 27 жовтня\n\n▪️У разі змін одразу повідомимо в нашому Telegram-каналі.')
+  ];
+  assert.equal(readEmergency(posts, { now: at('2026-10-26T08:12:00Z') }).active, false);
+  assert.equal(readEmergency(posts, { now: at('2026-10-26T19:00:00Z') }).active, false);
+});
