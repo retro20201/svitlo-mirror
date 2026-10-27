@@ -1,5 +1,6 @@
 import { getText } from '../lib/http.mjs';
 import { buildSnapshot, hourStateFromHalves, kyivDayStart, queueNames, NATIONAL_QUEUES } from '../lib/canonical.mjs';
+import { withPendingChange } from '../lib/operator-changes.mjs';
 
 /**
  * АТ «Житомиробленерго» — the queue×half-hour grid rendered straight into their own page.
@@ -111,7 +112,7 @@ export function parseSchedulePage(html) {
 export async function fetchRegion(region) {
   const { queues, fact, update } = parseSchedulePage(await getText(PAGE));
 
-  return buildSnapshot({
+  const snapshot = buildSnapshot({
     regionId: region.id,
     title: region.title,
     queues,
@@ -120,4 +121,6 @@ export async function fetchRegion(region) {
     update,
     source: 'zhytomyr'
   });
+  // The operator announces changes on its channel before its table has them (lib/operator-changes.mjs).
+  return region.changesTelegram ? withPendingChange(snapshot, region) : snapshot;
 }

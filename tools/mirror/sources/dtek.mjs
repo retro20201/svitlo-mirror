@@ -1,5 +1,7 @@
 import { getJSON, getText } from '../lib/http.mjs';
-import { validate } from '../lib/canonical.mjs';
+import { validate, kyivDayStart } from '../lib/canonical.mjs';
+import { markCarried } from '../lib/carried.mjs';
+import { readEmergencyFromChannel } from '../lib/dtek-emergency.mjs';
 import { combine, fetchYasno } from './yasno.mjs';
 
 /**
@@ -97,9 +99,38 @@ async function fetchUpstream(region) {
  * so GitHub keeps reading the region whole.
  */
 export async function fetchRegion(region) {
+  if (region.emergencyTelegram) return withChannelEmergency(await fetchUpstream(region), region);
   if (!region.yasno) return fetchUpstream(region);
   const [upstream, yasno] = await Promise.allSettled([fetchUpstream(region), fetchYasno(region)]);
   return settle(upstream, yasno, region);
+}
+
+/**
+ * A region YASNO does not carry (Київщина) learns of an order of Укренерго from ДТЕК's channel
+ * (lib/dtek-emergency.mjs): `fact.emergency` is today while it is on, and `fact.emergencyNote` the districts
+ * the post named, in its words — only for apps that learn to show it. When the channel does not answer, the
+ * warning phones already have stays, marked as carried: it is what they have, not a second look.
+ */
+export async function withChannelEmergency(
+  snapshot, region, { read = readEmergencyFromChannel, now = new Date(), log = (line) => console.log(`[dtek-emergency] ${line}`) } = {}
+) {
+  let reading = null;
+  try {
+    reading = await read({ area: region.emergencyTelegram?.area ?? 'oblast', now });
+  } catch (error) {
+    log(`${region.id}: channel failed: ${error.message}`);
+  }
+  const { emergency, emergencyNote, ...rest } = snapshot.fact ?? {};
+  if (!reading) {
+    const today = kyivDayStart(now);
+    const held = (region.previous?.fact?.emergency ?? []).map(Number).filter((day) => day >= today);
+    if (!held.length) return { ...snapshot, fact: rest };
+    const note = region.previous?.fact?.emergencyNote;
+    return markCarried({ ...snapshot, fact: { ...rest, emergency: held, ...(note ? { emergencyNote: note } : {}) } }, ['emergency']);
+  }
+  if (!reading.active) return { ...snapshot, fact: rest };
+  log(`${region.id}: emergency since ${reading.since}${reading.note ? ` (${reading.note})` : ''}`);
+  return { ...snapshot, fact: { ...rest, emergency: [kyivDayStart(now)], ...(reading.note ? { emergencyNote: reading.note } : {}) } };
 }
 
 export function settle(upstream, yasno, region, log = (line) => console.log(`[yasno] ${line}`)) {
