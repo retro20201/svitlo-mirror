@@ -55,8 +55,15 @@ export function parseFragment(html, date) {
     throw new Error(`fragment for ${date} is dated ${named[1]} ${named[2]} ${named[3]}`);
   }
 
-  // The operator's own stamp under the fragment, "16 листопада 2025 19:34".
-  const update = [...text.matchAll(/<div style="text-align: end;[^"]*">([^<]+)<\/div>/g)].at(-1)?.[1].trim() ?? null;
+  // The operator's own stamp under the fragment, "16 листопада 2025 19:34" — since the 27th of October 2026
+  // «Оновлено: 27 жовтня 2026 09:35», of which the label is not part.
+  const update = [...text.matchAll(/<div style="text-align: end;[^"]*">([^<]+)<\/div>/g)].at(-1)?.[1]
+    .replace(/^\s*Оновлено:?\s*/u, '').trim() || null;
+
+  // The page the operator put up on 27 October 2026: the same twelve rows, each cell now carrying its own
+  // time and meaning in `title`, and the old `light_N` classes gone (Влад's letter: the app stopped seeing
+  // changes). Tried first, so a return to the old page needs nothing.
+  if (/class="gpv-c /.test(text)) return { halves: halvesFromGpvTable(text, date), update };
 
   const table = text.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/);
   if (!table) {
@@ -91,6 +98,33 @@ export function parseFragment(html, date) {
     throw new Error(`the ${date} table names ${Object.keys(halves).join(', ')}`);
   }
   return { halves, update };
+}
+
+const GPV_STATES = { 1: 'on', 2: 'off', 3: 'possible' };
+
+/**
+ * The 2026 grid: `<td class="gpv-c gpv-s2 …" title="4.2: 00:00–00:30 — «Вимкнено», електроенергія відсутня">`, a
+ * row per підчерга, 48 cells. The title says which cell it is, so a grid whose cells come in another order, or
+ * miss one, is refused rather than shifted by a half-hour.
+ */
+function halvesFromGpvTable(text, date) {
+  const halves = {};
+  for (const [, attrs, queue, from] of text.matchAll(/<td class="gpv-c ([^"]*)" title="(\d\.\d): (\d\d:\d\d)–/g)) {
+    const state = GPV_STATES[attrs.match(/\bgpv-s(\d)\b/)?.[1]];
+    if (!state) throw new Error(`unknown cell class "${attrs}" in the ${date} table`);
+    const slots = (halves[`GPV${queue}`] ??= []);
+    const [hour, minute] = from.split(':').map(Number);
+    if (hour * 2 + minute / 30 !== slots.length) throw new Error(`cell ${from} of ${queue} is out of order in the ${date} table`);
+    slots.push(state);
+  }
+  for (const [key, slots] of Object.entries(halves)) {
+    if (slots.length !== 48) throw new Error(`${key} has ${slots.length} cells in the ${date} table`);
+  }
+  const expected = NATIONAL_QUEUES.map((label) => `GPV${label}`);
+  if (Object.keys(halves).sort().join() !== expected.join()) {
+    throw new Error(`the ${date} table names ${Object.keys(halves).join(', ')}`);
+  }
+  return halves;
 }
 
 /**
