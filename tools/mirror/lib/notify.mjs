@@ -163,3 +163,29 @@ export function retryAfterMs(value, now = Date.now()) {
   const at = Date.parse(value);
   return Number.isFinite(at) ? Math.max(0, at - now) : null;
 }
+
+/**
+ * A message to the person who runs the mirror — to the topic `dev_alerts`, which a phone joins by opening
+ * `svitlo://dev-alerts?on=1` (the app's `OutageSharedStore.notifiesDeveloper`). Nothing in it is secret: a region and
+ * how long it has not been read.
+ */
+export const DEVELOPER_TOPIC = 'dev_alerts';
+
+export async function notifyDeveloper({ title, body }, { credentialsPath, dryRun = false } = {}) {
+  if (dryRun || !credentialsPath) {
+    console.log(`[health] would send «${title}» — ${body}`);
+    return { sent: false };
+  }
+  const result = await sendFcm({
+    message: {
+      topic: DEVELOPER_TOPIC,
+      apns: {
+        headers: { 'apns-priority': '10', 'apns-push-type': 'alert' },
+        payload: { aps: { alert: { title, body }, sound: 'default' } }
+      }
+    }
+  }, { credentialsPath });
+  if (!result.ok) throw new Error(`FCM ${result.status}: ${result.body}`);
+  console.log(`[health] sent «${title}»`);
+  return { sent: true };
+}
