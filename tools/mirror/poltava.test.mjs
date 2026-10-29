@@ -167,3 +167,41 @@ test('a grid that misses a cell, or has them out of order, is refused rather tha
 test('a fragment of another day than asked is still refused with the new grid', () => {
   assert.throws(() => parseFragment(NEW_GRID, '28-10-2026'), /dated 27/);
 });
+
+// 29 October 2026, from 19:43: the answer for a day carries the next day's block behind its own, and read as
+// one grid (1152 cells) it failed the whole region — tomorrow's table, out on the site, never reached the app.
+const twoDays = (() => {
+  const first = NEW_GRID;
+  const target = parseFragment(first, '27-10-2026').halves['GPV1.1'][0] === 'off' ? 'gpv-s1' : 'gpv-s2';
+  const second = first
+    .replace('27 жовтня 2026 року', '28 жовтня 2026 року')
+    .replace('Оновлено: 27 жовтня 2026 09:35', 'Оновлено: 28 жовтня 2026 19:43')
+    .replace(/(<td class="gpv-c [^"]*?)gpv-s\d([^"]*" title="1\.1: 00:00–)/, `$1${target}$2`);
+  return { first, second };
+})();
+
+test('an answer that carries the next day after its own is read for the day asked for', () => {
+  const both = twoDays.first + twoDays.second;
+  const today = parseFragment(both, '27-10-2026');
+  const tomorrow = parseFragment(both, '28-10-2026');
+  assert.deepEqual(today.halves, parseFragment(twoDays.first, '27-10-2026').halves);
+  assert.equal(today.update, '27 жовтня 2026 09:35', 'the stamp is its own block\'s');
+  assert.deepEqual(tomorrow.halves, parseFragment(twoDays.second, '28-10-2026').halves);
+  assert.equal(tomorrow.update, '28 жовтня 2026 19:43');
+  assert.notEqual(today.halves['GPV1.1'][0], tomorrow.halves['GPV1.1'][0], 'the blocks are told apart');
+});
+
+test('an answer with two blocks and none for the day asked for is refused by the date, as before', () => {
+  assert.throws(() => parseFragment(twoDays.first + twoDays.second, '29-10-2026'), /dated 27 жовтня 2026/);
+});
+
+test('both days are published when today\'s answer brings tomorrow\'s block along', async () => {
+  const both = twoDays.first + twoDays.second;
+  const now = new Date('2026-10-27T20:00:00+03:00');
+  const { snapshot, asked } = await offlineRun((date) => (date === '27-10-2026' ? both : twoDays.second), now);
+  assert.deepEqual(asked, ['27-10-2026', '28-10-2026']);
+  const days = Object.keys(snapshot.fact.data);
+  assert.equal(days.length, 2);
+  assert.equal(snapshot.fact.update, '28 жовтня 2026 19:43');
+  assert.deepEqual(validate(snapshot), []);
+});
