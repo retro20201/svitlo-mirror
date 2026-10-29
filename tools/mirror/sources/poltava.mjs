@@ -39,16 +39,38 @@ export function kyivDate(now, offset = 0) {
   return `${day}-${month}-${year}`;
 }
 
+const HEADING = /<b[^>]*>\s*(\d{1,2})\s+([\p{L}]+)\s+(\d{4})\s+року\s*<\/b>/u;
+
+/**
+ * The part of the answer that is for `date`. From 19:43 on 29 October 2026 the answer for a day carries the next
+ * day's block after its own — «29-10» came back with the 29th and then the 30th, 1152 cells of two grids — and
+ * the whole answer read as one grid was «cell 00:00 of 1.1 is out of order»: the region failed from the moment
+ * tomorrow was published, and tomorrow never reached the app. A block is one `gpvinfodetail`; an answer with
+ * one of them (every page before this) is returned whole.
+ */
+function blockFor(text, date) {
+  const marks = [...text.matchAll(/<div class="gpvinfodetail"[^>]*>/g)].map((match) => match.index);
+  if (marks.length < 2) return text;
+  const blocks = marks.map((start, index) => text.slice(start, marks[index + 1] ?? text.length));
+  const [day, month, year] = date.split('-').map(Number);
+  const named = blocks.find((block) => {
+    const heading = block.match(HEADING);
+    return heading && +heading[1] === day && MONTHS.get(heading[2].toLowerCase()) === month && +heading[3] === year;
+  });
+  // None is for this day: the first, which the date check below refuses with its own message.
+  return named ?? blocks[0];
+}
+
 /**
  * One day's fragment → `{ halves, update }`, `{ quiet: true, update }`, or `null` when nothing is
  * published yet. Anything else throws: a fragment this parser does not recognise is a changed
  * page, and a guessed schedule is worse than a region marked as broken.
  */
 export function parseFragment(html, date) {
-  const text = html.trim();
+  const text = blockFor(html.trim(), date);
   if (!text) return null;
 
-  const named = text.match(/<b[^>]*>\s*(\d{1,2})\s+([\p{L}]+)\s+(\d{4})\s+року\s*<\/b>/u);
+  const named = text.match(HEADING);
   if (!named) throw new Error(`no date in the fragment for ${date}`);
   const [day, month, year] = date.split('-').map(Number);
   if (+named[1] !== day || MONTHS.get(named[2].toLowerCase()) !== month || +named[3] !== year) {
