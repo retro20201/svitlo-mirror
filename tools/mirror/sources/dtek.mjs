@@ -99,10 +99,13 @@ async function fetchUpstream(region) {
  * so GitHub keeps reading the region whole.
  */
 export async function fetchRegion(region) {
-  if (region.emergencyTelegram) return withChannelEmergency(await fetchUpstream(region), region);
+  if (region.emergencyTelegram && !region.yasno) return withChannelEmergency(await fetchUpstream(region), region);
   if (!region.yasno) return fetchUpstream(region);
   const [upstream, yasno] = await Promise.allSettled([fetchUpstream(region), fetchYasno(region)]);
-  return settle(upstream, yasno, region);
+  const settled = settle(upstream, yasno, region);
+  // Київ: YASNO marks an order of Укренерго when it gets to it, ДТЕК's channel when it makes it — an hour and
+  // a quarter apart on 29 October 2026 (the post at 08:45, YASNO's feed still empty at 10:02).
+  return region.emergencyTelegram ? withChannelEmergency(settled, region) : settled;
 }
 
 /**
@@ -119,6 +122,15 @@ export async function withChannelEmergency(
     reading = await read({ area: region.emergencyTelegram?.area ?? 'oblast', now });
   } catch (error) {
     log(`${region.id}: channel failed: ${error.message}`);
+  }
+  // A region YASNO also carries has its own `emergency` already: the channel only adds to it. A channel that is
+  // silent, or says nothing is on, leaves YASNO's word as it was — it never takes one back.
+  if (region.yasno) {
+    if (!reading?.active) return snapshot;
+    log(`${region.id}: emergency since ${reading.since}${reading.note ? ` (${reading.note})` : ''}`);
+    const days = [...new Set([...(snapshot.fact?.emergency ?? []).map(Number), kyivDayStart(now)])].sort((a, b) => a - b);
+    const note = snapshot.fact?.emergencyNote ?? reading.note;
+    return { ...snapshot, fact: { ...snapshot.fact, emergency: days, ...(note ? { emergencyNote: note } : {}) } };
   }
   const { emergency, emergencyNote, ...rest } = snapshot.fact ?? {};
   if (!reading) {

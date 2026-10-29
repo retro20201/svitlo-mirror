@@ -81,7 +81,19 @@ export function readEmergency(posts, { now = new Date(), area = 'oblast' } = {})
   return fresh ? { active: true, since: state.at, note: state.note } : { active: false, since: null, note: null };
 }
 
+// Київ and Київщина both read the one page: a cycle asks for it once, not per region.
+const PAGE_TTL_MS = 60 * 1000;
+const pages = new Map();
+function pageOf(channel) {
+  const held = pages.get(channel);
+  if (held && Date.now() - held.at < PAGE_TTL_MS) return held.posts;
+  const posts = fetchChannel(channel);
+  pages.set(channel, { at: Date.now(), posts });
+  posts.catch(() => { if (pages.get(channel)?.posts === posts) pages.delete(channel); });
+  return posts;
+}
+
 /** The channel's last page, read for `area`. Throws when it cannot be fetched. */
 export async function readEmergencyFromChannel({ channel = CHANNEL, area = 'oblast', now = new Date() } = {}) {
-  return readEmergency(await fetchChannel(channel), { now, area });
+  return readEmergency(await pageOf(channel), { now, area });
 }

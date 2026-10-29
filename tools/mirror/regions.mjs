@@ -34,7 +34,9 @@ export const REGIONS = [
   // --- live: ДТЕК's DisconSchedule, the richest source we have (weekly preset + half-hours)
   // Its 60 groups are «N.1»; see sources/dtek.mjs `shape` for why the rest and an empty template go.
   { id: 'kyiv',          title: 'Київ',                subtitle: 'місто',            operator: 'ДТЕК Київські електромережі',            source: 'dtek', site: 'https://www.dtek-kem.com.ua/ua/shutdowns',     status: 'live',
-    queuePattern: /^GPV\d+\.1$/, staysLive: true, yasno: { regionId: 25, dsoId: 902 } },
+    queuePattern: /^GPV\d+\.1$/, staysLive: true, yasno: { regionId: 25, dsoId: 902 },
+    // YASNO's `EmergencyShutdowns` comes late: ДТЕК's channel announces each order of Укренерго first (lib/dtek-emergency.mjs).
+    emergencyTelegram: { area: 'city' } },
   { id: 'kyiv-region',   title: 'Київська область',    subtitle: 'область',          operator: 'ДТЕК Київські регіональні електромережі', source: 'dtek', site: 'https://www.dtek-krem.com.ua/ua/shutdowns',    status: 'live',
     // YASNO has nothing for the oblast: ДТЕК's own channel announces each order of Укренерго (lib/dtek-emergency.mjs).
     emergencyTelegram: { area: 'oblast' } },
