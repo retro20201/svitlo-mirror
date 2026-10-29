@@ -126,3 +126,44 @@ test('days of outages and days not yet published leave the file without a quiet 
   assert.equal('quiet' in nothing.snapshot.fact, false);
   assert.deepEqual(nothing.snapshot.fact.data, []);
 });
+
+// The page the operator put up on 27 October 2026, fetched from Kyiv the same morning (09:35): the grid is
+// the same twelve rows × 48 half-hours, but each cell says what it is in `title` and the `light_N` classes
+// are gone. The app stopped seeing changes until this was read (Влад's letter, 27 October).
+const NEW_GRID = readFileSync(new URL('./poltava.fixture-2026-10-27.html', import.meta.url), 'utf8');
+
+test('the grid of 27 October 2026 is read: twelve subqueues, the label off the stamp', () => {
+  const { halves, update } = parseFragment(NEW_GRID, '27-10-2026');
+  assert.equal(Object.keys(halves).length, 12);
+  assert.ok(Object.values(halves).every((slots) => slots.length === 48));
+  assert.equal(update, '27 жовтня 2026 09:35');
+});
+
+test('a cell of the new grid means what its class says, in the order its title gives', () => {
+  const { halves } = parseFragment(NEW_GRID, '27-10-2026');
+  // 4.2 on that day: dark 06:00–07:00, the yellow half after it, dark 11:00–12:30, yellow, dark 17:00–18:30, yellow, dark 23:30–24:00.
+  const row = halves['GPV4.2'].map((state) => ({ on: '.', off: '#', possible: 'm' })[state]).join('');
+  assert.equal(row, '............##m........###m........###m........#');
+  assert.equal(halves['GPV4.2'][12], 'off', '06:00');
+  assert.equal(halves['GPV4.2'][47], 'off', '23:30–24:00');
+});
+
+test('the new grid goes through the same rules: the yellow half after a cut is the light coming back', () => {
+  const hours = hoursFromHalves(parseFragment(NEW_GRID, '27-10-2026').halves);
+  assert.equal(hours['GPV4.2']['7'], 'no', '06:00–07:00');
+  assert.equal(hours['GPV4.2']['8'], 'yes', 'the yellow half does not stretch the cut');
+  assert.equal(validate({ regionId: 'poltava', preset: { sch_names: { a: 'a' }, time_zone: Object.fromEntries(Array.from({ length: 24 }, (_, i) => [i + 1, ['', '', '']])), data: {} }, fact: { data: { [kyivDayStart(new Date('2026-10-27T10:00:00Z'))]: hours } } }).length, 0);
+});
+
+test('a grid that misses a cell, or has them out of order, is refused rather than shifted', () => {
+  const short = NEW_GRID.replace(/<td class="gpv-c [^"]*" title="1\.1: 00:30–01:00[^"]*"><\/td>/, '');
+  assert.notEqual(short, NEW_GRID);
+  assert.throws(() => parseFragment(short, '27-10-2026'), /out of order|cells/);
+  const odd = NEW_GRID.replace(/gpv-s1( gpv-h)? gpv-past" title="2\.1: 00:00/, 'gpv-s9$1 gpv-past" title="2.1: 00:00');
+  assert.notEqual(odd, NEW_GRID);
+  assert.throws(() => parseFragment(odd, '27-10-2026'), /unknown cell class/);
+});
+
+test('a fragment of another day than asked is still refused with the new grid', () => {
+  assert.throws(() => parseFragment(NEW_GRID, '28-10-2026'), /dated 27/);
+});
