@@ -21,9 +21,6 @@ export const CHANNEL = 'dtek_ua';
 /** An announcement older than this with nothing to end it is not believed any more: a post that was
  *  never edited and never followed would otherwise warn for the rest of the day. */
 export const MAX_AGE_MS = 12 * 3600 * 1000;
-/** An accident ends with a post less often than an order does («знову зі світлом» is said for a city, seldom for an
- *  oblast's districts), and its warning would stay up after the repair: shorter, and the next post renews it. */
-export const ACCIDENT_MAX_AGE_MS = 8 * 3600 * 1000;
 /** The preview page holds ~16 posts, two or three days; anything older is not looked at. */
 const LOOKBACK_MS = 36 * 3600 * 1000;
 
@@ -91,15 +88,14 @@ export function readEmergency(posts, { now = new Date(), area = 'oblast' } = {})
     const text = post.text ?? '';
     if (!wanted.test(headOf(text))) continue;
     const ended = ENDED.some((pattern) => pattern.test(text));
-    const order = APPLIED.test(text);
-    if (order || ACCIDENT.some((pattern) => pattern.test(text))) {
+    if (APPLIED.test(text) || ACCIDENT.some((pattern) => pattern.test(text))) {
       // Edited in place with «UPD: … скасовані»: the same post that announced it ends it.
-      state = ended ? null : { at: post.postedAt, note: districtsOf(text), accident: !order };
+      state = ended ? null : { at: post.postedAt, note: districtsOf(text) };
     } else if (ended || RESTORED.test(text)) {
       state = null;
     }
   }
-  const fresh = state && now.getTime() - Date.parse(state.at) <= (state.accident ? ACCIDENT_MAX_AGE_MS : MAX_AGE_MS);
+  const fresh = state && now.getTime() - Date.parse(state.at) <= MAX_AGE_MS;
   return fresh ? { active: true, since: state.at, note: state.note } : { active: false, since: null, note: null };
 }
 

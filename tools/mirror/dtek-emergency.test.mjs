@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readEmergency, MAX_AGE_MS, ACCIDENT_MAX_AGE_MS } from './lib/dtek-emergency.mjs';
+import { readEmergency, MAX_AGE_MS } from './lib/dtek-emergency.mjs';
 
 // The posts of @dtek_ua of 22–25 October 2026, in the words the channel used (shortened after the first line).
 const post = (id, postedAt, text) => ({ id, postedAt, text });
@@ -177,14 +177,14 @@ test('Дніпро and its oblast are read for area «dnipro», and not for Ки
     'в місті Дніпрі, прилеглих до обласного центру районах');
 });
 
-test('an accident nobody followed is believed for eight hours, an order for twelve', () => {
-  const accident = ACCIDENTS.oblastDistricts;
+// An accident after an attack can last the night and the morning with no post to end it: on 31 October 2026 a person in
+// Київ wrote at 09:48 that the power was off, eleven hours after «Графіки відключень в цих районах наразі не діють».
+test('an accident nobody followed is believed for twelve hours, as an order is, and a later post renews it', () => {
+  const accident = post(4724, '2026-10-30T20:39:53+00:00',
+    '‼️Київ: ворог атакував обʼєкт енергетики, частина Оболонського, Дарницького, Деснянського та Подільського районів без світла\n\nГрафіки відключень в цих районах наразі не діють.');
   const from = Date.parse(accident.postedAt);
-  assert.equal(readEmergency([accident], { now: new Date(from + ACCIDENT_MAX_AGE_MS - 60000) }).active, true);
-  assert.equal(readEmergency([accident], { now: new Date(from + ACCIDENT_MAX_AGE_MS + 60000) }).active, false);
-  const order = post(3, '2026-10-30T07:26:39+00:00', '‼️Київщина: за командою Укренерго застосовані екстрені відключення');
-  assert.equal(readEmergency([order], { now: new Date(from + ACCIDENT_MAX_AGE_MS + 60000) }).active, true);
-  // A later post renews it.
-  const renewed = [accident, post(8, '2026-10-30T14:00:00+00:00', 'Київщина: аварія на обладнані, графіки наразі не діють в Бучанському районі')];
-  assert.equal(readEmergency(renewed, { now: new Date(from + ACCIDENT_MAX_AGE_MS + 3600 * 1000) }).active, true);
+  assert.equal(readEmergency([accident], { now: new Date(from + 11 * 3600 * 1000), area: 'city' }).active, true, 'the letter, 07:48 UTC');
+  assert.equal(readEmergency([accident], { now: new Date(from + MAX_AGE_MS + 60000), area: 'city' }).active, false);
+  const renewed = [accident, post(8, '2026-10-31T06:00:00+00:00', 'Київ: аварія на обладнані, графіки наразі не діють у Подільському районі')];
+  assert.equal(readEmergency(renewed, { now: new Date(from + MAX_AGE_MS + 3600 * 1000), area: 'city' }).active, true);
 });
