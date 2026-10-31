@@ -92,3 +92,99 @@ test('a morning of schedules and a war memorial are not orders (26 October 2026)
   assert.equal(readEmergency(posts, { now: at('2026-10-26T08:12:00Z') }).active, false);
   assert.equal(readEmergency(posts, { now: at('2026-10-26T19:00:00Z') }).active, false);
 });
+
+// The posts of @dtek_ua of 14 – 30 October 2026, as the channel wrote them — the announcements that are not «екстрені
+// відключення за командою Укренерго» and the ones that were passed. A person in Київська область wrote on 30 October at
+// 14:44 that there had been no power all day; the channel had said at 09:26 that schedules did not hold in three of its
+// districts, and the app had no warning.
+const ACCIDENTS = {
+  oblastDistricts: post(4718, '2026-10-30T07:26:39+00:00',
+    'Київщина: аварія на пошкодженому обстрілами обладнані, графіки тимчасово не діють в Обухівському, Фастівському та Бучанському районах\n\nЕнергетики працюють на місцях. ▪️В разі змін будемо вас інформувати.'),
+  rightBank: post(4717, '2026-10-30T07:05:42+00:00',
+    '‼️Правий берег Києва: аварія на пошкодженому обстрілами обладнані, графіки тимчасово не діють\n\nЕнергетики працюють на місцях. На лівому березі столиці діють графіки.'),
+  cityDistrict: post(4658, '2026-10-21T05:42:00+00:00',
+    '‼️Київ: через атаку ворога у Святошинському районі фіксуються аварійні відключення\n\nЕнергетики вже працюють. В інших районах столиці діють графіки.'),
+  blackout: post(4619, '2026-10-14T10:12:39+00:00',
+    '‼️Правий берег Києва: частина домівок залишилась без світла через аварію\n\nГрафіки відключень в столиці наразі не діють. Енергетики вже працюють.'),
+  stabilisation: post(4618, '2026-10-14T04:23:48+00:00',
+    '‼️Київ: атака ворога призвела до аварійних відключень в Дарницькому, Дніпровському та Печерському районах столиці\n\nСтабілізаційні графіки в цих районах тимчасово не діють.'),
+  back: post(4670, '2026-10-22T12:02:23+00:00',
+    '‼️Київ: 35 500 родин знову зі світлом після обстрілів\n\nЕнергетикам вдалося повернути електрику для мешканців Голосіївського району після аварії, яка відбулась через обстріли. По всій столиці діють графіки відключень.'),
+  holosiivo: post(4668, '2026-10-22T09:23:40+00:00',
+    '‼️Київ: через атаку на енергооб\'єкти в частині Голосіївського району графіки тимчасово не діють. Фіксуються аварії.\n\nЕнергетики вже працюють.'),
+  applying: post(4637, '2026-10-16T08:42:22+00:00',
+    '‼️Київська область: в Бучанському, Обухівському, Фастівському районах за командою Укренерго застосовуються екстрені відключення\n\nНагадаємо, під час екстрених відключень графіки не діють.'),
+  buchaOnly: post(4648, '2026-10-18T07:35:06+00:00',
+    '‼️Київщина, Бучанський район: за розпорядженням Укренерго застосовуються екстрені відключення.\n\nНагадаємо, під час екстрених відключень графіки не діють.'),
+  dnipro: post(4716, '2026-10-30T05:38:02+00:00',
+    '‼️Дніпропетровщина: за командою Укренерго застосовані екстрені відключення в місті Дніпрі, прилеглих до обласного центру районах та в частині Павлоградського району\n\nВ області серйозно пошкоджено обладнання.'),
+  dniproCity: post(4721, '2026-10-30T16:05:15+00:00',
+    '‼️Дніпро та Дніпропетровський район: за командою Укренерго застосовані екстрені відключення\n\nЕнергетики працюють другу добу. Нагадаємо, під час екстрених відключень графіки не діють.')
+};
+
+test('«аварія … графіки тимчасово не діють» is an announcement for the oblast, with the districts it names', () => {
+  const during = readEmergency([ACCIDENTS.oblastDistricts], { now: at('2026-10-30T11:44:00Z') });
+  assert.equal(during.active, true, 'the letter was written at 14:44 Kyiv time');
+  assert.equal(during.since, '2026-10-30T07:26:39+00:00');
+  assert.equal(during.note, 'в Обухівському, Фастівському та Бучанському районах');
+  assert.equal(readEmergency([ACCIDENTS.oblastDistricts], { now: at('2026-10-30T11:44:00Z'), area: 'city' }).active, false);
+});
+
+test('«Правий берег Києва» is Київ, and «наразі не діють» and «тимчасово не діють» both count', () => {
+  for (const key of ['rightBank', 'blackout', 'holosiivo', 'stabilisation']) {
+    const reading = readEmergency([ACCIDENTS[key]], { now: new Date(Date.parse(ACCIDENTS[key].postedAt) + 3600 * 1000), area: 'city' });
+    assert.equal(reading.active, true, key);
+    assert.equal(readEmergency([ACCIDENTS[key]], { now: new Date(Date.parse(ACCIDENTS[key].postedAt) + 3600 * 1000) }).active, false, `${key}: not for the oblast`);
+  }
+});
+
+test('the districts of an accident are told whether they come before the announcement or after it', () => {
+  const note = (key, area) => readEmergency([ACCIDENTS[key]], { now: new Date(Date.parse(ACCIDENTS[key].postedAt) + 3600 * 1000), area }).note;
+  assert.equal(note('cityDistrict', 'city'), 'у Святошинському районі');
+  assert.equal(note('holosiivo', 'city'), 'в частині Голосіївського району');
+  assert.equal(note('rightBank', 'city'), null, 'a bank of the river is not a district');
+});
+
+test('«знову зі світлом» ends an accident, but not an order that the same post still announces', () => {
+  const accident = ACCIDENTS.holosiivo;
+  const after = readEmergency([accident, ACCIDENTS.back], { now: at('2026-10-22T12:30:00Z'), area: 'city' });
+  assert.equal(after.active, false);
+  const both = post(7, '2026-10-22T13:00:00+00:00',
+    '💡Київщина: 170 000 родин знову зі світлом після масованої атаки\n\nЧерез пошкодження на магістральних мережах в частині Бучанського і Фастівського районів діють екстрені відключення.');
+  assert.equal(readEmergency([both], { now: at('2026-10-22T13:30:00Z') }).active, true);
+});
+
+test('«застосовуються екстрені відключення» is an order, as «застосовані» is', () => {
+  assert.equal(readEmergency([ACCIDENTS.applying], { now: at('2026-10-16T09:00:00Z') }).active, true);
+  assert.equal(readEmergency([ACCIDENTS.applying], { now: at('2026-10-16T09:00:00Z') }).note, 'в Бучанському, Обухівському, Фастівському районах');
+  assert.equal(readEmergency([ACCIDENTS.buchaOnly], { now: at('2026-10-18T08:00:00Z') }).active, true);
+});
+
+test('the reminder under an order, and a daily schedule post that repeats it, are still no announcement', () => {
+  const daily = post(5, '2026-10-30T08:00:00Z', '‼️Київщина: графіки відключень на 31 жовтня\n\nУ разі змін повідомимо. Нагадаємо, під час екстрених відключень графіки не діють.');
+  assert.equal(readEmergency([daily], { now: at('2026-10-30T09:00:00Z') }).active, false);
+  const explainer = post(6, '2026-10-30T08:10:00Z', 'Аварії, стабілізаційні та екстрені відключення: у чому різниця?\n\nПояснюємо простими словами');
+  assert.equal(readEmergency([explainer], { now: at('2026-10-30T09:00:00Z'), area: 'city' }).active, false);
+});
+
+test('Дніпро and its oblast are read for area «dnipro», and not for Київ or Київщина', () => {
+  for (const key of ['dnipro', 'dniproCity']) {
+    const reading = readEmergency([ACCIDENTS[key]], { now: new Date(Date.parse(ACCIDENTS[key].postedAt) + 3600 * 1000), area: 'dnipro' });
+    assert.equal(reading.active, true, key);
+    assert.equal(readEmergency([ACCIDENTS[key]], { now: new Date(Date.parse(ACCIDENTS[key].postedAt) + 3600 * 1000) }).active, false, `${key}: not Київщина`);
+  }
+  assert.equal(readEmergency([ACCIDENTS.dnipro], { now: at('2026-10-30T06:30:00Z'), area: 'dnipro' }).note,
+    'в місті Дніпрі, прилеглих до обласного центру районах');
+});
+
+// An accident after an attack can last the night and the morning with no post to end it: on 31 October 2026 a person in
+// Київ wrote at 09:48 that the power was off, eleven hours after «Графіки відключень в цих районах наразі не діють».
+test('an accident nobody followed is believed for twelve hours, as an order is, and a later post renews it', () => {
+  const accident = post(4724, '2026-10-30T20:39:53+00:00',
+    '‼️Київ: ворог атакував обʼєкт енергетики, частина Оболонського, Дарницького, Деснянського та Подільського районів без світла\n\nГрафіки відключень в цих районах наразі не діють.');
+  const from = Date.parse(accident.postedAt);
+  assert.equal(readEmergency([accident], { now: new Date(from + 11 * 3600 * 1000), area: 'city' }).active, true, 'the letter, 07:48 UTC');
+  assert.equal(readEmergency([accident], { now: new Date(from + MAX_AGE_MS + 60000), area: 'city' }).active, false);
+  const renewed = [accident, post(8, '2026-10-31T06:00:00+00:00', 'Київ: аварія на обладнані, графіки наразі не діють у Подільському районі')];
+  assert.equal(readEmergency(renewed, { now: new Date(from + MAX_AGE_MS + 3600 * 1000), area: 'city' }).active, true);
+});

@@ -41,7 +41,8 @@ export const REGIONS = [
     // YASNO has nothing for the oblast: ДТЕК's own channel announces each order of Укренерго (lib/dtek-emergency.mjs).
     emergencyTelegram: { area: 'oblast' } },
   { id: 'dnipro',        title: 'Дніпро',              subtitle: 'місто та область', operator: 'ДТЕК Дніпровські електромережі',          source: 'dtek', site: 'https://www.dtek-dnem.com.ua/ua/shutdowns',    status: 'live',
-    yasno: { regionId: 3, dsoId: 301 } },
+    // YASNO marks the days; the channel names the districts and comes first (lib/dtek-emergency.mjs, area 'dnipro').
+    yasno: { regionId: 3, dsoId: 301 }, emergencyTelegram: { area: 'dnipro' } },
   { id: 'odesa',         title: 'Одеса',               subtitle: 'місто та область', operator: 'ДТЕК Одеські електромережі',              source: 'dtek', site: 'https://www.dtek-oem.com.ua/ua/shutdowns',    status: 'live' },
 
   // --- seasonal: the API answers, but out of season it returns queue names with no hours,
