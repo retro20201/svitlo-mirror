@@ -207,3 +207,17 @@ Multi-site Hosting needs the Blaze plan. Once on it:
 Step 5 is an App Store release, so do it in the same version that ships address lookup rather than
 switching hosts under a shipped build.
 
+
+## Regions whose operator answers an address itself
+
+`v1/addr/operators.json` is a list of region ids — today `["mykolaiv"]`. АТ «Миколаївобленерго» publishes its
+address chain as a JSON API (`off.energy.mk.ua/api/addr/filii → ns → street → dom → outage-queue`, robots.txt
+allows everything): the queue is asked **house by house**, so nothing is harvested here, and the app's phone asks
+for the one building it needs when someone sets an address up (`MykolaivAddressLookup.swift`). The file only
+switches the feature on: take the id out and the app stops offering «за адресою» for the region, with no release.
+It is a file of its own, not an entry of `index.json`, because an older app that found the region there would
+offer a search it has no dictionary for.
+
+What the operator's answer holds (3 November 2026): the ГПВ підчерга 1.1–6.2 of most houses, with the ГАВ and
+СГАВ numbers beside it; some villages have only СГАВ and no ГПВ (Дмитрівка, Березанська дільниця), some houses
+answer nothing (Дмитрівка, Очаківська дільниця). The app says so for such a house and does not guess.
