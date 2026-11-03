@@ -96,7 +96,9 @@ export const REGIONS = [
 
   // --- noFeed: nothing machine-readable to parse
   { id: 'khmelnytskyi',  title: 'Хмельницька область', subtitle: 'область',          operator: 'АТ «Хмельницькобленерго»',                source: 'khmelnytskyi', site: 'https://hoe.com.ua/', status: 'seasonal' , note: 'оператор публікує графік лише зображенням' },
-  { id: 'cherkasy',      title: 'Черкаська область',   subtitle: 'область',          operator: 'АТ «Черкасиобленерго»',                   source: 'cherkasy', status: 'seasonal' },
+  { id: 'cherkasy',      title: 'Черкаська область',   subtitle: 'область',          operator: 'АТ «Черкасиобленерго»',                   source: 'cherkasy', status: 'seasonal',
+    // The operator's own channel announces «графіки аварійних відключень (ГАВ)» (lib/dtek-emergency.mjs, area 'own').
+    emergencyTelegram: { area: 'own' } },
   { id: 'zaporizhzhia',  title: 'Запорізька область',  subtitle: 'область',          operator: 'АТ «Запоріжжяобленерго»',                 source: 'zaporizhzhia', site: 'https://www.zoe.com.ua/', status: 'seasonal' },
   // The table the old note denied exists: poe.pl.ua's own widget fetches it (sources/poltava.mjs).
   // The site refuses non-Ukrainian addresses, so it only ever arrives from the Kyiv server.
