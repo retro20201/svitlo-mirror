@@ -52,7 +52,9 @@ function headOf(text) {
   return colon > 0 ? line.slice(0, colon) : line;
 }
 
-const OBLAST = /київщин|київськ\S*\s+област/iu;
+// «Київщина», «Київська область», and the list the channel wrote on 3 November 2026 for an order over three regions at once:
+// «Київ, Київська та Дніпропетровська область» — a word or two between «Київська» and «область».
+const OBLAST = /київщин|київськ\S*(?:\s+\S+){0,3}?\s+област/iu;
 // «Київ», and the city as the channel declines it: «Правий берег Києва».
 const CITY = /(?<![\p{L}])(?:київ|києв\p{L}*)(?![\p{L}])/iu;
 const DNIPRO = /дніпр/iu;

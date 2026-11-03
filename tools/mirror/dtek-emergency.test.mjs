@@ -188,3 +188,16 @@ test('an accident nobody followed is believed for twelve hours, as an order is, 
   const renewed = [accident, post(8, '2026-10-31T06:00:00+00:00', 'Київ: аварія на обладнані, графіки наразі не діють у Подільському районі')];
   assert.equal(readEmergency(renewed, { now: new Date(from + MAX_AGE_MS + 3600 * 1000), area: 'city' }).active, true);
 });
+
+test('«Київ, Київська та Дніпропетровська область» is an order for Київ, Київщина and Дніпро alike (3 November 2026)', () => {
+  const posts = [post(4750, '2026-11-03T05:18:25+00:00',
+    '‼️Київ, Київська та Дніпропетровська область: за командою Укренерго запроваджені екстрені відключення\n\nНагадаємо, під час екстрених відключень графіки не діють.')];
+  const now = at('2026-11-03T08:40:00Z');
+  for (const area of ['city', 'oblast', 'dnipro']) {
+    const reading = readEmergency(posts, { now, area });
+    assert.equal(reading.active, true, area);
+    assert.equal(reading.since, '2026-11-03T05:18:25+00:00', area);
+  }
+  const other = [post(4751, '2026-11-03T05:18:25+00:00', '‼️Одеська та Харківська область: за командою Укренерго запроваджені екстрені відключення')];
+  assert.equal(readEmergency(other, { now, area: 'oblast' }).active, false, 'other oblasts do not make Київщина');
+});
