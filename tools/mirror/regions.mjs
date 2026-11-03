@@ -86,6 +86,8 @@ export const REGIONS = [
   { id: 'ivano-frankivsk', title: 'Івано-Франківська область', subtitle: 'область',  operator: 'АТ «Прикарпаттяобленерго»',               source: 'ivano-frankivsk', site: 'https://oe.if.ua/', status: 'seasonal' },
   { id: 'ternopil',      title: 'Тернопільська область', subtitle: 'область',        operator: 'АТ «Тернопільобленерго»',                 source: 'ternopil', status: 'seasonal' },
   { id: 'kharkiv',       title: 'Харківська область',  subtitle: 'область',          operator: 'АТ «Харківобленерго»',                    source: 'kharkiv', status: 'seasonal',
+    // «Години відсутності електропостачання … з урахуванням часу на перемикання (орієнтовно)» (@kharkivenergy, 30–31 October 2026).
+    includesSwitching: true,
     // «У Харківській області введено графіки аварійних відключень» on its own channel (lib/dtek-emergency.mjs, area 'own').
     emergencyTelegram: { area: 'own' } },
   // «Blocked» was Cloudflare refusing non-Ukrainian addresses. The operator's own «Група 1–12»,
@@ -102,7 +104,9 @@ export const REGIONS = [
   { id: 'cherkasy',      title: 'Черкаська область',   subtitle: 'область',          operator: 'АТ «Черкасиобленерго»',                   source: 'cherkasy', status: 'seasonal',
     // The operator's own channel announces «графіки аварійних відключень (ГАВ)» (lib/dtek-emergency.mjs, area 'own').
     emergencyTelegram: { area: 'own' } },
-  { id: 'zaporizhzhia',  title: 'Запорізька область',  subtitle: 'область',          operator: 'АТ «Запоріжжяобленерго»',                 source: 'zaporizhzhia', site: 'https://www.zoe.com.ua/', status: 'seasonal' },
+  { id: 'zaporizhzhia',  title: 'Запорізька область',  subtitle: 'область',          operator: 'АТ «Запоріжжяобленерго»',                 source: 'zaporizhzhia', site: 'https://www.zoe.com.ua/', status: 'seasonal',
+    // «Години відсутності електропостачання … (з урахуванням 30 хвилин на перемикання)» on every table (@Zaporizhzhyaoblenergo_news).
+    includesSwitching: true },
   // The table the old note denied exists: poe.pl.ua's own widget fetches it (sources/poltava.mjs).
   // The site refuses non-Ukrainian addresses, so it only ever arrives from the Kyiv server.
   { id: 'poltava',       title: 'Полтавська область',  subtitle: 'область',          operator: 'АТ «Полтаваобленерго»',                   source: 'poltava', site: 'https://www.poe.pl.ua/', status: 'seasonal' },
@@ -153,5 +157,8 @@ export function indexEntry(region) {
   // Where the person can ask the operator about an outage that is not in the schedule. Only the
   // operators whose own site we already read; a build that does not know the key skips it.
   if (region.site) entry.operatorSite = region.site;
+  // The operator's hours already hold time for switching, so power can be back before they end (a person in Запоріжжя,
+  // 3 November 2026: «дали на пів години раніше»). The app says so under the schedule; a build that does not know the key skips it.
+  if (region.includesSwitching) entry.includesSwitching = true;
   return entry;
 }
