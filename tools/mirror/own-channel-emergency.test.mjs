@@ -65,3 +65,15 @@ test('Житомир and Харків put today in fact.emergency and ask their 
     assert.deepEqual(result.fact.data, snapshot.fact.data, id);
   }
 });
+
+test('Житомирщина, 3 November: a post edited with «UPD: … скасовано» is over, and «знову запроваджено» starts it again', () => {
+  const edited = post(1872, '2026-11-03T08:53:02+00:00',
+    'UPD: Аварійні відключення на Житомирщині скасовано\n\n❗️ Увага! Аварійні відключення електроенергії\n🗓️ 3 листопада 2026\n\n📣 За розпорядженням Укренерго на Житомирщині запроваджено аварійні відключення електроенергії (ГАВ)');
+  const again = post(1873, '2026-11-03T12:50:38+00:00',
+    '❗️ Увага!\n🗓️ 3 листопада 2026\n\n📣 За розпорядженням Укренерго на Житомирщині знову запроваджено аварійні відключення електроенергії (ГАВ)\n\n📌З метою безпеки і захисту Ваших пристроїв вимкніть з розеток чутливе до стрибків напруги обладнання!');
+  assert.equal(own([edited], '2026-11-03T10:00:00Z').active, false, 'the announcement the same post took back');
+  assert.equal(own([edited, again], '2026-11-03T12:00:00Z').active, false, 'before the second');
+  const second = own([edited, again], '2026-11-03T13:58:00Z');
+  assert.equal(second.active, true);
+  assert.equal(second.since, '2026-11-03T12:50:38+00:00');
+});
