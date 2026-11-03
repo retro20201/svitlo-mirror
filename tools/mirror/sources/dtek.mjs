@@ -119,7 +119,7 @@ export async function withChannelEmergency(
 ) {
   let reading = null;
   try {
-    reading = await read({ area: region.emergencyTelegram?.area ?? 'oblast', now });
+    reading = await read({ area: region.emergencyTelegram?.area ?? 'oblast', now, channel: region.emergencyTelegram?.channel });
   } catch (error) {
     log(`${region.id}: channel failed: ${error.message}`);
   }

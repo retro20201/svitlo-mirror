@@ -65,8 +65,9 @@ export const REGIONS = [
   // Read from the operator's district Telegram channels, which carry the oblast-wide table verbatim.
   { id: 'kirovohrad',    title: 'Кіровоградська область', subtitle: 'область',       operator: 'АТ «Кіровоградобленерго»',     source: 'kirovohrad', status: 'seasonal' },
   { id: 'zhytomyr',      title: 'Житомирська область', subtitle: 'область',          operator: 'АТ «Житомиробленерго»',        source: 'zhytomyr', site: 'https://www.ztoe.com.ua/', status: 'seasonal', probe: 'https://www.ztoe.com.ua/',
-    // Its channel says «зміни у ГПВ» before its table does (lib/operator-changes.mjs).
-    changesTelegram: { channel: 'ztoe_ua' } },
+    // Its channel says «зміни у ГПВ» before its table does (lib/operator-changes.mjs), and «запроваджено аварійні
+    // відключення (ГАВ)» when Укренерго orders them (lib/dtek-emergency.mjs, area 'own').
+    changesTelegram: { channel: 'ztoe_ua' }, emergencyTelegram: { area: 'own', channel: 'ztoe_ua' } },
   // Read off the picture the operator posts to @SumyEnergo — its site's own schedule comes from a
   // robots-disallowed /api/. See sources/sumy.mjs and lib/sumy-picture.mjs.
   { id: 'sumy',          title: 'Сумська область',     subtitle: 'область',          operator: 'АТ «Сумиобленерго»',           source: 'sumy', status: 'seasonal' },
@@ -84,7 +85,9 @@ export const REGIONS = [
   // API answers `[]`, so the region reports itself seasonal until today or tomorrow is published.
   { id: 'ivano-frankivsk', title: 'Івано-Франківська область', subtitle: 'область',  operator: 'АТ «Прикарпаттяобленерго»',               source: 'ivano-frankivsk', site: 'https://oe.if.ua/', status: 'seasonal' },
   { id: 'ternopil',      title: 'Тернопільська область', subtitle: 'область',        operator: 'АТ «Тернопільобленерго»',                 source: 'ternopil', status: 'seasonal' },
-  { id: 'kharkiv',       title: 'Харківська область',  subtitle: 'область',          operator: 'АТ «Харківобленерго»',                    source: 'kharkiv', status: 'seasonal' },
+  { id: 'kharkiv',       title: 'Харківська область',  subtitle: 'область',          operator: 'АТ «Харківобленерго»',                    source: 'kharkiv', status: 'seasonal',
+    // «У Харківській області введено графіки аварійних відключень» on its own channel (lib/dtek-emergency.mjs, area 'own').
+    emergencyTelegram: { area: 'own' } },
   // «Blocked» was Cloudflare refusing non-Ukrainian addresses. The operator's own «Група 1–12»,
   // not national підчерги (sources/chernivtsi.mjs).
   { id: 'chernivtsi',    title: 'Чернівецька область', subtitle: 'область',          operator: 'АТ «Чернівціобленерго»',                  source: 'chernivtsi', site: 'https://oblenergo.cv.ua/', status: 'seasonal' },

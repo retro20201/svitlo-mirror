@@ -42,7 +42,8 @@ const ENDED = [
   /екстрен\S*\s+відключен\S*\s+скасован/iu,
   /скасован\S*\s+екстрен\S*\s+відключен/iu,
   // The oblenergo channels that say «графіки аварійних відключень (ГАВ)» end them in the same words (none seen yet).
-  /аварійн\S*\s+відключен\S*\s+(?:\([^)]*\)\s+)?(?:скасован|припинен)/iu,
+  // «Аварійні відключення на Житомирщині скасовано»: a few words may stand between.
+  /аварійн\S*\s+відключен\S*(?:\s+\S+){0,4}?\s+(?:скасован|припинен)/iu,
   /(?:скасован|припинен)\S*\s+(?:графік\S*\s+)?аварійн/iu,
   /(?<![\p{L}])ГАВ\s+(?:скасован|припинен)/iu,
   /повертаєм\S*\s+до\s+графік/iu,
@@ -65,6 +66,9 @@ const DNIPRO = /дніпр/iu;
 // «Черкасиобленерго» writes «по Черкаській області застосовані графіки аварійних відключень (ГАВ)» to its own subscribers:
 // nothing in the post needs to name a place a channel of its own is not about.
 const EVERY_POST = /^/u;
+// Every channel of an operator also carries the long «У мене пропало світло поза графіком» explainer and the ministry's
+// briefings, which talk of «аварійні відключення» from their 1200th character on. An announcement says it at the top.
+const OWN_HEAD_CHARS = 400;
 
 /** The districts a post lists, as it writes them: «у Білоцерківському, Бучанському … районах». */
 function districtsOf(text) {
@@ -94,7 +98,7 @@ export function readEmergency(posts, { now = new Date(), area = 'oblast' } = {})
 
   let state = null;
   for (const post of ordered) {
-    const text = post.text ?? '';
+    const text = area === 'own' ? (post.text ?? '').slice(0, OWN_HEAD_CHARS) : (post.text ?? '');
     if (!wanted.test(headOf(text))) continue;
     const ended = ENDED.some((pattern) => pattern.test(text));
     if (APPLIED.test(text) || ACCIDENT.some((pattern) => pattern.test(text))) {
@@ -111,7 +115,7 @@ export function readEmergency(posts, { now = new Date(), area = 'oblast' } = {})
 // Київ and Київщина both read the one page: a cycle asks for it once, not per region.
 const PAGE_TTL_MS = 60 * 1000;
 const pages = new Map();
-function pageOf(channel) {
+export function pageOf(channel) {
   const held = pages.get(channel);
   if (held && Date.now() - held.at < PAGE_TTL_MS) return held.posts;
   const posts = fetchChannel(channel);
@@ -119,6 +123,9 @@ function pageOf(channel) {
   posts.catch(() => { if (pages.get(channel)?.posts === posts) pages.delete(channel); });
   return posts;
 }
+
+/** A reader over posts an adapter already has, for `withChannelEmergency`: the channel is not asked twice. */
+export const readerOf = (posts) => async ({ area = 'own', now = new Date() } = {}) => readEmergency(posts, { area, now });
 
 /** The channel's last page, read for `area`. Throws when it cannot be fetched. */
 export async function readEmergencyFromChannel({ channel = CHANNEL, area = 'oblast', now = new Date() } = {}) {

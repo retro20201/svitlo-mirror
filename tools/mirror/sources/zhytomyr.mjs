@@ -1,6 +1,7 @@
 import { getText } from '../lib/http.mjs';
 import { buildSnapshot, hourStateFromHalves, kyivDayStart, queueNames, NATIONAL_QUEUES } from '../lib/canonical.mjs';
 import { withPendingChange } from '../lib/operator-changes.mjs';
+import { withChannelEmergency } from './dtek.mjs';
 
 /**
  * АТ «Житомиробленерго» — the queue×half-hour grid rendered straight into their own page.
@@ -121,6 +122,10 @@ export async function fetchRegion(region) {
     update,
     source: 'zhytomyr'
   });
-  // The operator announces changes on its channel before its table has them (lib/operator-changes.mjs).
-  return region.changesTelegram ? withPendingChange(snapshot, region) : snapshot;
+  // The operator announces changes on its channel before its table has them (lib/operator-changes.mjs), and says
+  // «запроваджено аварійні відключення (ГАВ)» there when Укренерго orders them (lib/dtek-emergency.mjs, area 'own').
+  const changed = region.changesTelegram ? await withPendingChange(snapshot, region) : snapshot;
+  return region.emergencyTelegram
+    ? withChannelEmergency(changed, region, { log: (line) => console.log(`[emergency] ${line}`) })
+    : changed;
 }

@@ -1,4 +1,4 @@
-import { fetchChannel } from './telegram.mjs';
+import { pageOf } from './dtek-emergency.mjs';
 import { kyivDayStart } from './canonical.mjs';
 import { wallToEpoch } from './ics.mjs';
 
@@ -58,7 +58,7 @@ export function readPendingChange(posts, { update, now = new Date() }) {
  * table's stamp passes it or it grows old.
  */
 export async function withPendingChange(
-  snapshot, region, { read = (channel) => fetchChannel(channel), now = new Date(), log = (line) => console.log(`[operator-changes] ${line}`) } = {}
+  snapshot, region, { read = (channel) => pageOf(channel), now = new Date(), log = (line) => console.log(`[operator-changes] ${line}`) } = {}
 ) {
   const { pendingChange: _held, ...rest } = snapshot.fact ?? {};
   let pending = null;

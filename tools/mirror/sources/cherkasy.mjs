@@ -1,5 +1,5 @@
 import { fetchChannel, gpvSnapshot } from '../lib/telegram.mjs';
-import { readEmergency } from '../lib/dtek-emergency.mjs';
+import { readerOf } from '../lib/dtek-emergency.mjs';
 import { withChannelEmergency } from './dtek.mjs';
 
 const CHANNEL = 'pat_cherkasyoblenergo';
@@ -31,7 +31,7 @@ export async function fetchRegion(region) {
   const posts = await fetchChannel(CHANNEL);
   const snapshot = await gpvSnapshot({ region, channel: CHANNEL, source: 'cherkasy', posts });
   return withChannelEmergency(snapshot, region, {
-    read: async ({ area, now }) => readEmergency(posts, { area, now }),
+    read: readerOf(posts),
     log: (line) => console.log(`[emergency] ${line}`)
   });
 }
