@@ -363,8 +363,8 @@ function stackRows(lines) {
  * scheme — the full-day tables list all twelve subqueues — so naming them costs nothing and keeps
  * a quiet region honestly "seasonal" instead of broken.
  */
-export async function gpvSnapshot({ region, channel, source }) {
-  const posts = await fetchChannel(channel);
+export async function gpvSnapshot({ region, channel, source, posts = null }) {
+  posts ??= await fetchChannel(channel);
   const { fact, queues, update } = scheduleFromPosts(posts);
 
   return buildSnapshot({

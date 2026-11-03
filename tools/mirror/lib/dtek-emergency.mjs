@@ -41,6 +41,10 @@ const RESTORED = /знову\s+зі\s+світлом/iu;
 const ENDED = [
   /екстрен\S*\s+відключен\S*\s+скасован/iu,
   /скасован\S*\s+екстрен\S*\s+відключен/iu,
+  // The oblenergo channels that say «графіки аварійних відключень (ГАВ)» end them in the same words (none seen yet).
+  /аварійн\S*\s+відключен\S*\s+(?:\([^)]*\)\s+)?(?:скасован|припинен)/iu,
+  /(?:скасован|припинен)\S*\s+(?:графік\S*\s+)?аварійн/iu,
+  /(?<![\p{L}])ГАВ\s+(?:скасован|припинен)/iu,
   /повертаєм\S*\s+до\s+графік/iu,
   /повертаютьс\S*\s+(?:до\s+)?графік/iu
 ];
@@ -56,6 +60,9 @@ const OBLAST = /київщин|київськ\S*\s+област/iu;
 // «Київ», and the city as the channel declines it: «Правий берег Києва».
 const CITY = /(?<![\p{L}])(?:київ|києв\p{L}*)(?![\p{L}])/iu;
 const DNIPRO = /дніпр/iu;
+// «Черкасиобленерго» writes «по Черкаській області застосовані графіки аварійних відключень (ГАВ)» to its own subscribers:
+// nothing in the post needs to name a place a channel of its own is not about.
+const EVERY_POST = /^/u;
 
 /** The districts a post lists, as it writes them: «у Білоцерківському, Бучанському … районах». */
 function districtsOf(text) {
@@ -72,12 +79,12 @@ function districtsOf(text) {
  * Posts → whether ДТЕК's emergency outages are on for the area right now.
  *
  * @param {Array<{id:number, postedAt:string, text:string}>} posts
- * @param {{ now?: Date, area?: 'oblast'|'city'|'dnipro' }} options `oblast` for Київщина, `city` for Київ, `dnipro`
- *   for Дніпро and its oblast
+ * @param {{ now?: Date, area?: 'oblast'|'city'|'dnipro'|'own' }} options `oblast` for Київщина, `city` for Київ, `dnipro`
+ *   for Дніпро and its oblast, `own` for an operator's own channel, where every post is about its oblast
  * @returns {{ active: boolean, since: string|null, note: string|null }}
  */
 export function readEmergency(posts, { now = new Date(), area = 'oblast' } = {}) {
-  const wanted = area === 'city' ? CITY : area === 'dnipro' ? DNIPRO : OBLAST;
+  const wanted = area === 'own' ? EVERY_POST : area === 'city' ? CITY : area === 'dnipro' ? DNIPRO : OBLAST;
   const since = now.getTime() - LOOKBACK_MS;
   const ordered = posts
     .filter((post) => Date.parse(post.postedAt) >= since && Date.parse(post.postedAt) <= now.getTime() + 5 * 60 * 1000)
