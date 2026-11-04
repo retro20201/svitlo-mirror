@@ -153,7 +153,7 @@ test('every house in an unexpected черга is the site renumbering, and fails
   const renumbered = inSeason({ listnum: 'Черга 1.1', cells: cellsWith({ 3: [{ type: 'confirm_2', start: 0, size: 100 }] }) });
   const { error, asked } = await offlineRun(() => renumbered);
   assert.match(error.message, /every house is in an unexpected черга/);
-  assert.equal(asked.length, 15);   // the three fallback houses tried too
+  assert.equal(asked.length, 16);   // the four fallback houses tried too
 });
 
 // ---- The first in-season answers, read from a real browser on 2026-11-04 ----
@@ -231,6 +231,7 @@ test('the first in-season day end to end: eight queues published, the quiet and 
     33197: realAnswer(realTable('1.2', { 2: 'confirm_4', 14: 'confirm_3', 18: 'confirm_2' })),
     32311: realAnswer(realTable('2.1', HOURS_2_1), realTable('3.2', HOURS_3_2)),
     41583: realAnswer(realTable('3.1', HOURS_3_2)),
+    31155: realAnswer({ ...realTable(null, {}), empty: true }),
     37970: realAnswer(realTable('4.1', { 4: 'confirm_2', 10: 'confirm_4' })),
     45203: realAnswer(realTable('4.2', { 4: 'confirm_2', 10: 'confirm_4' })),
     40403: realAnswer(realTable('6.1', { 0: 'confirm_4', 16: 'confirm_3' })),
@@ -240,5 +241,5 @@ test('the first in-season day end to end: eight queues published, the quiet and 
   const { result, error } = await offlineRun((house) => byHouse[house] ?? realAnswer(quiet), NOV4);
   assert.equal(error, undefined);
   const [today] = Object.values(result.fact.data);
-  assert.deepEqual(Object.keys(today).sort(), ['GPV1.2', 'GPV2.1', 'GPV3.1', 'GPV4.1', 'GPV4.2', 'GPV5.2', 'GPV6.1']);
+  assert.deepEqual(Object.keys(today).sort(), ['GPV1.2', 'GPV2.1', 'GPV3.1', 'GPV3.2', 'GPV4.1', 'GPV4.2', 'GPV5.2', 'GPV6.1']);
 });
