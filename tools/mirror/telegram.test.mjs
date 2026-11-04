@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { parsePosts, parseGpvPost, scheduleFromPosts } from './lib/telegram.mjs';
+import { parsePosts, parseGpvPost, scheduleFromPosts, dayOfPost } from './lib/telegram.mjs';
 import { kyivDayStart } from './lib/canonical.mjs';
 
 // Every fixture below is a real post, copied verbatim out of what https://t.me/s/<channel>
@@ -598,6 +598,28 @@ const KROP_1702 = {
 Черга 6.2: -`
 };
 
+// 3 November 2026, 21:53 Kyiv: the stamp says the 3rd, the order is for the 4th. Twelve hours a day for 5.1 and 5.2.
+const KROP_1745 = {
+  id: 1745,
+  postedAt: '2026-11-03T19:53:47+00:00',
+  text: `Зміни на 21:53  03.11.2026 до графіка погодинних відключень
+
+За розпорядженням НЕК "Укренерго" 04.11.2026 внесено зміни до графіка погодинних відключень (ГПВ):
+
+Черга 1.1: 06-08, 10-12, 14-16, 18-20, 22-24
+Черга 1.2: 06-08, 10-12, 14-16, 18-20, 22-24
+Черга 2.1: 02-04, 06-08, 10-12, 14-16, 18-20, 22-24
+Черга 2.2: 02-04, 06-08, 10-12, 14-16, 18-20, 22-24
+Черга 3.1: 02-04, 10-12, 14-16, 18-20
+Черга 3.2: 02-04, 10-12, 14-16, 18-20
+Черга 4.1: 04-06, 08-10, 12-14, 16-18, 20-22
+Черга 4.2: 04-06, 08-10, 12-14, 16-18, 20-22
+Черга 5.1: 00-02, 04-06, 08-10, 12-14, 16-18, 20-22
+Черга 5.2: 00-02, 04-06, 08-10, 12-14, 16-18, 20-22
+Черга 6.1: 00-02, 08-10, 12-14, 16-18, 20-22
+Черга 6.2: 00-02, 08-10, 12-14, 16-18, 20-22`
+};
+
 /** Europe/Kyiv midnight for a plain `YYYY-MM-DD`, so expectations read as calendar days. */
 function kyivDay(iso) {
   return kyivDayStart(new Date(`${iso}T12:00:00Z`));
@@ -877,4 +899,42 @@ test('a stacked window written "з 22:30 - 24:00" is not lost (Запоріжж�
   const version = parseGpvPost(posts.find((post) => post.id === 3089));
   const off = version.halves['GPV5.2'].flatMap((state, slot) => (state === 'off' ? [slot] : []));
   assert.deepEqual(off, [18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 45, 46, 47]);
+});
+
+test('a revision stamped on the 3rd for the 4th is the 4th\'s table, and the 3rd keeps its own (Кропивницький, 3 November 2026)', () => {
+  assert.equal(dayOfPost(KROP_1745).epoch, kyivDay('2026-11-04'));
+  assert.equal(parseGpvPost(KROP_1745).epoch, kyivDay('2026-11-04'));
+
+  const earlier = {
+    id: 1744, postedAt: '2026-11-03T16:33:47+00:00',
+    text: `Зміни на 18:33  03.11.2026 до графіка погодинних відключень
+
+За розпорядженням НЕК "Укренерго" 03.11.2026 внесено зміни до графіка погодинних відключень (ГПВ):
+
+Черга 5.2: 08-10, 12-14, 16-18, 20-22
+Черга 1.1: 07:00-08:00, 10:00-12:00, 14:00-16:00, 22:00-24:00
+Черга 1.2: 07:00-08:00, 10:00-12:00, 14:00-16:00, 22:00-24:00
+Черга 2.1: 07:00-08:00, 10:00-12:00, 14:00-16:00, 18:00-20:00
+Черга 2.2: 07:00-08:00, 10:00-12:00, 14:00-16:00, 18:00-20:00
+Черга 3.1: -
+Черга 3.2: -
+Черга 4.1: -
+Черга 4.2: -
+Черга 5.1: -
+Черга 6.1: -
+Черга 6.2: -`
+  };
+  const light4 = { ...KROP_1745, id: 1736, postedAt: '2026-11-03T04:09:00+00:00',
+    text: KROP_1745.text.replace('Зміни на 21:53  03.11.2026', 'Зміни на 06:09  03.11.2026').replace(/Черга 5\.2:.*/, 'Черга 5.2: 09-10, 20-22') };
+  const { fact } = scheduleFromPosts([light4, earlier, KROP_1745], { since: kyivDay('2026-11-02') });
+  const fourth = fact[kyivDay('2026-11-04')];
+  assert.deepEqual(Object.keys(outageHours(fourth['GPV5.2'])).map(Number), [1, 2, 5, 6, 9, 10, 13, 14, 17, 18, 21, 22],
+    'six two-hour blocks, from the first hour: the 00:04 case');
+  const third = fact[kyivDay('2026-11-03')];
+  assert.deepEqual(Object.keys(outageHours(third['GPV5.2'])).map(Number), [9, 10, 13, 14, 17, 18, 21, 22], 'the 3rd is what the 3rd said');
+});
+
+test('a post that dates only its revision still names that day', () => {
+  const only = { id: 5, postedAt: '2026-02-05T21:26:00+00:00', text: `⚡ Зміни на 23:26 05.02.2026 до графіка погодинних відключень\n\nЧерга 1.1: 06-08\nЧерга 1.2: -\nЧерга 2.1: -\nЧерга 2.2: -\nЧерга 3.1: -\nЧерга 3.2: -\nЧерга 4.1: -\nЧерга 4.2: -\nЧерга 5.1: -\nЧерга 5.2: -\nЧерга 6.1: -\nЧерга 6.2: -` };
+  assert.equal(dayOfPost(only).epoch, kyivDay('2026-02-05'));
 });

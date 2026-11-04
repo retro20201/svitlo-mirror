@@ -464,9 +464,17 @@ function targetDate(text, postedAt) {
   // Кропивницький name the day only in digits: "За розпорядженням НЕК «Укренерго» 05.02.2026…",
   // Суми with dashes: "на 30-06-2026". A worded date wins when there is one — Запоріжжя's
   // "ОНОВЛЕНО 03.04.2026 О 11:46" dates the edit, not the table.
-  const numeric = text.match(/(?<![\d.-])(\d{2})[.-](\d{2})[.-](20\d{2})(?!\d|[.-]\d)/);
-  if (!numeric) return null;
-  const [, day, month, year] = numeric.map(Number);
+  //
+  // Кропивницький's «Зміни на 21:53  03.11.2026 до графіка» dates the REVISION, and the day it changes follows in the body:
+  // «За розпорядженням НЕК «Укренерго» 04.11.2026 внесено зміни». The first date in the text was taken for the day, and on
+  // the night of 3 November a table of twelve hours a day for the 4th was filed under the 3rd (a person in Кропивницький wrote
+  // at 00:04 that the power was off, the app said it should be on: 5.2 had six blocks and showed two). A stamp is the day only
+  // when the post names no other.
+  const stamps = [...text.matchAll(/(?<![\d.-])(\d{2})[.-](\d{2})[.-](20\d{2})(?!\d|[.-]\d)/g)];
+  if (!stamps.length) return null;
+  const isRevisionStamp = (match) => /зміни\s+на\s+\d{1,2}[:.]\d{2}\s*$/iu.test(text.slice(Math.max(0, match.index - 24), match.index));
+  const named = stamps.find((match) => !isRevisionStamp(match)) ?? stamps[0];
+  const [, day, month, year] = named.map(Number);
   const date = new Date(Date.UTC(year, month - 1, day, 12));
   return plausible(date.getUTCDate() === day ? date : null, postedAt);
 }
