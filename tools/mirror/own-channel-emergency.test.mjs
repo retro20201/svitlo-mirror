@@ -81,13 +81,17 @@ test('a channel that writes its own ends is believed for a day: the night after 
 
 test('the region says how long its channel is believed, and the reading is asked that', async () => {
   const region = REGIONS.find((r) => r.id === 'zhytomyr');
-  assert.equal(region.emergencyTelegram.maxAgeHours, 24);
-  assert.equal(REGIONS.find((r) => r.id === 'kharkiv').emergencyTelegram.maxAgeHours, undefined, 'the others keep the twelve');
+  assert.equal(region.emergencyTelegram.maxAgeHours, 36);
+  assert.equal(REGIONS.find((r) => r.id === 'kharkiv').emergencyTelegram.maxAgeHours, undefined, 'a channel that writes no ends keeps the twelve');
+  assert.equal(REGIONS.find((r) => r.id === 'cherkasy').emergencyTelegram.maxAgeHours, undefined);
+  for (const id of ['kyiv', 'kyiv-region', 'dnipro']) {
+    assert.equal(REGIONS.find((r) => r.id === id).emergencyTelegram.maxAgeHours, 36, `${id}: ДТЕК writes its ends`);
+  }
   let asked = null;
   const now = new Date('2026-11-04T05:00:00Z');
   const snapshot = { regionId: 'zhytomyr', fact: { data: { [kyivDayStart(now)]: {} }, update: '02:30 04.11.2026' } };
   await withChannelEmergency(snapshot, region, { read: async (query) => { asked = query; return { active: false }; }, now, log: () => {} });
-  assert.equal(asked.maxAgeMs, 24 * 3600 * 1000);
+  assert.equal(asked.maxAgeMs, 36 * 3600 * 1000);
 });
 
 test('Житомирщина, 3 November: a post edited with «UPD: … скасовано» is over, and «знову запроваджено» starts it again', () => {
@@ -124,4 +128,17 @@ test('Житомир with its site down: what the channel says is still publishe
   assert.equal(bare.fallback, undefined, 'nothing to carry, nothing to publish');
   const silent = await withHeldEmergency(down(), region, { read: async () => { throw new Error('t.me: 502'); }, now, log: () => {} });
   assert.equal(silent.fallback?.fact.emergency, undefined, 'the channel is silent too: nothing is claimed');
+});
+
+test('the order of 3 November 05:18 UTC is still an order at 23:07, when nobody has ended it (Київщина, 6.2)', () => {
+  const order = { id: 4750, postedAt: '2026-11-03T05:18:25+00:00',
+    text: '‼️Київ, Київська та Дніпропетровська область: за командою Укренерго запроваджені екстрені відключення\n\nНагадаємо, під час екстрених відключень графіки не діють.' };
+  const evening = new Date('2026-11-03T21:07:00Z');
+  for (const area of ['oblast', 'city', 'dnipro']) {
+    assert.equal(readEmergency([order], { now: evening, area }).active, false, `${area}: the twelve hours had run out`);
+    assert.equal(readEmergency([order], { now: evening, area, maxAgeMs: 36 * 3600 * 1000 }).active, true, area);
+  }
+  const ended = { id: 4770, postedAt: '2026-11-03T21:30:00+00:00', text: '💡Київщина: повертаємось до графіків відключень' };
+  assert.equal(readEmergency([order, ended], { now: new Date('2026-11-03T22:00:00Z'), area: 'oblast', maxAgeMs: 36 * 3600 * 1000 }).active, false);
+  assert.equal(readEmergency([order], { now: new Date('2026-11-04T17:30:00Z'), area: 'oblast', maxAgeMs: 36 * 3600 * 1000 }).active, false, 'a day and a half, not for ever');
 });
