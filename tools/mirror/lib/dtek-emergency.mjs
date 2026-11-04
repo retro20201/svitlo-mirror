@@ -85,13 +85,13 @@ function districtsOf(text) {
  * Posts → whether ДТЕК's emergency outages are on for the area right now.
  *
  * @param {Array<{id:number, postedAt:string, text:string}>} posts
- * @param {{ now?: Date, area?: 'oblast'|'city'|'dnipro'|'own' }} options `oblast` for Київщина, `city` for Київ, `dnipro`
+ * @param {{ now?: Date, area?: 'oblast'|'city'|'dnipro'|'own', maxAgeMs?: number }} options `oblast` for Київщина, `city` for Київ, `dnipro`
  *   for Дніпро and its oblast, `own` for an operator's own channel, where every post is about its oblast
  * @returns {{ active: boolean, since: string|null, note: string|null }}
  */
-export function readEmergency(posts, { now = new Date(), area = 'oblast' } = {}) {
+export function readEmergency(posts, { now = new Date(), area = 'oblast', maxAgeMs = MAX_AGE_MS } = {}) {
   const wanted = area === 'own' ? EVERY_POST : area === 'city' ? CITY : area === 'dnipro' ? DNIPRO : OBLAST;
-  const since = now.getTime() - LOOKBACK_MS;
+  const since = now.getTime() - Math.max(LOOKBACK_MS, maxAgeMs);
   const ordered = posts
     .filter((post) => Date.parse(post.postedAt) >= since && Date.parse(post.postedAt) <= now.getTime() + 5 * 60 * 1000)
     .sort((a, b) => Date.parse(a.postedAt) - Date.parse(b.postedAt) || a.id - b.id);
@@ -108,7 +108,7 @@ export function readEmergency(posts, { now = new Date(), area = 'oblast' } = {})
       state = null;
     }
   }
-  const fresh = state && now.getTime() - Date.parse(state.at) <= MAX_AGE_MS;
+  const fresh = state && now.getTime() - Date.parse(state.at) <= maxAgeMs;
   return fresh ? { active: true, since: state.at, note: state.note } : { active: false, since: null, note: null };
 }
 
@@ -125,9 +125,9 @@ export function pageOf(channel) {
 }
 
 /** A reader over posts an adapter already has, for `withChannelEmergency`: the channel is not asked twice. */
-export const readerOf = (posts) => async ({ area = 'own', now = new Date() } = {}) => readEmergency(posts, { area, now });
+export const readerOf = (posts) => async ({ area = 'own', now = new Date(), maxAgeMs } = {}) => readEmergency(posts, { area, now, maxAgeMs });
 
 /** The channel's last page, read for `area`. Throws when it cannot be fetched. */
-export async function readEmergencyFromChannel({ channel = CHANNEL, area = 'oblast', now = new Date() } = {}) {
-  return readEmergency(await pageOf(channel), { now, area });
+export async function readEmergencyFromChannel({ channel = CHANNEL, area = 'oblast', now = new Date(), maxAgeMs } = {}) {
+  return readEmergency(await pageOf(channel), { now, area, maxAgeMs });
 }

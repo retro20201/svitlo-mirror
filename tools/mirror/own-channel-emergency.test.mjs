@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readEmergency } from './lib/dtek-emergency.mjs';
 import { withChannelEmergency } from './sources/dtek.mjs';
-import { kyivDayStart } from './lib/canonical.mjs';
+import { kyivDayStart, buildSnapshot, queueNames } from './lib/canonical.mjs';
 import { REGIONS } from './regions.mjs';
+import { withHeldEmergency } from './sources/zhytomyr.mjs';
 
 // @ztoe_ua and @kharkivenergy, 2–3 November 2026, in the operators' words.
 const post = (id, postedAt, text) => ({ id, postedAt, text });
@@ -66,6 +67,29 @@ test('Житомир and Харків put today in fact.emergency and ask their 
   }
 });
 
+test('a channel that writes its own ends is believed for a day: the night after «знову запроваджено» is still an order', () => {
+  const again = post(1873, '2026-11-03T12:50:38+00:00',
+    '❗️ Увага!\n🗓️ 3 листопада 2026\n\n📣 За розпорядженням Укренерго на Житомирщині знову запроваджено аварійні відключення електроенергії (ГАВ)');
+  const at = (iso, maxAgeMs) => readEmergency([again], { now: new Date(iso), area: 'own', maxAgeMs });
+  assert.equal(at('2026-11-04T05:00:00Z').active, false, 'the default twelve hours: gone at 02:50');
+  assert.equal(at('2026-11-04T05:00:00Z', 24 * 3600 * 1000).active, true);
+  assert.equal(at('2026-11-04T12:50:00Z', 24 * 3600 * 1000).active, true);
+  assert.equal(at('2026-11-04T12:51:00Z', 24 * 3600 * 1000).active, false, 'and not for ever');
+  const ended = [again, post(1874, '2026-11-04T01:00:00+00:00', '⚡️ Аварійні відключення на Житомирщині скасовано. Повертаємось до графіків.')];
+  assert.equal(readEmergency(ended, { now: new Date('2026-11-04T05:00:00Z'), area: 'own', maxAgeMs: 24 * 3600 * 1000 }).active, false, 'an end ends it');
+});
+
+test('the region says how long its channel is believed, and the reading is asked that', async () => {
+  const region = REGIONS.find((r) => r.id === 'zhytomyr');
+  assert.equal(region.emergencyTelegram.maxAgeHours, 24);
+  assert.equal(REGIONS.find((r) => r.id === 'kharkiv').emergencyTelegram.maxAgeHours, undefined, 'the others keep the twelve');
+  let asked = null;
+  const now = new Date('2026-11-04T05:00:00Z');
+  const snapshot = { regionId: 'zhytomyr', fact: { data: { [kyivDayStart(now)]: {} }, update: '02:30 04.11.2026' } };
+  await withChannelEmergency(snapshot, region, { read: async (query) => { asked = query; return { active: false }; }, now, log: () => {} });
+  assert.equal(asked.maxAgeMs, 24 * 3600 * 1000);
+});
+
 test('Житомирщина, 3 November: a post edited with «UPD: … скасовано» is over, and «знову запроваджено» starts it again', () => {
   const edited = post(1872, '2026-11-03T08:53:02+00:00',
     'UPD: Аварійні відключення на Житомирщині скасовано\n\n❗️ Увага! Аварійні відключення електроенергії\n🗓️ 3 листопада 2026\n\n📣 За розпорядженням Укренерго на Житомирщині запроваджено аварійні відключення електроенергії (ГАВ)');
@@ -76,4 +100,28 @@ test('Житомирщина, 3 November: a post edited with «UPD: … скас
   const second = own([edited, again], '2026-11-03T13:58:00Z');
   assert.equal(second.active, true);
   assert.equal(second.since, '2026-11-03T12:50:38+00:00');
+});
+
+test('Житомир with its site down: what the channel says is still published, over the table phones have', async () => {
+  const now = new Date('2026-11-04T05:00:00Z');
+  const today = kyivDayStart(now);
+  const region = { ...REGIONS.find((r) => r.id === 'zhytomyr') };
+  const hours = Object.fromEntries(Array.from({ length: 24 }, (_, i) => [i + 1, i + 1 === 5 ? 'no' : 'yes']));
+  const table = { 'GPV2.2': hours };
+  region.previous = buildSnapshot({
+    regionId: 'zhytomyr', title: 'Житомирська область', queues: queueNames(['2.2']), fact: { [today]: table },
+    todayEpoch: today, update: '02:30 04.11.2026', source: 'zhytomyr'
+  });
+  const down = () => Object.assign(new Error('timeout'), {});
+  const read = async () => ({ active: true, since: '2026-11-03T12:50:38+00:00', note: null });
+
+  const error = await withHeldEmergency(down(), region, { read, now, log: () => {} });
+  assert.deepEqual(error.fallback.fact.emergency, [today]);
+  assert.deepEqual(error.fallback.fact.data[today], table, 'the table is the one phones have');
+  assert.equal(region.previous.fact.emergency, undefined, 'the copy the mirror holds is not changed in place');
+
+  const bare = await withHeldEmergency(down(), { ...region, previous: null }, { read, now, log: () => {} });
+  assert.equal(bare.fallback, undefined, 'nothing to carry, nothing to publish');
+  const silent = await withHeldEmergency(down(), region, { read: async () => { throw new Error('t.me: 502'); }, now, log: () => {} });
+  assert.equal(silent.fallback?.fact.emergency, undefined, 'the channel is silent too: nothing is claimed');
 });

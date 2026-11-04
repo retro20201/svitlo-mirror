@@ -1,5 +1,5 @@
 import { getText } from '../lib/http.mjs';
-import { buildSnapshot, hourStateFromHalves, kyivDayStart, queueNames, NATIONAL_QUEUES } from '../lib/canonical.mjs';
+import { buildSnapshot, hourStateFromHalves, kyivDayStart, queueNames, validate, NATIONAL_QUEUES } from '../lib/canonical.mjs';
 import { withPendingChange } from '../lib/operator-changes.mjs';
 import { withChannelEmergency } from './dtek.mjs';
 
@@ -110,8 +110,34 @@ export function parseSchedulePage(html) {
   };
 }
 
+/**
+ * The site does not answer, but the channel may: the table phones have stays as it is, and what the channel says about an
+ * order of Укренерго is still said. From the evening of 3 November 2026 ztoe.com.ua timed out for more than half a day
+ * while the operator had announced «знову запроваджено аварійні відключення» and a person was in the dark since 16:00;
+ * with the whole adapter failing, the banner could not have come back. Offered to the mirror as `error.fallback`, which
+ * publishes it marked stale. Without a copy of the table to carry, or when the copy would not pass, the error is the error.
+ */
+export async function withHeldEmergency(error, region, options = {}) {
+  if (!region.previous || !region.emergencyTelegram) return error;
+  try {
+    const held = await withChannelEmergency(structuredClone(region.previous), region, {
+      log: (line) => console.log(`[emergency] ${line}`), ...options
+    });
+    if (!validate(held).length) error.fallback = held;
+  } catch {
+    // The channel did not answer either: the old copy stays as the mirror keeps it.
+  }
+  return error;
+}
+
 export async function fetchRegion(region) {
-  const { queues, fact, update } = parseSchedulePage(await getText(PAGE));
+  let html;
+  try {
+    html = await getText(PAGE);
+  } catch (error) {
+    throw await withHeldEmergency(error, region);
+  }
+  const { queues, fact, update } = parseSchedulePage(html);
 
   const snapshot = buildSnapshot({
     regionId: region.id,

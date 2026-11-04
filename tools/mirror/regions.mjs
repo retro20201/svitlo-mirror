@@ -67,7 +67,12 @@ export const REGIONS = [
   { id: 'zhytomyr',      title: 'Житомирська область', subtitle: 'область',          operator: 'АТ «Житомиробленерго»',        source: 'zhytomyr', site: 'https://www.ztoe.com.ua/', status: 'seasonal', probe: 'https://www.ztoe.com.ua/',
     // Its channel says «зміни у ГПВ» before its table does (lib/operator-changes.mjs), and «запроваджено аварійні
     // відключення (ГАВ)» when Укренерго orders them (lib/dtek-emergency.mjs, area 'own').
-    changesTelegram: { channel: 'ztoe_ua' }, emergencyTelegram: { area: 'own', channel: 'ztoe_ua' } },
+    changesTelegram: { channel: 'ztoe_ua' }, 
+    // Житомиробленерго writes the end of an order itself («Аварійні відключення на Житомирщині скасовано. Повертаємось до графіків»,
+    // 2 November 13:12 UTC, and an edit «UPD: … скасовано» on the post), and on 3 November announced it at 12:50 UTC and never
+    // cancelled: a person wrote at 07:03 the next morning that the power had been off since 16:00 — the banner had gone at 02:50,
+    // twelve hours after the post. A silence of a day is believed over a night; a channel that does not write ends keeps the twelve.
+    emergencyTelegram: { area: 'own', channel: 'ztoe_ua', maxAgeHours: 24 } },
   // Read off the picture the operator posts to @SumyEnergo — its site's own schedule comes from a
   // robots-disallowed /api/. See sources/sumy.mjs and lib/sumy-picture.mjs.
   { id: 'sumy',          title: 'Сумська область',     subtitle: 'область',          operator: 'АТ «Сумиобленерго»',           source: 'sumy', status: 'seasonal' },
