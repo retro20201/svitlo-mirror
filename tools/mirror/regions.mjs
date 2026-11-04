@@ -36,13 +36,16 @@ export const REGIONS = [
   { id: 'kyiv',          title: 'Київ',                subtitle: 'місто',            operator: 'ДТЕК Київські електромережі',            source: 'dtek', site: 'https://www.dtek-kem.com.ua/ua/shutdowns',     status: 'live',
     queuePattern: /^GPV\d+\.1$/, staysLive: true, yasno: { regionId: 25, dsoId: 902 },
     // YASNO's `EmergencyShutdowns` comes late: ДТЕК's channel announces each order of Укренерго first (lib/dtek-emergency.mjs).
-    emergencyTelegram: { area: 'city' } },
+    // And it writes the end itself («повертаємось до графіків», «скасовано»): the order of 3 November, 05:18 UTC, was never ended,
+    // the banner went at 19:18 on the twelve hours, and a person in the dark at 23:07 wrote that nothing had warned them.
+    // An order is believed until the channel ends it, for a day and a half at most.
+    emergencyTelegram: { area: 'city', maxAgeHours: 36 } },
   { id: 'kyiv-region',   title: 'Київська область',    subtitle: 'область',          operator: 'ДТЕК Київські регіональні електромережі', source: 'dtek', site: 'https://www.dtek-krem.com.ua/ua/shutdowns',    status: 'live',
     // YASNO has nothing for the oblast: ДТЕК's own channel announces each order of Укренерго (lib/dtek-emergency.mjs).
-    emergencyTelegram: { area: 'oblast' } },
+    emergencyTelegram: { area: 'oblast', maxAgeHours: 36 } },
   { id: 'dnipro',        title: 'Дніпро',              subtitle: 'місто та область', operator: 'ДТЕК Дніпровські електромережі',          source: 'dtek', site: 'https://www.dtek-dnem.com.ua/ua/shutdowns',    status: 'live',
     // YASNO marks the days; the channel names the districts and comes first (lib/dtek-emergency.mjs, area 'dnipro').
-    yasno: { regionId: 3, dsoId: 301 }, emergencyTelegram: { area: 'dnipro' } },
+    yasno: { regionId: 3, dsoId: 301 }, emergencyTelegram: { area: 'dnipro', maxAgeHours: 36 } },
   { id: 'odesa',         title: 'Одеса',               subtitle: 'місто та область', operator: 'ДТЕК Одеські електромережі',              source: 'dtek', site: 'https://www.dtek-oem.com.ua/ua/shutdowns',    status: 'live' },
 
   // --- seasonal: the API answers, but out of season it returns queue names with no hours,
@@ -71,8 +74,9 @@ export const REGIONS = [
     // Житомиробленерго writes the end of an order itself («Аварійні відключення на Житомирщині скасовано. Повертаємось до графіків»,
     // 2 November 13:12 UTC, and an edit «UPD: … скасовано» on the post), and on 3 November announced it at 12:50 UTC and never
     // cancelled: a person wrote at 07:03 the next morning that the power had been off since 16:00 — the banner had gone at 02:50,
-    // twelve hours after the post. A silence of a day is believed over a night; a channel that does not write ends keeps the twelve.
-    emergencyTelegram: { area: 'own', channel: 'ztoe_ua', maxAgeHours: 24 } },
+    // twelve hours after the post. An order is believed until the channel ends it, for a day and a half at most (the channel's
+    // page reaches that far back); a channel that does not write ends keeps the twelve.
+    emergencyTelegram: { area: 'own', channel: 'ztoe_ua', maxAgeHours: 36 } },
   // Read off the picture the operator posts to @SumyEnergo — its site's own schedule comes from a
   // robots-disallowed /api/. See sources/sumy.mjs and lib/sumy-picture.mjs.
   { id: 'sumy',          title: 'Сумська область',     subtitle: 'область',          operator: 'АТ «Сумиобленерго»',           source: 'sumy', status: 'seasonal' },

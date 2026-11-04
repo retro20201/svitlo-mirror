@@ -107,7 +107,7 @@ test('Київ reads the channel for the city, and the real post of 29 October i
   const { REGIONS } = await import('./regions.mjs');
   const { readEmergency } = await import('./lib/dtek-emergency.mjs');
   const kyiv = REGIONS.find((candidate) => candidate.id === 'kyiv');
-  assert.deepEqual(kyiv.emergencyTelegram, { area: 'city' });
+  assert.deepEqual(kyiv.emergencyTelegram, { area: 'city', maxAgeHours: 36 });
   const posts = [{ id: 4712, postedAt: '2026-10-29T06:45:12+00:00',
     text: '‼️Київ: за командою Укренерго запроваджено екстрені відключення в частині Голосієвського та Соломʼянського районів. Нагадаємо, під час екстрених відключень графіки не діють.' }];
   const now = new Date('2026-10-29T07:30:00Z');
