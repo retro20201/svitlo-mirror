@@ -88,6 +88,15 @@ test('only the regions with an emergency signal tell the app they carry an emerg
     ['id', 'title', 'subtitle', 'operator', 'status', 'note']);
 });
 
+test('only the operators whose hours include time for switching say so in the index', async () => {
+  // Запоріжжя («з урахуванням 30 хвилин на перемикання») and Харків («з урахуванням часу на перемикання»): the app puts a line
+  // under their schedules. Everyone else's row stays exactly as it was.
+  const { REGIONS, indexEntry } = await import('./regions.mjs');
+  const flagged = REGIONS.filter((region) => indexEntry(region).includesSwitching === true).map((region) => region.id);
+  assert.deepEqual(flagged, ['kharkiv', 'zaporizhzhia']);
+  assert.ok(REGIONS.every((region) => flagged.includes(region.id) || !('includesSwitching' in indexEntry(region))));
+});
+
 test('quiet days are written only when there are any, and must be day epochs', async () => {
   const { validate } = await import('./lib/canonical.mjs');
   const day = kyivDayStart(new Date('2026-10-01T12:00:00+03:00'));
