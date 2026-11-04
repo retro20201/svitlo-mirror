@@ -16,10 +16,15 @@ import { buildSnapshot, hourStateFromHalves, kyivDayStart, queueNames, NATIONAL_
  * `confirm_4` «Завершено» — the last three all an outage, planned, under way, or over.
  *
  * Out of season every house answers «Активних відключень не знайдено», `empty`, with no черга —
- * checked 2026-10-02 from the Kyiv server. In-season answers have not been seen yet, so this reads
- * them fail-closed: a house's hours are published under a підчерга only when the answer itself
- * names that підчерга; a house the answer puts in another черга, or several addresses, or an
- * unfamiliar shape, publishes nothing for that підчерга rather than something wrong.
+ * checked 2026-10-02 from the Kyiv server. In season (first seen 2026-11-04, from a real browser —
+ * the site has since put a Cloudflare challenge in front of the Kyiv server) a house's answer is
+ * `tables[]`, one per черга it is on, each with `listnum` and one row per published day; hours
+ * carry `{start, size, type, level, label}` and a class like `has_disconnection confirm_4`. A house
+ * with no outage today still answers `empty` with `listnum: null`, even when its черга has hours
+ * for other houses. This reads answers fail-closed: a house's hours are published under a
+ * підчерга only when the answer itself names that підчерга; a house the answer puts in another
+ * черга, or several addresses, or an unfamiliar shape, publishes nothing for that підчерга rather
+ * than something wrong.
  *
  * The site answers only Ukrainian addresses (Cloudflare refuses others), so this runs from the
  * Kyiv server.
@@ -129,8 +134,16 @@ export function parseAnswer(answer, expectedQueue, now = new Date(), warn = () =
   const tables = answer.tables ?? [];
   if (!Array.isArray(tables)) throw new Error('tables is not a list');
   if (tables.length === 0) return { skip: 'no table' };
-  if (tables.length > 1) return { skip: `${tables.length} tables` };
-  const table = tables[0];
+  let table = tables[0];
+  if (tables.length > 1) {
+    // A house on the lines of two черги is answered with a table for each — seen 2026-11-04, the
+    // first in-season day: Заболотного 10 came back as 2.1 and 3.2. The answer vouches for the
+    // expected підчерга only if exactly one table names it; anything else stays unguessed.
+    const named = tables.filter((candidate) =>
+      candidate?.listnum !== null && candidate?.listnum !== undefined && String(candidate.listnum).trim() === expectedQueue);
+    if (named.length !== 1) return { skip: `${tables.length} tables` };
+    table = named[0];
+  }
   const listed = table.listnum === null || table.listnum === undefined ? null : String(table.listnum).trim();
   if (table.empty) {
     // «Активних відключень не знайдено» — no *active* outages. Trusted only when the rows agree.
