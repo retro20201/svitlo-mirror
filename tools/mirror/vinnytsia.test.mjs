@@ -115,7 +115,7 @@ test('an answer marked empty that still draws outages is not believed', () => {
 });
 
 /** fetchRegion against a stand-in site: the page, then one answer per house asked. */
-async function offlineRun(answerFor) {
+async function offlineRun(answerFor, now = NOW) {
   const real = globalThis.fetch;
   const asked = [];
   globalThis.fetch = async (url, init = {}) => {
@@ -129,7 +129,7 @@ async function offlineRun(answerFor) {
   const warn = console.warn;
   console.warn = () => {};
   try {
-    return { result: await fetchRegion({ id: 'vinnytsia', title: 'Вінницька область' }, NOW, { wait: async () => {} }), asked };
+    return { result: await fetchRegion({ id: 'vinnytsia', title: 'Вінницька область' }, now, { wait: async () => {} }), asked };
   } catch (error) {
     return { error, asked };
   } finally {
@@ -140,7 +140,7 @@ async function offlineRun(answerFor) {
 
 test('out of season every house answers empty and the region publishes its queues and no day', async () => {
   const { result, asked } = await offlineRun(() => OFF_SEASON);
-  assert.equal(asked.length, 12);
+  assert.equal(asked.length, 16);   // "no outages" is silence, not proof: the second houses are asked too
   assert.deepEqual(result.fact.data, []);
 });
 
@@ -153,5 +153,114 @@ test('every house in an unexpected черга is the site renumbering, and fails
   const renumbered = inSeason({ listnum: 'Черга 1.1', cells: cellsWith({ 3: [{ type: 'confirm_2', start: 0, size: 100 }] }) });
   const { error, asked } = await offlineRun(() => renumbered);
   assert.match(error.message, /every house is in an unexpected черга/);
-  assert.equal(asked.length, 15);   // the three fallback houses tried too
+  assert.equal(asked.length, 16);   // the four fallback houses tried too
+});
+
+// ---- The first in-season answers, read from a real browser on 2026-11-04 ----
+
+/** An hour cell as the site really draws it: a `level` and a `label` on the segment, the type in the class. */
+function realCells(byHour) {
+  return Array.from({ length: 24 }, (_, h) => {
+    const type = byHour[h];
+    const hour = `${String(h).padStart(2, '0')}-${String(h + 1).padStart(2, '0')}`;
+    return type
+      ? {
+        hour,
+        segments: [{ start: 0, size: 100, type, level: Number(type.slice(-1)), label: `${hour.slice(0, 2)}:00-${hour.slice(0, 2)}:59` }],
+        class: `has_disconnection ${type}`
+      }
+      : { hour, segments: [], class: 'no_disconnection' };
+  });
+}
+
+function realTable(listnum, byHour) {
+  const header = OFF_SEASON.tables[0].header;
+  return {
+    listnum,
+    header,
+    rows: [{ date: '2026-11-04', label: 'Ср 04.11', class: 'current_day', cells: realCells(byHour) }],
+    message: { type: 1, title: 'Застосування ГПВ', queue: listnum, from: '16:00 2026.11.04', to: '18:00 2026.11.04' },
+    reserve: 1,
+    empty: false
+  };
+}
+
+function realAnswer(...tables) {
+  return { ok: true, type: 'address', addresses: [], tables };
+}
+
+const NOV4 = new Date('2026-11-04T15:30:00Z');
+// Queue 2.1 on 4 November, as the site gave it: ended 02–04 and 08–10, under way 12–16, planned 20–22.
+const HOURS_2_1 = { 2: 'confirm_4', 3: 'confirm_4', 8: 'confirm_4', 9: 'confirm_4', 12: 'confirm_3', 13: 'confirm_3', 14: 'confirm_3', 15: 'confirm_3', 20: 'confirm_2', 21: 'confirm_2' };
+const HOURS_3_2 = { 4: 'confirm_2', 5: 'confirm_2', 8: 'confirm_4', 9: 'confirm_4', 10: 'confirm_4', 11: 'confirm_4', 16: 'confirm_3', 17: 'confirm_3', 20: 'confirm_2', 21: 'confirm_2', 22: 'confirm_2', 23: 'confirm_2' };
+
+test('a real in-season table: ended, applied and planned hours are all outage, on the named підчерга', () => {
+  const { days } = parseAnswer(realAnswer(realTable('2.1', HOURS_2_1)), '2.1', NOV4);
+  const halves = days[kyivDayStart(NOV4)];
+  assert.equal(halves.length, 48);
+  assert.equal(halves.filter((state) => state === 'off').length, 20);
+  assert.deepEqual([halves[4], halves[7], halves[8], halves[24], halves[43], halves[44]], ['off', 'off', 'on', 'off', 'off', 'on']);
+});
+
+test('a house on two черги is read from the table that names the expected one', () => {
+  const answer = realAnswer(realTable('2.1', HOURS_2_1), realTable('3.2', HOURS_3_2));
+  const own = parseAnswer(answer, '2.1', NOV4).days[kyivDayStart(NOV4)];
+  const other = parseAnswer(answer, '3.2', NOV4).days[kyivDayStart(NOV4)];
+  assert.equal(own.filter((state) => state === 'off').length, 20);
+  assert.equal(other.filter((state) => state === 'off').length, 24);
+});
+
+test('two tables, none of them the expected підчерга, are not guessed between', () => {
+  const answer = realAnswer(realTable('2.1', HOURS_2_1), realTable('3.2', HOURS_3_2));
+  assert.deepEqual(parseAnswer(answer, '5.2', NOV4), { skip: '2 tables' });
+});
+
+test('two tables that both name the expected підчерга are not guessed between either', () => {
+  const answer = realAnswer(realTable('2.1', HOURS_2_1), realTable('2.1', HOURS_3_2));
+  assert.deepEqual(parseAnswer(answer, '2.1', NOV4), { skip: '2 tables' });
+});
+
+test('a house with no outage today answers empty with no черга, and publishes nothing', () => {
+  const quiet = { ...realTable(null, {}), empty: true, message: { type: 3, title: 'Активних відключень не знайдено', text: '…' } };
+  assert.deepEqual(parseAnswer(realAnswer(quiet), '1.1', NOV4), { skip: 'no outages listed' });
+});
+
+test('the first in-season day end to end: eight queues published, the quiet and misfiled ones left out', async () => {
+  const quiet = { ...realTable(null, {}), empty: true };
+  const byHouse = {
+    33197: realAnswer(realTable('1.2', { 2: 'confirm_4', 14: 'confirm_3', 18: 'confirm_2' })),
+    32311: realAnswer(realTable('2.1', HOURS_2_1), realTable('3.2', HOURS_3_2)),
+    41583: realAnswer(realTable('3.1', HOURS_3_2)),
+    31155: realAnswer({ ...realTable(null, {}), empty: true }),
+    37970: realAnswer(realTable('4.1', { 4: 'confirm_2', 10: 'confirm_4' })),
+    45203: realAnswer(realTable('4.2', { 4: 'confirm_2', 10: 'confirm_4' })),
+    40403: realAnswer(realTable('6.1', { 0: 'confirm_4', 16: 'confirm_3' })),
+    31963: realAnswer(realTable('5.2', { 0: 'confirm_4', 18: 'confirm_2' })),
+    674459: realAnswer(realTable('6.1', { 0: 'confirm_4', 16: 'confirm_3' }))
+  };
+  const { result, error } = await offlineRun((house) => byHouse[house] ?? realAnswer(quiet), NOV4);
+  assert.equal(error, undefined);
+  const [today] = Object.values(result.fact.data);
+  assert.deepEqual(Object.keys(today).sort(), ['GPV1.2', 'GPV2.1', 'GPV3.1', 'GPV3.2', 'GPV4.1', 'GPV4.2', 'GPV5.2', 'GPV6.1']);
+});
+
+test('a house the site calls quiet does not settle its підчерга: the next house is asked (6.2 on 5 November)', async () => {
+  const quiet = { ...realTable(null, {}), empty: true };
+  const byHouse = {
+    640796: realAnswer(quiet),                                                          // 600-Річчя 16: «Активних відключень не знайдено»
+    48390: realAnswer(realTable('6.2', { 0: 'confirm_4', 6: 'confirm_4', 10: 'confirm_2' }))   // 600-Річчя 42: a 6.2 table
+  };
+  const { result, error, asked } = await offlineRun((house) => byHouse[house] ?? realAnswer(quiet), NOV4);
+  assert.equal(error, undefined);
+  assert.ok(asked.includes('48390'));
+  const [today] = Object.values(result.fact.data);
+  assert.deepEqual(Object.keys(today), ['GPV6.2']);
+});
+
+test('a quiet first house and a second house the site files elsewhere publish nothing for the підчерга', async () => {
+  const quiet = { ...realTable(null, {}), empty: true };
+  const byHouse = { 48390: realAnswer(realTable('6.1', { 0: 'confirm_4' })) };
+  const { result, error } = await offlineRun((house) => byHouse[house] ?? realAnswer(quiet), NOV4);
+  assert.equal(error, undefined);
+  assert.deepEqual(result.fact.data, []);
 });
