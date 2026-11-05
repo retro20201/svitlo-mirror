@@ -27,6 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { REGIONS, indexEntry } from './regions.mjs';
 import { writeCalendars } from './lib/ics.mjs';
 import { publishCrowd } from './lib/crowd-fetch.mjs';
+import { publishNews } from './lib/operator-posts.mjs';
 import { validate, hasSchedule, statusFor, kyivDayStart } from './lib/canonical.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -250,6 +251,19 @@ async function main() {
       if (crowd.written) changed++;
     } catch (error) {
       console.warn(`[crowd] skipped: ${error.message}`);
+    }
+  }
+
+  // «Новини оператора»: what the operators write about the light on their public channels, as headline + excerpt + link, into
+  // `v1/news-<region>.json` (lib/operator-posts.mjs). Off until the server says so (SVITLO_OPERATOR_NEWS=1 in the unit), and
+  // never allowed to stop the schedules going out.
+  if (!only && process.env.SVITLO_OPERATOR_NEWS === '1') {
+    try {
+      const news = await publishNews({ outDir: OUT_DIR, known: new Set(REGIONS.map((region) => region.id)) });
+      if (news.written || news.failed) console.log(`[news] ${news.written} feed(s) changed${news.failed ? `, ${news.failed} channel(s) not read` : ''}`);
+      if (news.written) changed++;
+    } catch (error) {
+      console.warn(`[news] skipped: ${error.message}`);
     }
   }
 
