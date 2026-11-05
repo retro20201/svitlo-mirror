@@ -39,11 +39,11 @@
         ]
       },
       {
-        "source": "/v1/crowd.json",
+        "source": "/v1/*.json",
         "headers": [
           {
             "key": "Cache-Control",
-            "value": "public, max-age=60, stale-while-revalidate=300"
+            "value": "public, max-age=300, stale-while-revalidate=1800"
           },
           {
             "key": "Access-Control-Allow-Origin",
@@ -52,11 +52,11 @@
         ]
       },
       {
-        "source": "/v1/*.json",
+        "source": "/v1/crowd.json",
         "headers": [
           {
             "key": "Cache-Control",
-            "value": "public, max-age=300, stale-while-revalidate=1800"
+            "value": "public, max-age=60, stale-while-revalidate=300"
           },
           {
             "key": "Access-Control-Allow-Origin",
