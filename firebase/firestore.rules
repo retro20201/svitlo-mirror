@@ -1,0 +1,32 @@
+rules_version = '2';
+
+// «Світло зникло / з’явилося», sent anonymously by people who switched that on in the app (Settings → «Ділитися відмітками»).
+//
+// One document is one report: who (`d`, a code that changes every day and says nothing about the person), where (`r` region,
+// `q` queue), what (`s`, on or off) and when (`t`, the server's own time — the phone's clock is not believed).
+//
+// ONE REPORT AN HOUR FROM ONE DEVICE, enforced here and not only in the app: the document's name is the device, the place, the
+// state and the hour, so a second report for the same four things in the same hour is a second write to a name that exists —
+// and `update` is not allowed. Another state, another queue or the next hour is a new name.
+//
+// Nobody can read, change or delete a report from a phone. The mirror's own service account reads them (it is not bound by
+// these rules), counts them (tools/mirror/lib/crowd.mjs) and deletes the old ones.
+//
+// WRITE THE NAME CHECK ON ONE LINE. With its `+` at the start of a continuation line the rules compiled and then refused every
+// report (found on the live database, 5 November 2026); on one line they accept exactly what crowd.mjs's `reportId` builds.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /reports/{reportId} {
+      allow get, list, update, delete: if false;
+
+      allow create: if request.resource.data.keys().hasOnly(['d', 'r', 'q', 's', 't'])
+        && request.resource.data.keys().hasAll(['d', 'r', 'q', 's', 't'])
+        && request.resource.data.d is string && request.resource.data.d.matches('^[0-9a-f]{16}$')
+        && request.resource.data.r is string && request.resource.data.r.matches('^[a-z0-9-]{2,24}$')
+        && request.resource.data.q is string && request.resource.data.q.matches('^[A-Za-z0-9._-]{1,16}$')
+        && request.resource.data.s in ['on', 'off']
+        && request.resource.data.t == request.time
+        && reportId == request.resource.data.d + '_' + request.resource.data.r + '_' + request.resource.data.q + '_' + request.resource.data.s + '_' + string(int(math.floor(request.time.toMillis() / 3600000)));
+    }
+  }
+}

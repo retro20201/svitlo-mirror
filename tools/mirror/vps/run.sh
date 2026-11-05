@@ -10,6 +10,10 @@ REPO=/root/svitlo-mirror
 FIREBASE=/root/svitlo-mirror-tools/node_modules/.bin/firebase
 STATE=/var/lib/svitlo-mirror
 export GOOGLE_APPLICATION_CREDENTIALS=/root/.config/svitlo-mirror/service-account.json
+# «За інформацією споживачів» (docs/CROWD_REPORTS.md): the marks people share are counted while this file exists — switched on and off
+# here on the server, by `touch`/`rm`, not by a push.
+[ -f "$STATE/crowd-on" ] && export SVITLO_CROWD_REPORTS=1
+export CROWD_STATE_FILE="$STATE/crowd-state.json"
 
 main() {
   cd "$REPO" || exit 1
