@@ -140,7 +140,7 @@ async function offlineRun(answerFor, now = NOW) {
 
 test('out of season every house answers empty and the region publishes its queues and no day', async () => {
   const { result, asked } = await offlineRun(() => OFF_SEASON);
-  assert.equal(asked.length, 12);
+  assert.equal(asked.length, 16);   // "no outages" is silence, not proof: the second houses are asked too
   assert.deepEqual(result.fact.data, []);
 });
 
@@ -242,4 +242,25 @@ test('the first in-season day end to end: eight queues published, the quiet and 
   assert.equal(error, undefined);
   const [today] = Object.values(result.fact.data);
   assert.deepEqual(Object.keys(today).sort(), ['GPV1.2', 'GPV2.1', 'GPV3.1', 'GPV3.2', 'GPV4.1', 'GPV4.2', 'GPV5.2', 'GPV6.1']);
+});
+
+test('a house the site calls quiet does not settle its підчерга: the next house is asked (6.2 on 5 November)', async () => {
+  const quiet = { ...realTable(null, {}), empty: true };
+  const byHouse = {
+    640796: realAnswer(quiet),                                                          // 600-Річчя 16: «Активних відключень не знайдено»
+    48390: realAnswer(realTable('6.2', { 0: 'confirm_4', 6: 'confirm_4', 10: 'confirm_2' }))   // 600-Річчя 42: a 6.2 table
+  };
+  const { result, error, asked } = await offlineRun((house) => byHouse[house] ?? realAnswer(quiet), NOV4);
+  assert.equal(error, undefined);
+  assert.ok(asked.includes('48390'));
+  const [today] = Object.values(result.fact.data);
+  assert.deepEqual(Object.keys(today), ['GPV6.2']);
+});
+
+test('a quiet first house and a second house the site files elsewhere publish nothing for the підчерга', async () => {
+  const quiet = { ...realTable(null, {}), empty: true };
+  const byHouse = { 48390: realAnswer(realTable('6.1', { 0: 'confirm_4' })) };
+  const { result, error } = await offlineRun((house) => byHouse[house] ?? realAnswer(quiet), NOV4);
+  assert.equal(error, undefined);
+  assert.deepEqual(result.fact.data, []);
 });

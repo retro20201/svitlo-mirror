@@ -38,8 +38,9 @@ const SPACING_MS = 2000;
  * «СО ВМЕМ» part — the city) gives to that підчерга and to no other, checked against the whole
  * document twice, independently. 4.2 lists only whole streets, so its house is on a street no
  * other підчерга mentions. Ids are the site's own (`api/autocomplete.php?type=street|house`,
- * resolved 2026-10-02). A later house is asked only when the site says an earlier one belongs to
- * a different черга.
+ * resolved 2026-10-02). A later house is asked when the site says an earlier one belongs to a
+ * different черга, or answers "no outages" with no черга at all: that is silence about this house,
+ * not proof that the підчерга is quiet.
  */
 const house = (streetId, street, houseId, number) => ({ streetId, street, houseId, house: number });
 export const HOUSES = {
@@ -209,8 +210,10 @@ export async function fetchRegion(region, now = new Date(), { wait = pause } = {
     let parsed;
     for (const home of homes) {
       parsed = parseAnswer(await ask(home), queue, now, (message) => console.warn(`[vinnytsia] ${queue}: ${message}`));
-      // Only a house the site places elsewhere is worth a second one; "no outages" is an answer.
-      if (!parsed.skip?.startsWith('the site puts')) break;
+      // A house the site places elsewhere, or one it calls quiet, vouches for nothing about this
+      // підчерга: on 2026-11-05 600-Річчя 16 came back empty while 600-Річчя 42, also a 6.2 house,
+      // drew a 6.2 table with outages. The next house is asked; only a table naming the підчерга counts.
+      if (!parsed.skip?.startsWith('the site puts') && parsed.skip !== 'no outages listed') break;
       console.warn(`[vinnytsia] ${queue}: ${home.street} ${home.house} — ${parsed.skip}`);
     }
     if (parsed.skip === 'no outages listed') continue;
