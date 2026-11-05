@@ -11,6 +11,9 @@ rules_version = '2';
 //
 // Nobody can read, change or delete a report from a phone. The mirror's own service account reads them (it is not bound by
 // these rules), counts them (tools/mirror/lib/crowd.mjs) and deletes the old ones.
+//
+// WRITE THE NAME CHECK ON ONE LINE. With its `+` at the start of a continuation line the rules compiled and then refused every
+// report (found on the live database, 5 November 2026); on one line they accept exactly what crowd.mjs's `reportId` builds.
 service cloud.firestore {
   match /databases/{database}/documents {
     match /reports/{reportId} {
@@ -23,8 +26,7 @@ service cloud.firestore {
         && request.resource.data.q is string && request.resource.data.q.matches('^[A-Za-z0-9._-]{1,16}$')
         && request.resource.data.s in ['on', 'off']
         && request.resource.data.t == request.time
-        && reportId == request.resource.data.d + '_' + request.resource.data.r + '_' + request.resource.data.q + '_'
-                       + request.resource.data.s + '_' + string(int(math.floor(request.time.toMillis() / 3600000)));
+        && reportId == request.resource.data.d + '_' + request.resource.data.r + '_' + request.resource.data.q + '_' + request.resource.data.s + '_' + string(int(math.floor(request.time.toMillis() / 3600000)));
     }
   }
 }

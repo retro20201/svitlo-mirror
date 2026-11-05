@@ -24,16 +24,29 @@ exists, and Firestore says no — whatever the app does. The app also remembers 
 account, and cannot be turned back into the secret. Whoever invents device codes can still send many reports — which is why the line
 under the schedule needs **three different devices**, is a soft signal, and is not a schedule.
 
-## Switching it on (nothing here is done by merging)
+## Switching it on
 
-1. Enable Firestore in `koly-svitlo`: `firebase firestore:databases:create "(default)" --location=eur3 --project koly-svitlo`
-   (the API must be enabled first: <https://console.developers.google.com/apis/api/firestore.googleapis.com/overview?project=koly-svitlo>).
+Done on 2026-11-05 (the first four; the last two wait for the release that sends):
+
+1. Firestore enabled in `koly-svitlo`: the Firebase CLI enables the API by itself on `firebase deploy --only firestore:rules`, then the
+   database needs a minute for the API to spread: `firebase firestore:databases:create "(default)" --location=eur3 --project koly-svitlo`.
    Free plan: 20 000 writes, 50 000 reads and 20 000 deletes a day. The mirror asks once in five minutes, for the last twenty minutes only.
-2. Deploy the rules: `firebase deploy --only firestore:rules --project koly-svitlo`.
-3. Check them as a phone would meet them: `FIREBASE_API_KEY=… GOOGLE_APPLICATION_CREDENTIALS=… node tools/mirror/crowd-smoke.mjs` — every line must say `ok`.
-4. Give the mirror's service account the role **Cloud Datastore User** (it reads and deletes reports), and set `SVITLO_CROWD_REPORTS=1`
-   and `CROWD_STATE_FILE=$STATE/crowd-state.json` in the server's unit / `run.sh`.
-5. Publish the privacy page (a normal deploy), and answer App Privacy in App Store Connect **before the version that sends is submitted**:
-   *Other Data* → *App Functionality*, **not** linked to the user, **not** used for tracking.
+2. The rules: `firebase deploy --only firestore:rules --project koly-svitlo` (from this folder: `firebase.json` has the `firestore` key).
+   A new ruleset takes up to a minute to reach every server; a report refused right after a deploy is not a bug.
+3. Checked as a phone meets them: `FIREBASE_API_KEY=… node tools/mirror/crowd-smoke.mjs` — every line must say `ok` (the repeat is a 409).
+   The app's key is `API_KEY` in `GoogleService-Info.plist`. The smoke test leaves its documents behind when it has no service
+   account: delete them with `firebase firestore:delete --all-collections --force --project koly-svitlo` while the database is only tests.
+4. The server's own account needed no new role: the account in `/root/.config/svitlo-mirror/service-account.json` reads, creates and
+   deletes in Firestore. On the server the count is **switched on and off by a file**: `touch /var/lib/svitlo-mirror/crowd-on` /
+   `rm` it (`vps/run.sh` exports `SVITLO_CROWD_REPORTS=1` while it exists, and `CROWD_STATE_FILE`).
+5. The privacy page (`feature/crowd-privacy`) goes out with the app version that has the switch, and App Privacy in App Store Connect is
+   answered **before that version is submitted**: *Other Data* → *App Functionality*, **not** linked to the user, **not** used for tracking.
+6. The app side needs the version (1.8) in the store: older apps send nothing and never read `crowd.json`.
 
-Without step 4 the mirror writes no `crowd.json` and the app shows nothing; without the switch in the app nothing is sent.
+Without the file on the server the mirror writes no `crowd.json` and the app shows nothing; without the switch in the app nothing is sent.
+
+## Lessons from switching it on
+
+- **Write the name check in `firestore.rules` on ONE line.** With its `+` at the start of a continuation line the rules compiled and then
+  refused every report. There is no emulator here (no Java): `crowd-smoke.mjs` against the live rules is the test.
+- In rules, `int / int` is integer division, `math.floor` gives a float (so `int(...)` before `string(...)`), and `string(int)` is digits.
