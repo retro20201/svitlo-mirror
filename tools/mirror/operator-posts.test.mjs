@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { feedOf, headlineOf, isAboutPower, plainOf, publishNews, NEWS_SOURCES } from './lib/operator-posts.mjs';
+import { feedOf, headlineOf, isAboutPower, plainOf, publishNews, updateOf, NEWS_SOURCES } from './lib/operator-posts.mjs';
 
 const NOW = new Date('2026-11-05T18:00:00Z');
 const post = (id, postedAt, text) => ({ id, postedAt, text });
@@ -113,4 +113,20 @@ test('a channel shared by four regions is read once', async () => {
   const reads = [];
   await publishNews({ outDir: dir, now: NOW, read: async (channel) => { reads.push(channel); return []; }, sources: NEWS_SOURCES.filter((source) => source.channel === 'dtek_ua') });
   assert.deepEqual(reads, ['dtek_ua']);
+});
+
+// Post 4787 of dtek_ua on 5 November 2026: an emergency order, edited the same evening with a line at the very end.
+const CANCELLED = '‼️Дніпро: за розпорядженням Укренерго в місті застосовані екстрені відключення\n\nНагадаємо, під час екстрених відключень графіки не діють. \n\n▪️В разі змін будемо вас інформувати у нашому телеграм-каналі.\n\n‼️Підписуйтесь та поділіться з родичами і друзями.\n\nUPD: екстрені відключення скасовано';
+
+test('a post corrected in place leads with its correction, not with the order it cancels', () => {
+  assert.equal(updateOf(CANCELLED), 'екстрені відключення скасовано');
+  const source = NEWS_SOURCES.find((candidate) => candidate.region === 'dnipro');
+  const [item] = feedOf([post(4787, '2026-11-05T15:32:33+00:00', CANCELLED)], { channel: 'dtek_ua', opens: source.opens, now: NOW });
+  assert.equal(item.title, 'Екстрені відключення скасовано');
+  assert.ok(item.excerpt.startsWith('За розпорядженням Укренерго'), item.excerpt);
+});
+
+test('a post with no correction is unchanged, and a bare «UPD» with nothing after it is not one', () => {
+  assert.equal(updateOf('Шановні споживачі! Графіки на завтра не змінюються.'), null);
+  assert.equal(updateOf('Графіки змінено.\nUPD: ок'), null);
 });
