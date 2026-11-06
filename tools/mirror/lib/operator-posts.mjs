@@ -57,6 +57,18 @@ const GREETING = /^(?:шановн[іа][^.!?]{0,60}[!.]|увага[!.])\s*/iu;
 const BARE_LINK = /^https?:\/\/\S+$/u;
 
 const WORD_BREAK = /\s+\S*$/u;
+/**
+ * «UPD: екстрені відключення скасовано» — the operator edits it into the END of the post it is correcting, after the tail that
+ * plainOf cuts at. It is the latest word on the post, so it is read first and said first.
+ */
+const UPDATE = /(?:^|\n)\s*(?:UPD|UPDATE|ОНОВЛЕНО|ОНОВЛЕННЯ)\s*[:\-–—]\s*(.+)$/imu;
+
+/** The operator's own correction at the end of a post, or null. */
+export function updateOf(text) {
+  const found = String(text ?? '').match(UPDATE);
+  const note = found ? found[1].replace(/https?:\/\/\S+/gu, '').replace(/\s+/gu, ' ').trim() : '';
+  return note.length >= 8 ? note : null;
+}
 
 /** The text without its leading emoji, its calls to subscribe, its links, and its line breaks. */
 export function plainOf(text) {
@@ -112,7 +124,11 @@ export function feedOf(posts, { channel, opens = null, now = new Date() } = {}) 
     const plain = plainOf(post.text);
     if (opens && !opens.test(plain.slice(0, 40))) continue;
     if (plain.length < 25) continue;
-    const { title, excerpt } = headlineOf(opens ? plain.replace(/^[^:]{1,40}:\s*/u, (head) => (opens.test(head) ? '' : head)) : plain);
+    const said = headlineOf(opens ? plain.replace(/^[^:]{1,40}:\s*/u, (head) => (opens.test(head) ? '' : head)) : plain);
+    // A post corrected in place leads with its correction; what it first said follows as the excerpt.
+    const update = updateOf(post.text);
+    const title = update ? capital(cut(update, TITLE_CHARS)) : said.title;
+    const excerpt = update ? cut(`${said.title} ${said.excerpt}`.trim(), EXCERPT_CHARS) : said.excerpt;
     items.push({ id: `${channel}/${post.id}`, at: new Date(at).toISOString(), title, excerpt, url: `https://t.me/${channel}/${post.id}` });
   }
   return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || (a.id < b.id ? 1 : -1)).slice(0, MAX_ITEMS);
