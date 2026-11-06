@@ -14,6 +14,8 @@ export GOOGLE_APPLICATION_CREDENTIALS=/root/.config/svitlo-mirror/service-accoun
 # here on the server, by `touch`/`rm`, not by a push.
 [ -f "$STATE/crowd-on" ] && export SVITLO_CROWD_REPORTS=1
 export CROWD_STATE_FILE="$STATE/crowd-state.json"
+# «Новини оператора» (lib/operator-posts.mjs): the feeds are written while this file exists — `touch`/`rm` here on the server, not a push.
+[ -f "$STATE/news-on" ] && export SVITLO_OPERATOR_NEWS=1
 
 main() {
   cd "$REPO" || exit 1
