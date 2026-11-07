@@ -72,10 +72,15 @@ export function updateOf(text) {
 
 /** The text without its leading emoji, its calls to subscribe, its links, and its line breaks. */
 export function plainOf(text) {
-  const joined = String(text ?? '').split(/\r?\n/u)
+  const lines = String(text ?? '').split(/\r?\n/u)
     .map((line) => line.replace(/\s+/gu, ' ').trim())
-    .filter((line) => line && !BARE_LINK.test(line))
-    .join(' ');
+    .filter((line) => line && !BARE_LINK.test(line));
+  // The tail is cut by lines first, so the paragraph before it is the last one and is left as the operator wrote it.
+  const tailLine = lines.findIndex((line) => TAIL.test(line));
+  const paragraphs = tailLine > 0 && lines.slice(0, tailLine).join(' ').length > 20 ? lines.slice(0, tailLine) : lines;
+  // A paragraph the operator ended without a full stop is still a sentence: joined bare, «…екстрені відключення» and «Нагадаємо, …»
+  // read as one headline.
+  const joined = paragraphs.map((line, index) => (index < paragraphs.length - 1 && /[\p{L}\p{N}»”")\]]$/u.test(line) ? `${line}.` : line)).join(' ');
   const tail = joined.search(TAIL);
   const body = tail > 20 ? joined.slice(0, tail) : joined;
   const plain = body.replace(/^[^\p{L}\p{N}«"]+/u, '').replace(/https?:\/\/\S+/gu, '').replace(/\s+/gu, ' ').trim();
