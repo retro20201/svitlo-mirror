@@ -28,6 +28,7 @@ import { REGIONS, indexEntry } from './regions.mjs';
 import { writeCalendars } from './lib/ics.mjs';
 import { publishCrowd } from './lib/crowd-fetch.mjs';
 import { publishNews } from './lib/operator-posts.mjs';
+import { publishNational } from './lib/national-news.mjs';
 import { validate, hasSchedule, statusFor, kyivDayStart } from './lib/canonical.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -264,6 +265,19 @@ async function main() {
       if (news.written) changed++;
     } catch (error) {
       console.warn(`[news] skipped: ${error.message}`);
+    }
+  }
+
+  // «Новини України»: the headlines of a few outlets into `v1/news-ua.json` (lib/national-news.mjs). Off until the server says so
+  // (SVITLO_NATIONAL_NEWS=1), read on the slow turn only — the outlets are not asked every two minutes — and never allowed to stop
+  // the schedules going out.
+  if (!only && process.env.SVITLO_NATIONAL_NEWS === '1' && (process.env.MIRROR_SLOW_LANE !== '1' || process.env.MIRROR_SLOW_TURN === '1')) {
+    try {
+      const national = await publishNational({ outDir: OUT_DIR });
+      if (national.written || national.failed) console.log(`[news-ua] ${national.written ? 'file changed' : 'unchanged'}, ${national.read} outlet(s) read${national.failed ? `, ${national.failed} not read` : ''}`);
+      if (national.written) changed++;
+    } catch (error) {
+      console.warn(`[news-ua] skipped: ${error.message}`);
     }
   }
 
