@@ -126,6 +126,16 @@ test('a post corrected in place leads with its correction, not with the order it
   assert.ok(item.excerpt.startsWith('За розпорядженням Укренерго'), item.excerpt);
 });
 
+test('a paragraph the operator left without a full stop does not run into the next one', () => {
+  const [item] = feedOf([post(4796, '2026-11-05T15:00:00+00:00', '‼️Київ: за командою Укренерго запроваджені екстрені відключення\n\nНагадаємо, під час екстрених відключень графіки не діють.')], {
+    channel: 'dtek_ua', opens: NEWS_SOURCES.find((candidate) => candidate.region === 'kyiv').opens, now: NOW
+  });
+  assert.equal(item.title, 'За командою Укренерго запроваджені екстрені відключення.');
+  assert.equal(item.excerpt, 'Нагадаємо, під час екстрених відключень графіки не діють.');
+  // A line that ends in a colon or a comma goes on into the next, and a line already ending in a full stop is left alone.
+  assert.equal(plainOf('Графіки на завтра:\nне змінюються, як і раніше.\nДякуємо за розуміння.'), 'Графіки на завтра: не змінюються, як і раніше. Дякуємо за розуміння.');
+});
+
 test('a post with no correction is unchanged, and a bare «UPD» with nothing after it is not one', () => {
   assert.equal(updateOf('Шановні споживачі! Графіки на завтра не змінюються.'), null);
   assert.equal(updateOf('Графіки змінено.\nUPD: ок'), null);
