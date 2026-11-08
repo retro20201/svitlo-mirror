@@ -33,12 +33,12 @@
  },
  "kyiv-region": {
   "shape": "nested",
-  "settlements": 1203,
-  "streets": 25893,
-  "built": 25893,
-  "addresses": 638298,
+  "settlements": 1206,
+  "streets": 26217,
+  "built": 26217,
+  "addresses": 646596,
   "lines": true,
-  "multiLine": 19205,
+  "multiLine": 17842,
   "aliases": true,
   "aliasKeys": 948
  },
