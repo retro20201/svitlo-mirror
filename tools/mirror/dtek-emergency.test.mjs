@@ -201,3 +201,32 @@ test('«Київ, Київська та Дніпропетровська обл�
   const other = [post(4751, '2026-11-03T05:18:25+00:00', '‼️Одеська та Харківська область: за командою Укренерго запроваджені екстрені відключення')];
   assert.equal(readEmergency(other, { now, area: 'oblast' }).active, false, 'other oblasts do not make Київщина');
 });
+
+// 8 November 2026: the order of Укренерго for Київ was announced on the 6th (post 4796), the power was off all of the 7th and
+// into the night, and the channel wrote on the 8th, 08:35 UTC, that the orders go on. The reader did not know «тривають», so
+// the flag fell at the end of the thirty-six hours (00:26 on the 8th) and was not raised again: a person in Київ whose light
+// came back at 03:53, hours before the schedule's 05:30, was told by the app that nothing was wrong.
+test('«тривають екстрені відключення» renews an order, for every area the head names (8 November 2026)', () => {
+  const first = post(4796, '2026-11-06T10:26:14+00:00', '‼️Київ: за командою Укренерго запроваджені екстрені відключення\n\nНагадаємо, під час екстрених відключень графіки не діють.');
+  const goesOn = post(4814, '2026-11-08T08:35:13+00:00',
+    '‼️Київ, Київська область та місто Дніпро: тривають екстрені відключення\n\nНагадаємо, під час екстрених відключень графіки не діють.\n\n▪️В разі змін будемо вас інформувати у нашому телеграм-каналі.');
+  const thirtySix = 36 * 3600 * 1000;
+  const now = at('2026-11-08T08:42:00Z');
+  assert.equal(readEmergency([first], { now, area: 'city', maxAgeMs: thirtySix }).active, false, 'the old post alone has run out');
+  for (const area of ['city', 'oblast', 'dnipro']) {
+    const reading = readEmergency([first, goesOn], { now, area, maxAgeMs: thirtySix });
+    assert.equal(reading.active, true, area);
+    assert.equal(reading.since, '2026-11-08T08:35:13+00:00', area);
+  }
+  // …and it runs out in its turn, like any other announcement nobody ended.
+  assert.equal(readEmergency([first, goesOn], { now: new Date(Date.parse(goesOn.postedAt) + thirtySix + 60000), area: 'city', maxAgeMs: thirtySix }).active, false);
+});
+
+test('«продовжують діяти екстрені відключення» counts too, and the end of the orders still ends it', () => {
+  const goesOn = post(1, '2026-11-08T08:00:00Z', 'Київ: продовжують діяти екстрені відключення');
+  assert.equal(readEmergency([goesOn], { now: at('2026-11-08T09:00:00Z'), area: 'city' }).active, true);
+  const ended = post(2, '2026-11-08T11:00:00Z', '💡Київ: повертаємось до графіків відключень');
+  assert.equal(readEmergency([goesOn, ended], { now: at('2026-11-08T11:30:00Z'), area: 'city' }).active, false);
+  // «тривають роботи» is a repair crew, not an order.
+  assert.equal(readEmergency([post(3, '2026-11-08T08:00:00Z', 'Київ: тривають ремонтні роботи на підстанції. Нагадаємо, під час екстрених відключень графіки не діють.')], { now: at('2026-11-08T09:00:00Z'), area: 'city' }).active, false);
+});
