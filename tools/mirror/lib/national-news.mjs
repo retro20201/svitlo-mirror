@@ -124,17 +124,36 @@ export function itemsOf(parsed, source, { now = new Date() } = {}) {
   return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, PER_SOURCE);
 }
 
+/** «ІНФОРМАЦІЯ ПРО ВІДКЛЮЧЕННЯ.» as the channel shouts it → «Інформація про відключення.»: a headline in capitals is read as an alarm. */
+export function unshout(text) {
+  const letters = String(text ?? '').replace(/[^\p{L}]/gu, '');
+  if (letters.length < 4 || letters !== letters.toUpperCase()) return text;
+  const lower = text.toLowerCase();
+  return lower.replace(/^\P{L}*\p{L}/u, (head) => head.toUpperCase());
+}
+
 /** A channel's posts about the power → its newest headlines, in the shape the app reads: the outlet's name under each. */
 export function postsOf(posts, source, { now = new Date() } = {}) {
   const since = now.getTime() - MAX_AGE_MS;
   return feedOf(posts.filter((post) => !source.about || source.about.test(post.text)), { channel: source.telegram, now })
     .filter((item) => Date.parse(item.at) >= since)
-    .map((item) => ({ ...item, source: source.name }))
+    .map((item) => ({ ...item, title: unshout(item.title), source: source.name }))
     .slice(0, PER_SOURCE);
 }
 
-/** The outlets' headlines in one list, newest first; the same story told twice by one headline is kept once. */
-export function mergeFeeds(lists) {
+/**
+ * How many of a channel's newest posts stay in the list whatever the outlets wrote since. The outlets give a headline every few
+ * minutes (the thirty newest of them cover about three hours), a channel a few posts a day: by recency alone its notices were
+ * never there.
+ */
+export const RESERVED = 4;
+
+/**
+ * The outlets' headlines in one list, newest first; the same story told twice by one headline is kept once. `reserved`: items
+ * that are in the list however old they are next to the rest — the room is taken out of the list's size, not added to it.
+ */
+export function mergeFeeds(lists, reserved = []) {
+  const held = new Set(reserved.map((item) => item.id));
   const seen = new Set();
   const merged = [];
   for (const item of lists.flat().sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || (a.id < b.id ? 1 : -1))) {
@@ -143,7 +162,8 @@ export function mergeFeeds(lists) {
     seen.add(key);
     merged.push(item);
   }
-  return merged.slice(0, MAX_ITEMS);
+  let room = Math.max(0, MAX_ITEMS - merged.filter((item) => held.has(item.id)).length);
+  return merged.filter((item) => held.has(item.id) || room-- > 0);
 }
 
 /**
@@ -155,19 +175,24 @@ export async function publishNational({
   outDir, now = new Date(), read = (url) => getText(url, { retries: 1, timeoutMs: 15000 }), readPage = pageOf, sources = NATIONAL_SOURCES
 } = {}) {
   const lists = [];
+  const reserved = [];
   let failed = 0;
   for (const source of sources) {
     try {
-      lists.push(source.telegram
-        ? postsOf(await readPage(source.telegram), source, { now })
-        : itemsOf(parseRss(await read(source.url)), source, { now }));
+      if (source.telegram) {
+        const posts = postsOf(await readPage(source.telegram), source, { now });
+        lists.push(posts);
+        reserved.push(...posts.slice(0, RESERVED));
+      } else {
+        lists.push(itemsOf(parseRss(await read(source.url)), source, { now }));
+      }
     } catch (error) {
       failed++;
       console.warn(`[news-ua] ${source.id} not read: ${error.message}`);
     }
   }
   if (!lists.length) return { written: false, read: 0, failed };
-  const body = JSON.stringify({ items: mergeFeeds(lists) });
+  const body = JSON.stringify({ items: mergeFeeds(lists, reserved) });
   const file = join(outDir, 'news-ua.json');
   if ((await readFile(file, 'utf8').catch(() => null)) === body) return { written: false, read: lists.length, failed };
   await writeFile(file, body, 'utf8');
