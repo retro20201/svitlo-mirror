@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { NATIONAL_SOURCES, decodeEntities, itemsOf, mergeFeeds, parseRss, publishNational } from './lib/national-news.mjs';
+import { NATIONAL_SOURCES, decodeEntities, itemsOf, mergeFeeds, parseRss, postsOf, publishNational } from './lib/national-news.mjs';
 
 const NOW = new Date('2026-11-07T06:00:00Z');
 const source = (id) => NATIONAL_SOURCES.find((candidate) => candidate.id === id);
+/** The channel of Укренерго, as the page reader would give it: nothing, for the tests of the outlets. */
+const NO_CHANNEL = async () => [];
 
 // Items shaped as the three feeds wrote them on the morning of 7 November 2026 (the story text of the second one cut short).
 const UKRINFORM = `<?xml version="1.0" encoding="utf-8"?><rss version="2.0"><channel><title>Укрінформ</title>
@@ -106,18 +108,60 @@ test('publishing writes one file, only when it changed, and survives an outlet t
     if (url === source('unian').url) throw new Error('HTTP 503');
     return feeds[url];
   };
-  const first = await publishNational({ outDir: dir, now: NOW, read });
-  assert.deepEqual(first, { written: true, read: 2, failed: 1 });
+  const first = await publishNational({ outDir: dir, now: NOW, read, readPage: NO_CHANNEL });
+  assert.deepEqual(first, { written: true, read: 3, failed: 1 });
   const file = JSON.parse(await readFile(join(dir, 'news-ua.json'), 'utf8'));
   assert.deepEqual(file.items.map((item) => item.source), ['Українська правда', 'Укрінформ']);
 
-  const again = await publishNational({ outDir: dir, now: NOW, read });
+  const again = await publishNational({ outDir: dir, now: NOW, read, readPage: NO_CHANNEL });
   assert.equal(again.written, false);
 });
 
 test('when no outlet can be read, nothing is written and the file already served stays', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'ua-'));
-  const result = await publishNational({ outDir: dir, now: NOW, read: async () => { throw new Error('offline'); } });
-  assert.deepEqual(result, { written: false, read: 0, failed: 3 });
+  const result = await publishNational({ outDir: dir, now: NOW, read: async () => { throw new Error('offline'); }, readPage: async () => { throw new Error('offline'); } });
+  assert.deepEqual(result, { written: false, read: 0, failed: 4 });
   await assert.rejects(stat(join(dir, 'news-ua.json')));
+});
+
+// --- Укренерго, from its public channel.
+
+const UKRENERGO_POSTS = [
+  { id: 5625, postedAt: '2026-11-07T04:37:32+00:00', text: "Через ворожі атаки на енергооб'єкти на ранок є знеструмлення у Вінницькій, Дніпропетровській, Донецькій областях.\nЕнергетики працюють над відновленням.\n▪️Підписуйтеся та поділіться каналом" },
+  { id: 5623, postedAt: '2026-11-06T09:27:11+00:00', text: 'УВАГА! ІНФОРМАЦІЯ ПРО ВІДКЛЮЧЕННЯ\nЗавтра, 7 ЛИСТОПАДА, у частині областей України вимушено будуть застосовуватись заходи обмеження споживання: 00:00 – 23:59 – графіки обмеження потужності для промисловості.' },
+  { id: 5616, postedAt: '2026-11-06T08:52:51+00:00', text: 'Укренерго – переможець премії UNIC «Ділова репутація і доброчесність». Компанія посіла перше місце в номінації.' },
+  { id: 5500, postedAt: '2026-10-30T08:00:00+00:00', text: 'Завтра у частині областей застосовуватимуться графіки відключень електроенергії.' }
+];
+
+test('Укренерго is read from its channel: only what is about the power, with its name under it and the post as its address', () => {
+  const items = postsOf(UKRENERGO_POSTS, source('ukrenergo'), { now: NOW });
+  assert.deepEqual(items.map((item) => item.id), ['ukrenergo/5625', 'ukrenergo/5623'], 'the prize and the post of last week are left out');
+  assert.ok(items.every((item) => item.source === 'Укренерго'));
+  assert.equal(items[0].url, 'https://t.me/ukrenergo/5625');
+  assert.ok(items[0].title.startsWith('Через ворожі атаки'));
+});
+
+test('a headline of the channel goes into the list of the country beside the outlets, newest first', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'national-'));
+  const read = async (url) => (url.includes('ukrinform') ? UKRINFORM : url.includes('pravda') ? PRAVDA : UNIAN);
+  await publishNational({ outDir: dir, now: NOW, read, readPage: async () => UKRENERGO_POSTS });
+  const items = JSON.parse(await readFile(join(dir, 'news-ua.json'), 'utf8')).items;
+  assert.ok(items.some((item) => item.source === 'Укренерго'));
+  assert.deepEqual(items.map((item) => item.at), [...items.map((item) => item.at)].sort().reverse());
+});
+
+test('a channel that cannot be read leaves the outlets going out, and the outlets down leave the channel going out', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'national-'));
+  const read = async (url) => (url.includes('ukrinform') ? UKRINFORM : url.includes('pravda') ? PRAVDA : UNIAN);
+  const withoutChannel = await publishNational({ outDir: dir, now: NOW, read, readPage: async () => { throw new Error('t.me is down'); } });
+  assert.equal(withoutChannel.written, true);
+  assert.equal(withoutChannel.failed, 1);
+  assert.ok(!JSON.parse(await readFile(join(dir, 'news-ua.json'), 'utf8')).items.some((item) => item.source === 'Укренерго'));
+
+  const dir2 = await mkdtemp(join(tmpdir(), 'national-'));
+  const onlyChannel = await publishNational({
+    outDir: dir2, now: NOW, read: async () => { throw new Error('offline'); }, readPage: async () => UKRENERGO_POSTS
+  });
+  assert.equal(onlyChannel.written, true);
+  assert.deepEqual(JSON.parse(await readFile(join(dir2, 'news-ua.json'), 'utf8')).items.map((item) => item.source), ['Укренерго', 'Укренерго']);
 });
