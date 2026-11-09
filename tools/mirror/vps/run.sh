@@ -189,6 +189,16 @@ main() {
     || echo "[news] exited $?"
   tail -n 20000 "$STATE/news.log" > "$STATE/news.log.tmp" && mv "$STATE/news.log.tmp" "$STATE/news.log"
 
+  # «Новий пост оператора» to the opt-in n_<region> topics (send-posts.mjs; lib/posts-push.mjs): a visible alert for the newest new
+  # post of a region's feed, at most one in three hours, none for what a region already held when it was first read. After the
+  # deploy, from the feeds being served, so a phone opening the banner finds the post on its news screen. `posts-mode` is written by
+  # hand; anything but "on" is shadow: everything decided and recorded, nothing sent.
+  local posts_mode
+  posts_mode=$(cat "$STATE/posts-mode" 2>/dev/null || echo shadow)
+  timeout -k 10 90 node tools/mirror/send-posts.mjs --ledger "$STATE/posts-ledger.json" --mode "$posts_mode" >> "$STATE/posts.log" 2>&1 \
+    || echo "[posts] exited $?"
+  tail -n 5000 "$STATE/posts.log" > "$STATE/posts.log.tmp" && mv "$STATE/posts.log.tmp" "$STATE/posts.log"
+
   # A region that has stopped being read, told once to the developer's phone (topic dev_alerts; lib/health-alert.mjs),
   # from the index this cycle just wrote. Never allowed to fail the cycle.
   timeout -k 5 60 node tools/mirror/send-health.mjs "$STATE/health.json" firebase/public/v1/index.json >> "$STATE/health.log" 2>&1 \

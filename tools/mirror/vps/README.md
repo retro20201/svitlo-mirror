@@ -18,6 +18,12 @@ touches them: the service may write only to the folders listed in `ReadWritePath
 | last tested commit, last test log | `/var/lib/svitlo-mirror` |
 | schedule news: `news-ledger.json` (what people were told), `news.log`, `news-mode`, `news-breaker.json` | `/var/lib/svitlo-mirror` |
 
+«Новий пост оператора» (`send-posts.mjs`, one visible alert to the opt-in `n_<region>` topic when an operator's channel has
+a post the app's news screen did not have) runs after the same deploy, with the same two switches in `posts-mode`
+(`echo on > /var/lib/svitlo-mirror/posts-mode`; anything but exactly `on` is shadow) and a ledger, `posts-ledger.json`, with its
+log in `posts.log`. A region's first read is adopted silently; at most one alert per region in three hours, for a post at most six
+hours old. Nobody hears it who has not switched «Нові пости оператора» on in the app (off by default).
+
 Schedule news (`send-news.mjs`, the visible alerts to the opt-in `q_`/`s_`/`e_` topics) runs after
 every cycle's deploy, in shadow unless `news-mode` says exactly `on`: it decides and logs everything
 to `news.log` and sends nothing. Turn it on with `echo on > /var/lib/svitlo-mirror/news-mode`, and
