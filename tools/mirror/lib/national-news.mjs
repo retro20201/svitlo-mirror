@@ -1,6 +1,8 @@
 import { writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getText } from './http.mjs';
+import { pageOf } from './dtek-emergency.mjs';
+import { feedOf } from './operator-posts.mjs';
 
 /**
  * «Новини України»: the headlines of a few Ukrainian news outlets, as a headline, the line the outlet's own feed gives with it,
@@ -18,6 +20,11 @@ import { getText } from './http.mjs';
 /**
  * `hosts`: a story's link must lead to the outlet's own site — a feed that carries someone else's link (an advertisement, a
  * redirect) is not passed on. `allow`: the categories an outlet's feed mixes with horoscopes and quizzes; with none, all pass.
+ *
+ * `telegram`: a source that has no feed to read but a public channel — Укренерго's own site is behind a challenge that no
+ * honest client passes, and its channel says the same first («Інформація про відключення», «Стан енергосистеми»). Read as an
+ * operator's channel is (lib/operator-posts.mjs): only what is about the power, as a headline and a line, and the post's own
+ * address, so that whoever wants the rest opens it where it was written.
  */
 export const NATIONAL_SOURCES = [
   { id: 'ukrinform', name: 'Укрінформ', url: 'https://www.ukrinform.ua/rss/block-lastnews', hosts: ['ukrinform.ua'] },
@@ -25,6 +32,12 @@ export const NATIONAL_SOURCES = [
   {
     id: 'unian', name: 'УНІАН', url: 'https://www.unian.ua/rss', hosts: ['unian.ua'],
     allow: /^(?:Украина|Война|Политика|Финансы|Энергетика|Мир|Происшествия|Экология|Транспорт)$/iu
+  },
+  {
+    id: 'ukrenergo', name: 'Укренерго', telegram: 'ukrenergo',
+    // The operator-feed rule counts the company's own name as being about the power, and here that lets an award through:
+    // the national grid operator's posts are held to the words of an outage itself.
+    about: /відключен|електропостачан|знеструм|графік|обмеження споживання|обмеження потужності|енергосистем|дефіцит/iu
   }
 ];
 
@@ -111,6 +124,15 @@ export function itemsOf(parsed, source, { now = new Date() } = {}) {
   return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, PER_SOURCE);
 }
 
+/** A channel's posts about the power → its newest headlines, in the shape the app reads: the outlet's name under each. */
+export function postsOf(posts, source, { now = new Date() } = {}) {
+  const since = now.getTime() - MAX_AGE_MS;
+  return feedOf(posts.filter((post) => !source.about || source.about.test(post.text)), { channel: source.telegram, now })
+    .filter((item) => Date.parse(item.at) >= since)
+    .map((item) => ({ ...item, source: source.name }))
+    .slice(0, PER_SOURCE);
+}
+
 /** The outlets' headlines in one list, newest first; the same story told twice by one headline is kept once. */
 export function mergeFeeds(lists) {
   const seen = new Set();
@@ -129,12 +151,16 @@ export function mergeFeeds(lists) {
  *
  * @returns {Promise<{ written: boolean, read: number, failed: number }>}
  */
-export async function publishNational({ outDir, now = new Date(), read = (url) => getText(url, { retries: 1, timeoutMs: 15000 }), sources = NATIONAL_SOURCES } = {}) {
+export async function publishNational({
+  outDir, now = new Date(), read = (url) => getText(url, { retries: 1, timeoutMs: 15000 }), readPage = pageOf, sources = NATIONAL_SOURCES
+} = {}) {
   const lists = [];
   let failed = 0;
   for (const source of sources) {
     try {
-      lists.push(itemsOf(parseRss(await read(source.url)), source, { now }));
+      lists.push(source.telegram
+        ? postsOf(await readPage(source.telegram), source, { now })
+        : itemsOf(parseRss(await read(source.url)), source, { now }));
     } catch (error) {
       failed++;
       console.warn(`[news-ua] ${source.id} not read: ${error.message}`);
