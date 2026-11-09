@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { NATIONAL_SOURCES, decodeEntities, itemsOf, mergeFeeds, parseRss, postsOf, publishNational } from './lib/national-news.mjs';
+import { NATIONAL_SOURCES, RESERVED, decodeEntities, itemsOf, mergeFeeds, parseRss, postsOf, publishNational, unshout } from './lib/national-news.mjs';
 
 const NOW = new Date('2026-11-07T06:00:00Z');
 const source = (id) => NATIONAL_SOURCES.find((candidate) => candidate.id === id);
@@ -164,4 +164,41 @@ test('a channel that cannot be read leaves the outlets going out, and the outlet
   });
   assert.equal(onlyChannel.written, true);
   assert.deepEqual(JSON.parse(await readFile(join(dir2, 'news-ua.json'), 'utf8')).items.map((item) => item.source), ['Укренерго', 'Укренерго']);
+});
+
+test('a headline the channel writes in capitals is read in sentence case, and one that is not is left as it is', () => {
+  assert.equal(unshout('ІНФОРМАЦІЯ ПРО ВІДКЛЮЧЕННЯ.'), 'Інформація про відключення.');
+  assert.equal(unshout('АВАРІЙНІ ВІДКЛЮЧЕННЯ.'), 'Аварійні відключення.');
+  assert.equal(unshout('Через ворожі атаки є знеструмлення.'), 'Через ворожі атаки є знеструмлення.');
+  assert.equal(unshout('НРК виконали 30 тисяч місій.'), 'НРК виконали 30 тисяч місій.', 'a lower-case word makes it a sentence');
+  assert.equal(unshout('УВАГА'), 'Увага');
+  assert.equal(unshout('ЗСУ'), 'ЗСУ', 'three letters are an abbreviation');
+});
+
+test('the channel\'s newest posts stay in a list that the outlets\' thirty newest headlines would fill', () => {
+  const outlet = (n) => ({ id: `o/${n}`, at: new Date(NOW.getTime() - n * 60_000).toISOString(), title: `Заголовок видання ${n} про щось`, excerpt: '', url: `https://www.ukrinform.ua/${n}`, source: 'Укрінформ' });
+  const outlets = Array.from({ length: 40 }, (_, n) => outlet(n));
+  const notices = [5, 6, 7].map((hours, i) => ({
+    id: `ukrenergo/${i}`, at: new Date(NOW.getTime() - hours * 3600_000).toISOString(), title: `Повідомлення Укренерго ${i}`, excerpt: '', url: `https://t.me/ukrenergo/${i}`, source: 'Укренерго'
+  }));
+
+  const crowdedOut = mergeFeeds([outlets, notices]);
+  assert.equal(crowdedOut.length, 30);
+  assert.equal(crowdedOut.filter((item) => item.source === 'Укренерго').length, 0, 'by recency alone they are never there');
+
+  const kept = mergeFeeds([outlets, notices], notices.slice(0, RESERVED));
+  assert.equal(kept.length, 30, 'the room is taken from the list, not added to it');
+  assert.equal(kept.filter((item) => item.source === 'Укренерго').length, 3);
+  assert.deepEqual(kept.map((item) => item.at), [...kept.map((item) => item.at)].sort().reverse(), 'still newest first');
+});
+
+test('publishing keeps the channel\'s newest posts in the file however busy the outlets are', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'national-'));
+  const busy = (n) => `<item><title>Новина видання номер ${n}, досить довга для відбору</title><link>https://www.ukrinform.ua/rubric-ato/${n}-x.html</link><pubDate>${new Date(NOW.getTime() - n * 60_000).toUTCString()}</pubDate><category>Війна</category></item>`;
+  const feed = `<rss version="2.0"><channel><title>Укрінформ</title>${Array.from({ length: 40 }, (_, n) => busy(n)).join('')}</channel></rss>`;
+  const read = async (url) => (url.includes('ukrinform') ? feed : '<rss version="2.0"><channel></channel></rss>');
+  await publishNational({ outDir: dir, now: NOW, read, readPage: async () => UKRENERGO_POSTS });
+  const items = JSON.parse(await readFile(join(dir, 'news-ua.json'), 'utf8')).items;
+  assert.ok(items.length <= 30);
+  assert.ok(items.some((item) => item.source === 'Укренерго'), 'their notices are in the file');
 });
