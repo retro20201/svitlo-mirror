@@ -180,9 +180,16 @@ The dictionary is ~17 900 files but only **6 MB of actual content** — `du` rep
 17 000 files of ~175 bytes each take a whole filesystem block. Firebase counts bytes, so this is
 nowhere near the 10 GB storage limit, and Hosting documents no limit on file count.
 
-`v1/addr/**` is served with `max-age=86400` (the schedules keep their 300 s). The schedule rule
+`v1/addr/**` is served with `max-age=3600` (the schedules keep their 300 s). The schedule rule
 `/v1/*.json` does **not** cover these — a `*` glob does not cross `/` — which is why they need
 their own rule.
+
+The hour is deliberate. It was a day until 2026-11-09, and a re-harvest then took a day to reach the
+phones that had looked at the street before it: the app reads these files through `URLSession.shared`,
+whose disk cache keeps a response for its whole `max-age` and survives closing the app. A person who
+searched «вул. Нова, 6» in Фастів that morning still got the old single line that evening. A stale
+copy now costs at most an hour, and the next request after it is a conditional one (the files carry
+an ETag), answered with a 304 and no body.
 
 ### Today: one site
 
