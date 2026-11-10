@@ -80,7 +80,7 @@ test('only the regions with an emergency signal tell the app they carry an emerg
   // «аварійні»; the app offers that switch only where the index says so. Everywhere else the row stays as it was.
   const { REGIONS, indexEntry } = await import('./regions.mjs');
   const flagged = REGIONS.filter((region) => indexEntry(region).emergencySignal === true).map((region) => region.id);
-  assert.deepEqual(flagged, ['kyiv', 'kyiv-region', 'dnipro', 'zhytomyr', 'kharkiv', 'cherkasy']);
+  assert.deepEqual(flagged, ['kyiv', 'kyiv-region', 'dnipro', 'cek', 'zhytomyr', 'kharkiv', 'cherkasy']);
   assert.ok(REGIONS.every((region) => flagged.includes(region.id) || !('emergencySignal' in indexEntry(region))));
   assert.deepEqual(Object.keys(indexEntry(REGIONS.find((region) => region.id === 'kyiv'))),
     ['id', 'title', 'subtitle', 'operator', 'status', 'emergencySignal', 'operatorSite']);
