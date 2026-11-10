@@ -17,7 +17,9 @@ const QUEUES = ['1.1', '1.2', '2.1', '2.2', '3.1', '3.2', '4.1', '4.2', '5.1', '
 const hhmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 const asText = (rows) => Object.fromEntries(QUEUES.map((q, i) => [q, rows[i].map((w) => `${hhmm(w.start)}-${hhmm(w.end)}`)]));
 
-for (const id of ['2594', '2985', '3516']) {
+// 3872 and 3882 (9 and 10 November 2026) carry a «4 год. 00 хв.» the reader refused until the duration's number was no longer guessed to be
+// one digit or two from its shape: the thin 4 there is 7 pixels wide and 7 high. Transcribed from the pictures by eye, then compared.
+for (const id of ['2594', '2985', '3516', '3872', '3882']) {
   test(`picture ${id} reads card for card as transcribed`, () => {
     const result = readSchedulePicture(fixture(`sumy.fixture-${id}.jpg`), MODEL);
     assert.equal(result.error, undefined);

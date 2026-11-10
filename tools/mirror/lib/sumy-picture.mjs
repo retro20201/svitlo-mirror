@@ -309,7 +309,7 @@ export function ncc(a, b) {
 
 /** The duration line "4 год. 00 хв." → the boxes of its leading number (1 or 2 digits). */
 export const DURATION_INK = 0.18;
-export function durationHoursBoxes(grid) {
+export function durationHoursBoxes(grid, digits = null) {
   const { w, h, v } = grid;
   const colInk = (x) => { for (let y = 0; y < h; y++) if (v(x, y) > DURATION_INK) return true; return false; };
   let x = 0; while (x < w && !colInk(x)) x++;
@@ -329,8 +329,14 @@ export function durationHoursBoxes(grid) {
   for (let i = 1; i < segs.length && segs[i].x0 - token.at(-1).x1 - 1 < Math.max(2, H * 0.28); i++) token.push(segs[i]);
   const span = { x0: token[0].x0, x1: token.at(-1).x1 };
   const width = span.x1 - span.x0 + 1;
+  const halves = [{ x0: span.x0, x1: span.x0 + Math.floor(width / 2) - 1 }, { x0: span.x0 + Math.floor(width / 2), x1: span.x1 }];
+  // The reading says how many digits the number has, and that is not guessed from its shape: on 10 November 2026 a thin 4 drawn 7
+  // pixels wide and 7 high (the channel compressed the picture harder) passed for two digits of a 6-pixel line, and every card
+  // with a «4 год.» was refused. A window is under five hours here (`readPicture` holds no longer reading), so the number is one digit.
+  if (digits === 1) return [span];
+  if (digits === 2) return halves;
   // A thin 4 falls apart into its diagonal and its stem, so pieces are not digits: the width is.
-  return width > H * 0.95 ? [{ x0: span.x0, x1: span.x0 + Math.floor(width / 2) - 1 }, { x0: span.x0 + Math.floor(width / 2), x1: span.x1 }] : [span];
+  return width > H * 0.95 ? halves : [span];
 }
 
 // ── Reading ─────────────────────────────────────────────────────────────────────────────
@@ -365,7 +371,7 @@ const minutesOf = (parts) => {
 /** How well the card's duration line reads as `hours`; null if the line cannot be cut into that many digits. */
 function durationScore(lm, bg, card, band, hours, D) {
   const dgrid = inkGrid(lm, bg, card.x0 + 3, band.y0 - 1, card.x1 - 3, band.y1 + 1);
-  const boxes = durationHoursBoxes(dgrid);
+  const boxes = durationHoursBoxes(dgrid, hours.length);
   if (!boxes || boxes.length !== hours.length) return null;
   let total = 0, rival = 0;
   for (const [i, b] of boxes.entries()) {
