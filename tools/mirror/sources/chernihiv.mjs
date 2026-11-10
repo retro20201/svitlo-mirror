@@ -4,6 +4,7 @@ import { pictureChannelSnapshot } from '../lib/picture-channel.mjs';
 import { readChernihivPicture, loadDigits } from '../lib/chernihiv-picture.mjs';
 import { parseAmendment } from '../lib/chernihiv-amendments.mjs';
 import { kyivDayStart, NATIONAL_QUEUES } from '../lib/canonical.mjs';
+import { withChannelEmergency } from './dtek.mjs';
 
 /**
  * АТ «Чернігівобленерго» — the ГПВ tables and amendments it posts to @chernigivoblenergo.
@@ -45,8 +46,14 @@ export function amendmentOf(post, day) {
   return changes.length ? changes : null;
 }
 
-export async function fetchRegion(region, options = {}) {
-  return pictureChannelSnapshot(region, {
+/**
+ * The same channel announces «Графік аварійних відключень (ГАВ)» when Укренерго commands it — «⚠️ За вказівкою НЕК "Укренерго", у
+ * Чернігівській області застосовано 5 черг Графіка аварійних відключень (ГАВ). ☝️ Нагадаємо: ГАВ діє до окремого розпорядження»
+ * (6 and 7 November 2026). The table does not change then, so the channel's page is read for the announcement too
+ * (lib/dtek-emergency.mjs, area 'own'); `readEmergency` is for a test to give its own posts.
+ */
+export async function fetchRegion(region, { readEmergency, ...options } = {}) {
+  const snapshot = await pictureChannelSnapshot(region, {
     channel: CHANNEL,
     source: 'chernihiv',
     dayOf: scheduleDay,
@@ -57,5 +64,11 @@ export async function fetchRegion(region, options = {}) {
     },
     amendment: amendmentOf,
     ...options
+  });
+  if (!region.emergencyTelegram) return snapshot;
+  return withChannelEmergency(snapshot, region, {
+    ...(readEmergency ? { read: readEmergency } : {}),
+    ...(options.now ? { now: options.now } : {}),
+    log: (line) => console.log(`[emergency] ${line}`)
   });
 }

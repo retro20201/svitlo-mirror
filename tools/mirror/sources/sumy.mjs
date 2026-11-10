@@ -3,6 +3,7 @@ import { dayOfPost } from '../lib/telegram.mjs';
 import { pictureChannelSnapshot } from '../lib/picture-channel.mjs';
 import { readSchedulePicture } from '../lib/sumy-picture.mjs';
 import { kyivDayStart, NATIONAL_QUEUES } from '../lib/canonical.mjs';
+import { withChannelEmergency } from './dtek.mjs';
 
 /**
  * АТ «Сумиобленерго» — the ГПВ table it posts to @SumyEnergo, read off the picture.
@@ -44,8 +45,15 @@ export function halvesFromRows(rows) {
   return halves;
 }
 
-export async function fetchRegion(region, options = {}) {
-  return pictureChannelSnapshot(region, {
+/**
+ * The same channel announces «графіки аварійних відключень» (ГАВ) the moment Укренерго commands them: «О 17:50 за командою НЕК
+ * "Укренерго" на Сумщині введено графіки аварійних відключень у повному обсязі - для 1-10 черг» (9 November 2026), «о 09:07 введені
+ * графіки аварійних відключень для 1-5 черг» (10 November). The table does not change then, and the hours it shows are not the ones
+ * in force: Укренерго itself said that morning that the published schedules did not apply in Сумська область. So the channel's page
+ * is read for the announcement too (lib/dtek-emergency.mjs, area 'own'); `readEmergency` is for a test to give its own posts.
+ */
+export async function fetchRegion(region, { readEmergency, ...options } = {}) {
+  const snapshot = await pictureChannelSnapshot(region, {
     channel: CHANNEL,
     source: 'sumy',
     dayOf: scheduleDay,
@@ -54,5 +62,11 @@ export async function fetchRegion(region, options = {}) {
       return result.error ? result : { halves: halvesFromRows(result.rows) };
     },
     ...options
+  });
+  if (!region.emergencyTelegram) return snapshot;
+  return withChannelEmergency(snapshot, region, {
+    ...(readEmergency ? { read: readEmergency } : {}),
+    ...(options.now ? { now: options.now } : {}),
+    log: (line) => console.log(`[emergency] ${line}`)
   });
 }

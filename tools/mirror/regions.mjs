@@ -86,7 +86,11 @@ export const REGIONS = [
     emergencyTelegram: { area: 'own', channel: 'ztoe_ua', maxAgeHours: 36 } },
   // Read off the picture the operator posts to @SumyEnergo — its site's own schedule comes from a
   // robots-disallowed /api/. See sources/sumy.mjs and lib/sumy-picture.mjs.
-  { id: 'sumy',          title: 'Сумська область',     subtitle: 'область',          operator: 'АТ «Сумиобленерго»',           source: 'sumy', status: 'seasonal' },
+  { id: 'sumy',          title: 'Сумська область',     subtitle: 'область',          operator: 'АТ «Сумиобленерго»',           source: 'sumy', status: 'seasonal',
+    // «О 09:07 введені графіки аварійних відключень для 1-5 черг» on its own channel (sources/sumy.mjs; lib/dtek-emergency.mjs, area 'own').
+    // It never writes the end of an order (none among the posts of 6–10 November 2026), only the next one, so an order is believed for
+    // twelve hours, as Черкаси's is, and not for the day and a half of a channel that ends them.
+    emergencyTelegram: { area: 'own', channel: 'SumyEnergo', maxAgeHours: 12 } },
   { id: 'rivne',         title: 'Рівненська область',  subtitle: 'область',          operator: 'АТ «Рівнеобленерго»',          source: 'rivne', site: 'https://www.ez.rv.ua/', status: 'seasonal', probe: 'https://www.ez.rv.ua/grafiky-pogodynnyh-vidklyuchen/' },
 
   // The «403 to every automated request» was Cloudflare refusing non-Ukrainian addresses: from the
@@ -111,7 +115,9 @@ export const REGIONS = [
   { id: 'chernivtsi',    title: 'Чернівецька область', subtitle: 'область',          operator: 'АТ «Чернівціобленерго»',                  source: 'chernivtsi', site: 'https://oblenergo.cv.ua/', status: 'seasonal' },
   // The tables and free-text amendments the operator posts to @chernigivoblenergo; its website
   // bans an address for fetching robots.txt and is not touched.
-  { id: 'chernihiv',     title: 'Чернігівська область', subtitle: 'область',         operator: 'АТ «Чернігівобленерго»',                  source: 'chernihiv', status: 'seasonal' },
+  { id: 'chernihiv',     title: 'Чернігівська область', subtitle: 'область',         operator: 'АТ «Чернігівобленерго»',                  source: 'chernihiv', status: 'seasonal',
+    // «У Чернігівській області застосовано 5 черг Графіка аварійних відключень (ГАВ)» on its own channel (sources/chernihiv.mjs).
+    emergencyTelegram: { area: 'own', channel: 'chernigivoblenergo', maxAgeHours: 36 } },
   // The grid the operator posts to @zakarpatenergyofficial, read by colour; the caption dates it.
   { id: 'zakarpattia',   title: 'Закарпатська область', subtitle: 'область',         operator: 'АТ «Закарпаттяобленерго»',                source: 'zakarpattia', status: 'seasonal' },
 
