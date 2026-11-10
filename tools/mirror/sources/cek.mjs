@@ -1,4 +1,6 @@
-import { fetchChannel, gpvSnapshot } from '../lib/telegram.mjs';
+import { fetchChannel, parseGpvPost, mergeVersions, factFromHalves } from '../lib/telegram.mjs';
+import { buildSnapshot, kyivDayStart, queueNames, NATIONAL_QUEUES } from '../lib/canonical.mjs';
+import { amendmentOf, applyAmendments } from '../lib/cek-amendments.mjs';
 import { readerOf } from '../lib/dtek-emergency.mjs';
 import { withChannelEmergency } from './dtek.mjs';
 
@@ -23,10 +25,11 @@ const CHANNEL = 'cek_info';
  * neither «ГПВ» nor «погодинні», which the shared reader wants before it believes a post is a schedule, and the windows of one
  * day's table carry a ✅ before each (9 November) and of another's nothing (10 November).
  *
- * Not read yet, by design — each leaves the table as published rather than guess:
- *  - «зміни в ГПВ …» posts, free text («з 18:00 додатково застосовуються відлючення черги 1.1, 1.2 та черги 4.1, 4.2 — з 21:30 до
- *    22:00»): the table can be shorter than the evening's cuts, and the banner under it says the schedule may change;
- *  - Павлоград's own two-queue schedule («1 черга», «2 черга»), a grid the twelve queues do not describe.
+ * Through the day the operator posts «зміни у ГПВ …»: a few queues with new windows, or a phrase («з 22:00 до 24:00 застосовуються
+ * відключення черг: 1.1, 1.2 …», «З 07:00 додатково застосовуються черги …»). Those are added to the table and nothing is taken out
+ * (lib/cek-amendments.mjs).
+ *
+ * Not read, by design: Павлоград's own two-queue schedule («1 черга», «2 черга»), a grid the twelve queues do not describe.
  *
  * «Діють ЕКСТРЕНІ ВІДКЛЮЧЕННЯ» / «скасування ЕКСТРЕНИХ ВІДКЛЮЧЕНЬ» on the same channel is the emergency signal
  * (lib/dtek-emergency.mjs, area 'own').
@@ -45,10 +48,40 @@ export function prepare(posts) {
     : post));
 }
 
+/**
+ * The days the posts hold: each evening's table, and what the day's «зміни у ГПВ» posts do to it (lib/cek-amendments.mjs). `since` is
+ * the first day kept (yesterday by the clock when it is not given, as lib/telegram.mjs has it).
+ */
+export function scheduleOf(posts, options = {}) {
+  const ready = prepare(posts);
+  const base = mergeVersions(ready.map(parseGpvPost).filter(Boolean), options);
+  // a change to a day no table of which has been read has nothing to change
+  const amendments = ready.map(amendmentOf).filter((amendment) => amendment && base.halves[amendment.epoch]);
+  if (!amendments.length) return base;
+  const halves = applyAmendments(base.halves, amendments);
+  const latest = Math.max(...amendments.map((amendment) => amendment.at));
+  return {
+    fact: factFromHalves(halves),
+    halves,
+    queues: base.queues,
+    update: latest > Date.parse(base.update ?? 0) ? new Date(latest).toISOString() : base.update
+  };
+}
+
 /** The region's snapshot from the channel's posts, as `fetchRegion` makes it: the tables, and the emergency the channel declares. */
 export async function snapshotFrom(posts, region, { now = new Date(), log = (line) => console.log(`[emergency] ${line}`) } = {}) {
   const ready = prepare(posts);
-  const snapshot = await gpvSnapshot({ region, channel: CHANNEL, source: 'cek', posts: ready });
+  const { fact, queues, update } = scheduleOf(posts);
+  // The national 1.1–6.2 whether or not a post has named them: out of season there are none, and a snapshot with no queues is degraded.
+  const snapshot = buildSnapshot({
+    regionId: region.id,
+    title: region.title,
+    queues: { ...queueNames(NATIONAL_QUEUES), ...queueNames(queues.map((key) => key.replace(/^GPV/, ''))) },
+    fact,
+    todayEpoch: kyivDayStart(),
+    update,
+    source: 'cek'
+  });
   return withChannelEmergency(snapshot, region, { read: readerOf(ready), now, log });
 }
 
