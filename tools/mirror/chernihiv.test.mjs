@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { readChernihivPicture, loadDigits } from './lib/chernihiv-picture.mjs';
+import { readChernihivPicture, readTiles, loadDigits } from './lib/chernihiv-picture.mjs';
+import { decodeJpeg } from './lib/jpeg.mjs';
 import { parseLine, parseAmendment } from './lib/chernihiv-amendments.mjs';
 import { scheduleDay, fetchRegion } from './sources/chernihiv.mjs';
 import { kyivDayStart } from './lib/canonical.mjs';
@@ -37,6 +38,35 @@ test('a tile table reads window for window as transcribed', () => {
   const { rows, error } = readChernihivPicture(fixture('chernihiv.fixture-tiles-5260.jpg'), MODEL, DIGITS);
   assert.equal(error, undefined);
   QUEUES.forEach((q, i) => assert.deepEqual(spans(rows[i], 'off'), FX.tiles5260[q].map((w) => w.replace(/-00:00$/, '-24:00')), q));
+});
+
+test('the bolder tables of October 2026 — digits touching each other, the colon and the icon — read window for window as transcribed', () => {
+  // 27 October (the icon of tile 4.1 touches its first digit), 6 November (three windows in most tiles) and 10 November.
+  for (const id of ['5598', '5661', '5678']) {
+    const { rows, error } = readChernihivPicture(fixture(`chernihiv.fixture-tiles-${id}.jpg`), MODEL, DIGITS);
+    assert.equal(error, undefined, id);
+    QUEUES.forEach((q, i) => assert.deepEqual(spans(rows[i], 'off'), FX[`tiles${id}`][q].map((w) => w.replace(/-00:00$/, '-24:00')), `${id} ${q}`));
+  }
+});
+
+test('a picture it can no longer make the digits of out is refused, not guessed', () => {
+  // The bold 27 October picture smeared by a 5×5 box blur: the tiles are all still there, the digits are mush.
+  const image = decodeJpeg(fixture('chernihiv.fixture-tiles-5598.jpg'));
+  const blurred = {
+    width: image.width,
+    height: image.height,
+    pixel: (x, y) => {
+      const sum = [0, 0, 0]; let n = 0;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const px = Math.min(image.width - 1, Math.max(0, x + dx)), py = Math.min(image.height - 1, Math.max(0, y + dy));
+        const c = image.pixel(px, py); sum[0] += c[0]; sum[1] += c[1]; sum[2] += c[2]; n++;
+      }
+      return sum.map((v) => v / n);
+    }
+  };
+  const read = readTiles(blurred, MODEL, DIGITS);
+  assert.equal(read.rows, undefined);
+  assert.ok(read.error);
 });
 
 test('a tile table it is not sure of is refused, and a banner is no table at all', () => {

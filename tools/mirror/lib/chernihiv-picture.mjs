@@ -147,7 +147,99 @@ export function tileLayout(image) {
  * (taller than the digits) and anything left of it dropped, a colon recognised as two small
  * stacked dots, the dash as one flat piece at mid-height. `{ digits, colons, dash }` or `{ error }`.
  */
-export function digitBoxes(grid, threshold = 0.4) {
+export function digitBoxes(grid, threshold = 0.4, digits = null) {
+  const pieces = digitBoxesFromPieces(grid, threshold);
+  if (!pieces.error || !digits) return pieces;
+  // The pieces of ink did not come out as eight digits and the three gaps between them: the picture is one the channel compressed harder
+  // (10 November 2026), in a bold type whose digits touch each other and the colon. The digits are then placed by what they look like.
+  const placed = digitBoxesByRecognition(grid, scorerOf(digits), threshold);
+  return placed.error ? pieces : placed;
+}
+
+/**
+ * The eight digits of "HH:MM - HH:MM" placed by recognition: from the ink right of the icon, the eight boxes in order whose contents look
+ * most like digits, with the gaps the line's own punctuation leaves between them (none inside a number, a colon's between hours and
+ * minutes, a dash's and its spaces between the two times). Not a way to read an unreadable line — every box is still read under the
+ * grammar, with the margins, by `readTiles` — only to find where the digits are when ink that touches cannot say. `scorer` maps a box's
+ * canvas to a score per digit, higher the likelier (`scorerOf`).
+ * With `labels` (the eight characters the line is known to say, for building the model) a box is scored by how much it looks like
+ * its own label, not like any digit. `{ digits, H }` or `{ error }`.
+ */
+export function digitBoxesByRecognition(grid, scorer, threshold = 0.4, labels = null) {
+  const { w, h } = grid;
+  const ink = (x, y) => grid.g[y * w + x] > threshold;
+  const col = Array.from({ length: w }, (_, x) => { for (let y = 0; y < h; y++) if (ink(x, y)) return true; return false; });
+  // The icon (taller than the digits, and touching the first of them in some tiles) is on the left, so the line's height is taken from
+  // the right of the ink and the chain of eight digits is anchored at the right, where the text ends: whatever is left of the first
+  // digit is not part of the chain.
+  let x = 0; while (x < w && !col[x]) x++;
+  if (x >= w) return { error: 'no ink' };
+  const start = x;
+  let end = w - 1; while (end > start && !col[end]) end--;
+  if (end - start < 60) return { error: 'too little ink' };
+  const from = start + Math.floor((end - start) * 0.3);
+  let top = h, bottom = -1;
+  for (let y = 0; y < h; y++) for (let xx = from; xx <= end; xx++) if (ink(xx, y)) { top = Math.min(top, y); bottom = Math.max(bottom, y); }
+  const H = bottom - top + 1;
+  if (H < 8) return { error: 'text too small' };
+
+  const memo = new Map();
+  /** How well columns a–b look like digit k, or null when they cannot be one. */
+  const boxScore = (a, b, k) => {
+    const key = a * 100000 + b;
+    if (!memo.has(key)) memo.set(key, boxScores(a, b));
+    const scores = memo.get(key);
+    if (!scores) return null;
+    return labels ? (scores[labels[k]] ?? -1) : Math.max(...Object.values(scores));
+  };
+  const boxScores = (a, b) => {
+    let result = null;
+    const bw = b - a + 1;
+    if (col[a] && col[b] && bw >= 3 && bw <= H * 0.75) {
+      let y0 = h, y1 = -1;
+      for (let y = 0; y < h; y++) for (let xx = a; xx <= b; xx++) if (ink(xx, y)) { y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+      if (y1 - y0 + 1 >= H * 0.8 && bw / (y1 - y0 + 1) >= 0.2) {
+        const n = normalise2(grid, { x0: a, x1: b });
+        if (n) result = scorer(n.vec);
+      }
+    }
+    return result;
+  };
+  // The gap that may follow digit k (0-based): none inside a number, a colon's after the second, a dash's after the fourth.
+  const GAP = [[0, 2], [3, 9], [0, 2], [6, 16], [0, 2], [3, 9], [0, 2]];
+  // dp[k]: end column → { score, from: [start, previous end] }
+  const dp = Array.from({ length: 8 }, () => new Map());
+  for (let b = start; b <= end; b++) for (let a = start; a <= b; a++) {
+    if (col[a] === false) continue;
+    const sc = boxScore(a, b, 0);
+    if (sc === null) continue;
+    if ((dp[0].get(b)?.score ?? -Infinity) < sc) dp[0].set(b, { score: sc, a, prev: null });
+  }
+  for (let k = 1; k < 8; k++) {
+    const [gmin, gmax] = GAP[k - 1];
+    for (const [prevEnd, prev] of dp[k - 1]) {
+      for (let a = prevEnd + 1 + gmin; a <= Math.min(prevEnd + 1 + gmax, end); a++) {
+        if (!col[a]) continue;
+        for (let b = a + 2; b <= Math.min(a + Math.floor(H * 0.75) - 1, end); b++) {
+          const sc = boxScore(a, b, k);
+          if (sc === null) continue;
+          const total = prev.score + sc;
+          if ((dp[k].get(b)?.score ?? -Infinity) < total) dp[k].set(b, { score: total, a, prev: prevEnd });
+        }
+      }
+    }
+  }
+  // the last digit ends where the text does
+  let finish = null;
+  for (const [b, entry] of dp[7]) if (b >= end - 2 && (!finish || entry.score > finish.entry.score)) finish = { b, entry };
+  if (!finish) return { error: 'no placement of eight digits' };
+  const digits = [];
+  let at = finish.b;
+  for (let k = 7; k >= 0; k--) { const entry = dp[k].get(at); digits.unshift({ x0: entry.a, x1: at }); at = entry.prev; }
+  return { digits, H };
+}
+
+function digitBoxesFromPieces(grid, threshold = 0.4) {
   const { w, h } = grid;
   const mask = new Uint8Array(w * h); for (let i = 0; i < w * h; i++) mask[i] = grid.g[i] > threshold;
   const comps = components(w, h, mask).filter((c) => c.n >= 3).map((c) => ({ ...c, cw: c.x1 - c.x0 + 1, ch: c.y1 - c.y0 + 1, parts: 1, small: 0 })).sort((a, b) => a.x0 - b.x0);
@@ -218,10 +310,49 @@ const unit = (v) => {
   return c.map((x) => x / n);
 };
 
-/** The model's digit samples, decoded once: `{ label, p }` with `p` zero-mean, unit-length. */
+/** A base64 run of little-endian float32. */
+const floats = (text) => { const bytes = Buffer.from(text, 'base64'); return new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length)); };
+
+/**
+ * The model, decoded once: `samples`, the condensed digits (`{ label, p }`, `p` zero-mean and unit-length) of the model this one was
+ * first built from — none in a model built since, which is placed and read by its network alone — and `network`, what says what is in a box: the 16×20 canvas through one hidden layer of ReLU units to a softmax over the
+ * ten digits and an eleventh class, "not a digit" (boxes cut across two digits, or through one), trained on every digit transcribed
+ * and on such boxes cut from the same lines (`w1` hidden rows of 320, `b1`, `w2` eleven rows of hidden, `b2`).
+ */
 export function loadDigits(model) {
-  return model.digits.map(({ label, v }) => ({ label, p: unit([...Buffer.from(v, 'base64')].map((b) => b / 255)) }));
+  let network = null;
+  if (model.network) {
+    const { hidden, w1, b1, w2, b2 } = model.network;
+    network = { hidden, w1: floats(w1), b1: floats(b1), w2: floats(w2), b2: floats(b2) };
+    // a network of ten outputs (no "not a digit") would read past its own end
+    if (network.w2.length !== hidden * 11 || network.b2.length !== 11 || network.w1.length !== hidden * 320) throw new Error('the model\'s network is not 320 → hidden → 11');
+  }
+  return {
+    samples: (model.digits ?? []).map(({ label, v }) => ({ label, p: unit([...Buffer.from(v, 'base64')].map((b) => b / 255)) })),
+    network
+  };
 }
+
+/** The canvas as the network takes it: zero-mean, unit-length, times eight. */
+export const networkInput = (vec) => Float32Array.from(unit([...vec]), (x) => x * 8);
+
+/** The network's logits (ten digits and "not a digit") for an input. `activations` receives the hidden units' values (training reads them back). */
+export function networkLogits({ hidden, w1, b1, w2, b2 }, x, activations = new Float32Array(hidden)) {
+  const D = x.length, z = new Float64Array(11);
+  for (let u = 0; u < hidden; u++) { let t = b1[u]; const o = u * D; for (let i = 0; i < D; i++) t += w1[o + i] * x[i]; activations[u] = t > 0 ? t : 0; }
+  for (let c = 0; c < 11; c++) { let t = b2[c]; const o = c * hidden; for (let u = 0; u < hidden; u++) t += w2[o + u] * activations[u]; z[c] = t; }
+  return z;
+}
+
+/** A box's log-probability for each digit under the network: close to 0 for one digit, low for all ten when the box is no digit. */
+export function networkScores(vec, net) {
+  const z = networkLogits(net, networkInput(vec));
+  const top = Math.max(...z), lse = top + Math.log(z.reduce((acc, v) => acc + Math.exp(v - top), 0));
+  return Object.fromEntries(Array.from({ length: 10 }, (_, c) => [String(c), z[c] - lse]));
+}
+
+/** What scores a box's canvas, from the loaded model: the network where it has one, the nearest samples where not. */
+export const scorerOf = (digits) => (digits.network ? (vec) => networkScores(vec, digits.network) : (vec) => digitScores(vec, digits.samples));
 
 /** A digit's score for each label: its nearest sample of that label (cosine of centred vectors). */
 function digitScores(vec, samples) {
@@ -236,17 +367,31 @@ function digitScores(vec, samples) {
 }
 
 const HOURS = Array.from({ length: 25 }, (_, h) => String(h).padStart(2, '0'));
-const PAIR_MARGIN = 0.025;
+/**
+ * How much doubt a pair of digits is allowed, in log-probabilities under the network (cosines under the samples alone).
+ *  - `doubt`: how much less likely than the likeliest label the grammar's choice for a digit may be;
+ *  - `margin`: how far the grammar's best pair must be ahead of its second (3 is the best pair being twenty times likelier);
+ *  - `weak`: how unlikely the least certain of the two chosen digits may be in itself (1.5 is a probability of one in five).
+ * Calibrated by cross-validation: the 79 transcribed pictures, each read by a model built without its fold. Of the 72 read right with no
+ * limits at all, 40 were accepted under these; of the six read wrong, none was: each had a pair of margin under 3 or a digit of
+ * probability under one in five (the pair margins of the wrong ones were 0.2 to 5.1, their weakest digits 0.5 to 11 in log-probability).
+ * A picture refused is shown as the picture, as before.
+ */
+export const NETWORK_LIMITS = { doubt: 2.5, margin: 3, weak: 1.5 };
+const COSINE_LIMITS = { doubt: 0.08, margin: 0.025, weak: Infinity };
 
 /** Two digits under a grammar → their value, or a reason not to trust any. */
-function readPair(scores, allowed) {
-  const ranked = allowed.map((v) => ({ v, score: (scores[0][v[0]] ?? -1) + (scores[1][v[1]] ?? -1) })).sort((a, b) => b.score - a.score);
-  for (let i = 0; i < 2; i++) {
-    const chosen = scores[i][ranked[0].v[i]];
-    if (Math.max(...Object.values(scores[i])) - chosen > 0.08) return { error: 'a digit reads as something the grammar does not allow' };
-  }
-  if (ranked[1] && ranked[0].score - ranked[1].score < PAIR_MARGIN) return { error: `ambiguous ${ranked[0].v}/${ranked[1].v}` };
-  return { value: ranked[0].v };
+function readPair(scores, allowed, limits) {
+  const ranked = allowed.map((v) => ({ v, score: (scores[0][v[0]] ?? -1e9) + (scores[1][v[1]] ?? -1e9) })).sort((a, b) => b.score - a.score);
+  let doubt = 0;
+  for (let i = 0; i < 2; i++) doubt = Math.max(doubt, Math.max(...Object.values(scores[i])) - scores[i][ranked[0].v[i]]);
+  const margin = ranked[1] ? ranked[0].score - ranked[1].score : Infinity;
+  // how far the chosen digits are from certain: the log-probability of the least likely of the two
+  const weak = Math.max(...[0, 1].map((i) => -scores[i][ranked[0].v[i]]));
+  if (doubt > limits.doubt) return { error: 'a digit reads as something the grammar does not allow', doubt, margin, weak };
+  if (weak > limits.weak) return { error: `a digit that is not plainly ${ranked[0].v}`, doubt, margin, weak };
+  if (margin < limits.margin) return { error: `ambiguous ${ranked[0].v}/${ranked[1].v}`, doubt, margin, weak };
+  return { value: ranked[0].v, doubt, margin, weak };
 }
 
 /**
@@ -255,10 +400,11 @@ function readPair(scores, allowed) {
  * A tile is either the two-line "ВІДКЛЮЧЕНЬ НЕ ПРОГНОЗУЄТЬСЯ" (matched whole against the
  * model's average of 174 of them) or one "⚡ HH:MM - HH:MM" per line. Digits are cut as the
  * connected pieces of ink between the icon and the line's end — exactly D D | D D | D D | D D —
- * and read against 1 400 samples kept from 7 750 transcribed (nearest sample wins), under the
- * grammar hours 00–24, minutes 00 or 30. Any doubt refuses the picture.
+ * or, where the ink of the digits touches, placed by what they look like (digitBoxesByRecognition), and read by the network
+ * (nearest sample where a model has none), under the grammar hours 00–24, minutes 00 or 30. Any doubt refuses the picture.
+ * `limits` and `trace` are for calibrating those doubts: `trace` collects each pair's doubt and margin.
  */
-export function readTiles(image, model, digits = loadDigits(model)) {
+export function readTiles(image, model, digits = loadDigits(model), { limits = digits.network ? NETWORK_LIMITS : COSINE_LIMITS, trace = null } = {}) {
   const layout = tileLayout(image);
   if (layout.error) return layout;
   const rows = [];
@@ -269,12 +415,14 @@ export function readTiles(image, model, digits = loadDigits(model)) {
     }
     const windows = [];
     for (const line of tile.lines) {
-      const cut = digitBoxes(line.grid);
+      const cut = digitBoxes(line.grid, 0.4, digits);
       if (cut.error) return { error: `tile ${tile.label}: ${cut.error}` };
-      const scores = cut.digits.map((box) => digitScores(normalise2(line.grid, box).vec, digits));
+      const score = scorerOf(digits);
+      const scores = cut.digits.map((box) => score(normalise2(line.grid, box).vec));
       const parts = [];
       for (const [i, allowed] of [[0, HOURS], [2, ['00', '30']], [4, HOURS], [6, ['00', '30']]]) {
-        const pair = readPair([scores[i], scores[i + 1]], allowed);
+        const pair = readPair([scores[i], scores[i + 1]], allowed, limits);
+        trace?.push({ tile: tile.label, at: i, value: pair.value, doubt: pair.doubt, margin: pair.margin, weak: pair.weak });
         if (pair.error) return { error: `tile ${tile.label}: ${pair.error}` };
         parts.push(pair.value);
       }
