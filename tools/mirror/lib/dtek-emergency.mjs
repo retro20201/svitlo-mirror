@@ -38,6 +38,9 @@ const ACCIDENT = [
   /аварійн\S*\s+відключен/iu,
   /графіки\s+(?:відключень\s+)?(?:\S+\s+){0,4}?(?:тимчасово|наразі)\s+не\s+діють/iu
 ];
+// The short form some oblenergo channels use for an order: «О 14:00 ГАВ введені в повному обсязі (для 1-10 черг)», «О 17:09 введено ГАВ
+// для 6-10 черг», «О 10:28 додатково введено ГАВ для 6-10 черг» (@SumyEnergo, 8–9 November 2026). Not «не введено ГАВ».
+const GAV_APPLIED = /(?<![\p{L}])ГАВ\s+(?:введен|застосов|запроваджен)\S*|(?<![Нн]е\s)(?:введен|застосов|запроваджен)\S*\s+(?:додатково\s+)?ГАВ(?![\p{L}])/iu;
 // «… родин знову зі світлом після обстрілів»: the area is back. Only for a post that announces nothing itself — one
 // can say both («170 000 родин знову зі світлом … в частині Бучанського району діють екстрені відключення»).
 const RESTORED = /знову\s+зі\s+світлом/iu;
@@ -104,7 +107,7 @@ export function readEmergency(posts, { now = new Date(), area = 'oblast', maxAge
     const text = area === 'own' ? (post.text ?? '').slice(0, OWN_HEAD_CHARS) : (post.text ?? '');
     if (!wanted.test(headOf(text))) continue;
     const ended = ENDED.some((pattern) => pattern.test(text));
-    if (APPLIED.test(text) || ACCIDENT.some((pattern) => pattern.test(text))) {
+    if (APPLIED.test(text) || GAV_APPLIED.test(text) || ACCIDENT.some((pattern) => pattern.test(text))) {
       // Edited in place with «UPD: … скасовані»: the same post that announced it ends it.
       state = ended ? null : { at: post.postedAt, note: districtsOf(text) };
     } else if (ended || RESTORED.test(text)) {
