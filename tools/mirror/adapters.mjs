@@ -18,5 +18,6 @@ export const ADAPTERS = {
   chernihiv: () => import('./sources/chernihiv.mjs'),
   poltava: () => import('./sources/poltava.mjs'),
   vinnytsia: () => import('./sources/vinnytsia.mjs'),
-  chernivtsi: () => import('./sources/chernivtsi.mjs')
+  chernivtsi: () => import('./sources/chernivtsi.mjs'),
+  cek: () => import('./sources/cek.mjs')
 };
