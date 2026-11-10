@@ -121,8 +121,11 @@ export const REGIONS = [
   // The grid the operator posts to @zakarpatenergyofficial, read by colour; the caption dates it.
   { id: 'zakarpattia',   title: 'Закарпатська область', subtitle: 'область',         operator: 'АТ «Закарпаттяобленерго»',                source: 'zakarpattia', status: 'seasonal' },
 
+  // The tables the operator posts as text to @khmelnytskoblenergo since 6 листопада 2026; before that, and whenever the channel holds none, its
+  // archive's pictures (sources/khmelnytskyi.mjs). There is no `note`: «лише зображенням» is no longer true while the text is posted.
+  { id: 'khmelnytskyi',  title: 'Хмельницька область', subtitle: 'область',          operator: 'АТ «Хмельницькобленерго»',                source: 'khmelnytskyi', site: 'https://hoe.com.ua/', status: 'seasonal' },
+
   // --- noFeed: nothing machine-readable to parse
-  { id: 'khmelnytskyi',  title: 'Хмельницька область', subtitle: 'область',          operator: 'АТ «Хмельницькобленерго»',                source: 'khmelnytskyi', site: 'https://hoe.com.ua/', status: 'seasonal' , note: 'оператор публікує графік лише зображенням' },
   { id: 'cherkasy',      title: 'Черкаська область',   subtitle: 'область',          operator: 'АТ «Черкасиобленерго»',                   source: 'cherkasy', status: 'seasonal',
     // The operator's own channel announces «графіки аварійних відключень (ГАВ)» (lib/dtek-emergency.mjs, area 'own').
     emergencyTelegram: { area: 'own' } },
