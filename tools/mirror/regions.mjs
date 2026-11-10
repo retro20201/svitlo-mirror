@@ -43,10 +43,17 @@ export const REGIONS = [
   { id: 'kyiv-region',   title: 'Київська область',    subtitle: 'область',          operator: 'ДТЕК Київські регіональні електромережі', source: 'dtek', site: 'https://www.dtek-krem.com.ua/ua/shutdowns',    status: 'live',
     // YASNO has nothing for the oblast: ДТЕК's own channel announces each order of Укренерго (lib/dtek-emergency.mjs).
     emergencyTelegram: { area: 'oblast', maxAgeHours: 36 } },
-  { id: 'dnipro',        title: 'Дніпро',              subtitle: 'місто та область', operator: 'ДТЕК Дніпровські електромережі',          source: 'dtek', site: 'https://www.dtek-dnem.com.ua/ua/shutdowns',    status: 'live',
+  { id: 'dnipro',        title: 'Дніпро',              subtitle: 'ДТЕК: місто та область', operator: 'ДТЕК Дніпровські електромережі',          source: 'dtek', site: 'https://www.dtek-dnem.com.ua/ua/shutdowns',    status: 'live',
     // YASNO marks the days; the channel names the districts and comes first (lib/dtek-emergency.mjs, area 'dnipro').
     yasno: { regionId: 3, dsoId: 301 }, emergencyTelegram: { area: 'dnipro', maxAgeHours: 36 } },
   { id: 'odesa',         title: 'Одеса',               subtitle: 'місто та область', operator: 'ДТЕК Одеські електромережі',              source: 'dtek', site: 'https://www.dtek-oem.com.ua/ua/shutdowns',    status: 'live' },
+
+  // The Dnipropetrovsk-oblast subscribers of ПрАТ «ПЕЕМ «ЦЕК», whom ДТЕК does not serve — Жовті Води, Вільногірськ, Павлоград, part of
+  // Дніпро and Кривий Ріг. Its own hours under the same queue numbers as ДТЕК's, from its channel @cek_info (sources/cek.mjs); the
+  // address dictionary is the operator's own page (tools/addr/build-cek.mjs). `seasonal` until a table is published, `live` then.
+  { id: 'cek',           title: 'Дніпропетровщина (ЦЕК)', subtitle: 'абоненти ЦЕК',  operator: 'ПрАТ «ПЕЕМ «ЦЕК»',                       source: 'cek', site: 'https://cek.dp.ua/', status: 'seasonal',
+    // «Діють ЕКСТРЕНІ ВІДКЛЮЧЕННЯ‼️ ГРАФІКИ ПОГОДИННИХ ВІДКЛЮЧЕНЬ не діють‼️» and «скасування ЕКСТРЕНИХ ВІДКЛЮЧЕНЬ» on its channel.
+    emergencyTelegram: { area: 'own', channel: 'cek_info', maxAgeHours: 36 } },
 
   // --- seasonal: the API answers, but out of season it returns queue names with no hours,
   //     so the app must not offer it as a working region until schedules come back

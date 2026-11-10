@@ -27,6 +27,7 @@ export const NEWS_SOURCES = [
   { region: 'sumy', channel: 'SumyEnergo' },
   { region: 'zakarpattia', channel: 'zakarpatenergyofficial' },
   { region: 'zhytomyr', channel: 'ztoe_ua' },
+  { region: 'cek', channel: 'cek_info' },
   { region: 'kyiv', channel: 'dtek_ua', opens: /^Київ(?![а-яіїєґ'’])/iu },
   { region: 'kyiv-region', channel: 'dtek_ua', opens: /^(?:Київщин|Київськ(?:а|ої)\s+област)/iu },
   { region: 'dnipro', channel: 'dtek_ua', opens: /^(?:Дніпро(?![а-яіїєґ'’])|Дніпропетровщин|Дніпровськ)/iu },

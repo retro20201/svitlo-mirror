@@ -1,4 +1,13 @@
 {
+ "cek": {
+  "shape": "nested",
+  "settlements": 14,
+  "streets": 440,
+  "built": 440,
+  "addresses": 8508,
+  "lines": true,
+  "multiLine": 541
+ },
  "dnipro": {
   "shape": "nested",
   "settlements": 1168,

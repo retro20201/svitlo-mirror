@@ -79,6 +79,23 @@ houses of every street it shares with another РЕМ by its own and publish the 
 withholds because two РЕМ disagree — so a newly published РЕМ is added by a full run.
 `write-index.mjs` only reads what is on disk; it ignores `<region>.new/` and `<region>.old/`.
 
+    node tools/addr/build-cek.mjs                      # ПрАТ «ПЕЕМ «ЦЕК» (Дніпропетровщина вне ДТЕК), from the operator's own page
+    node tools/addr/build-cek.mjs --file saved.html    # the same, from a saved copy of the page
+    node tools/addr/write-index.mjs                    # after either
+
+ЦЕК's «Визначення черги» page (cek.dp.ua/index.php/cpojivaham/pobutovi-spozhyvachi/viznachennya-chergy.html) inlines the whole
+table for its lookup form to filter, as `const locations = {settlement: {street: {house: "Черга 5.2"}}}` — one GET, no request per
+street, `robots.txt` `Allow: /`. 14 settlements, 440 streets, 9 049 houses (8 508 on one queue, 541 on several) on 10 November 2026.
+The labels: «Черга 2.1 та 6.1» is a house on two lines; a whole «Черга N» with no sub-queue is both N.1 and N.2, because the two carry
+different hours on some days (7 November: 2.1 ≠ 2.2); «Група … (АТ "ДТЕК ДЕМ")» is ДТЕК's and is left out (16 houses).
+
+**The page lost its table on 10 November 2026**, some hours after the first read: the script is still there and refers to `locations`,
+but nothing declares it any more (the form is broken for the operator's own visitors too). The builder says so and writes nothing
+(`const locations` missing, or fewer than 8 settlements and 4 000 houses) rather than replace the dictionary with an empty one. The
+dictionary in the repo is built from the copy read before that; run the builder again when the page has its table back, and compare
+`write-index.mjs`'s counts. It is the operator's hand-edited page — the same article carries the schedule announcements, created in
+2017 — so expect it to change.
+
 ## Output
 
     v1/addr/kyiv/streets.json          ["вул. Абрикосова", …]      index i -> s/<i>.json
