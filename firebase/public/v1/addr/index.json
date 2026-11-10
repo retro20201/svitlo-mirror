@@ -53,13 +53,13 @@
  },
  "odesa": {
   "shape": "nested",
-  "settlements": 975,
-  "streets": 15384,
-  "built": 15384,
-  "addresses": 406095,
+  "settlements": 992,
+  "streets": 15750,
+  "built": 15750,
+  "addresses": 415174,
   "lines": true,
-  "multiLine": 32726,
+  "multiLine": 25581,
   "aliases": true,
-  "aliasKeys": 1061
+  "aliasKeys": 1070
  }
 }
