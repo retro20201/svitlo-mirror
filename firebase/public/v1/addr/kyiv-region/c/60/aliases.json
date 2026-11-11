@@ -1,4 +1,4 @@
-{"v":1,"list":"streets","n":487,"built":"2026-11-10","src":{"loc":"рішення міськради / ОДА (текст акта)","wp":"uk/ru.wikipedia, CC BY-SA 4.0","osm":"OpenStreetMap, ODbL"},"a":[
+{"v":1,"list":"streets","n":487,"built":"2026-11-11","src":{"loc":"рішення міськради / ОДА (текст акта)","wp":"uk/ru.wikipedia, CC BY-SA 4.0","osm":"OpenStreetMap, ODbL"},"a":[
 {"k":"1 Огородній","ty":"пров.","t":[{"i":367,"y":2015,"h":16,"f":["retype"],"s":["loc","wp"]}]},
 {"k":"1 Травня","ty":"вул.","sure":true,"t":[{"i":386,"y":2022,"h":17,"s":["loc","wp","osm"]}]},
 {"k":"1 Травня","ty":"пров.","sure":true,"t":[{"i":112,"y":2022,"h":20,"s":["loc","wp","osm"]}]},

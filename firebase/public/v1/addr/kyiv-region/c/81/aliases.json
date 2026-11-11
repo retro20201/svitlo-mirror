@@ -1,4 +1,4 @@
-{"v":1,"list":"streets","n":285,"built":"2026-11-10","src":{"osm":"OpenStreetMap, ODbL"},"a":[
+{"v":1,"list":"streets","n":285,"built":"2026-11-11","src":{"osm":"OpenStreetMap, ODbL"},"a":[
 {"k":"9 Січня","ty":"вул.","t":[{"i":145,"h":28,"s":["osm"]},{"i":261,"h":3,"f":["retype"],"s":["osm"]}]},
 {"k":"Андрія Нестеренка","ty":"вул.","is":"current","t":[{"i":213,"h":22,"s":["osm"]}]},
 {"k":"Андрія Нестеренка","ty":"пров.","is":"current","t":[{"i":219,"h":10,"s":["osm"]}]},
