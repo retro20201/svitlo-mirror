@@ -29,6 +29,7 @@ import { writeCalendars } from './lib/ics.mjs';
 import { publishCrowd } from './lib/crowd-fetch.mjs';
 import { publishNews } from './lib/operator-posts.mjs';
 import { publishNational } from './lib/national-news.mjs';
+import { publishWeather } from './lib/weather.mjs';
 import { validate, hasSchedule, statusFor, kyivDayStart } from './lib/canonical.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -278,6 +279,19 @@ async function main() {
       if (national.written) changed++;
     } catch (error) {
       console.warn(`[news-ua] skipped: ${error.message}`);
+    }
+  }
+
+  // «Погода»: the temperature and the sky over each region's main city into `v1/weather.json` (lib/weather.mjs). Off until the server
+  // says so (SVITLO_WEATHER=1), renewed at most every half hour (the source's own rule, so most turns ask nothing), and never allowed
+  // to stop the schedules going out.
+  if (!only && process.env.SVITLO_WEATHER === '1' && (process.env.MIRROR_SLOW_LANE !== '1' || process.env.MIRROR_SLOW_TURN === '1')) {
+    try {
+      const weather = await publishWeather({ outDir: OUT_DIR });
+      if (weather.asked) console.log(`[weather] ${weather.read} region(s) read${weather.failed ? `, ${weather.failed} not read` : ''}${weather.written ? ', file changed' : ''}`);
+      if (weather.written) changed++;
+    } catch (error) {
+      console.warn(`[weather] skipped: ${error.message}`);
     }
   }
 

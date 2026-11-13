@@ -18,6 +18,7 @@ export CROWD_STATE_FILE="$STATE/crowd-state.json"
 [ -f "$STATE/news-on" ] && export SVITLO_OPERATOR_NEWS=1
 # «Новини України» (lib/national-news.mjs): the outlets' headlines go into news-ua.json while this file exists — same switch, same place.
 [ -f "$STATE/national-news-on" ] && export SVITLO_NATIONAL_NEWS=1
+[ -f "$STATE/weather-on" ] && export SVITLO_WEATHER=1
 
 main() {
   cd "$REPO" || exit 1
