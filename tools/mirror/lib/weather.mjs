@@ -1,6 +1,6 @@
 import { writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getJSON } from './http.mjs';
+import { getJSON, USER_AGENT } from './http.mjs';
 
 /**
  * «Погода»: the temperature and the sky over each region's main city, `v1/weather.json`, for the line at the top of «Сьогодні»
@@ -16,6 +16,12 @@ import { getJSON } from './http.mjs';
  *
  * A region that cannot be read keeps its last reading for `KEEP_MS`, then is left out (the line is not drawn without a reading).
  * Nothing is written when nothing could be read and nothing is kept.
+ *
+ * The server's checkout is cleaned at the start of every cycle (vps/run.sh), so the file of the cycle before is not there: the
+ * one being served is fetched and put back into the tree first — it is what says when the weather was last renewed, and a full
+ * deploy of the tree would otherwise take the file off the site. The source is asked at most once in `RENEW_AFTER_MS`, counted
+ * two ways: by the file's own stamp, and by when the source was last asked (`stateFile`, kept outside the tree) — so a source
+ * that is down, or is turning this server away, is not asked again every two minutes either.
  */
 
 /** The main city of each region the app has: where the weather is taken. Occupied regions have none. */
@@ -51,6 +57,15 @@ export const RENEW_AFTER_MS = 30 * 60 * 1000;
 /** A reading that could not be renewed is still shown this long. */
 export const KEEP_MS = 3 * 60 * 60 * 1000;
 const FORECAST = 'https://api.met.no/weatherapi/locationforecast/2.0/compact';
+const SERVED = 'https://koly-svitlo.web.app/v1/weather.json';
+
+/** The file as the site serves it: its text, or null when there is none yet (a 404). Anything else is an error. */
+async function servedCopy() {
+  const response = await fetch(SERVED, { headers: { 'user-agent': USER_AGENT }, signal: AbortSignal.timeout(15000) });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.text();
+}
 
 /** met.no's `symbol_code` («lightrainshowers_day», «partlycloudy_night») as one of the eight skies, and whether it is night. */
 export function skyOf(symbolCode) {
@@ -87,22 +102,41 @@ export function readingOf(answer, { now = new Date() } = {}) {
 
 export async function publishWeather({
   outDir, now = new Date(), places = PLACES, force = false,
-  read = (url) => getJSON(url, { retries: 1, timeoutMs: 15000 })
+  read = (url) => getJSON(url, { retries: 1, timeoutMs: 15000 }),
+  readServed = servedCopy, stateFile = process.env.WEATHER_STATE_FILE
 } = {}) {
   const file = join(outDir, 'weather.json');
-  const previous = await readFile(file, 'utf8').then(JSON.parse).catch(() => null);
-  const renewed = Date.parse(previous?.updatedAt ?? '');
-  if (!force && Number.isFinite(renewed) && now.getTime() - renewed < RENEW_AFTER_MS) return { written: false, asked: false, read: 0, failed: 0 };
+  const idle = { written: false, asked: false, read: 0, failed: 0 };
+
+  // What there is to start from: the file in the tree, or — the tree being clean — the one the site serves, put back as it is.
+  let text = await readFile(file, 'utf8').catch(() => null);
+  if (text === null) {
+    try {
+      text = await readServed();
+    } catch (error) {
+      // Not knowing what is served is not «nothing is served»: the source is not asked on a guess.
+      console.warn(`[weather] the served copy was not read: ${error.message}`);
+      return idle;
+    }
+    if (text !== null) await writeFile(file, text, 'utf8');
+  }
+  let previous = null;
+  try { previous = text ? JSON.parse(text) : null; } catch { previous = null; }
+
+  const within = (at) => Number.isFinite(at) && Math.abs(now.getTime() - at) < RENEW_AFTER_MS;
+  const askedAt = stateFile ? Number(await readFile(stateFile, 'utf8').catch(() => 'never')) : NaN;
+  if (!force && (within(Date.parse(previous?.updatedAt ?? '')) || within(askedAt))) return idle;
+  if (stateFile) await writeFile(stateFile, String(now.getTime()), 'utf8').catch(() => {});
 
   const regions = {};
-  let read_ = 0;
+  let answered = 0;
   let failed = 0;
   for (const [id, [lat, lon]] of Object.entries(places)) {
     try {
       const reading = readingOf(await read(`${FORECAST}?lat=${lat.toFixed(2)}&lon=${lon.toFixed(2)}`), { now });
       if (!reading) throw new Error('no reading in the answer');
       regions[id] = { ...reading, at: now.toISOString() };
-      read_++;
+      answered++;
     } catch (error) {
       failed++;
       console.warn(`[weather] ${id} not read: ${error.message}`);
@@ -110,8 +144,8 @@ export async function publishWeather({
       if (kept && now.getTime() - Date.parse(kept.at) < KEEP_MS) regions[id] = kept;
     }
   }
-  if (!Object.keys(regions).length) return { written: false, asked: true, read: read_, failed };
-  const body = JSON.stringify({ updatedAt: now.toISOString(), regions });
-  await writeFile(file, body, 'utf8');
-  return { written: true, asked: true, read: read_, failed };
+  // Nothing answered: what is in the tree stays as it is (its readings run out by their own age in the app).
+  if (!answered) return { written: false, asked: true, read: 0, failed };
+  await writeFile(file, JSON.stringify({ updatedAt: now.toISOString(), regions }), 'utf8');
+  return { written: true, asked: true, read: answered, failed };
 }

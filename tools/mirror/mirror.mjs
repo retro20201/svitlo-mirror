@@ -283,9 +283,9 @@ async function main() {
   }
 
   // «Погода»: the temperature and the sky over each region's main city into `v1/weather.json` (lib/weather.mjs). Off until the server
-  // says so (SVITLO_WEATHER=1), renewed at most every half hour (the source's own rule, so most turns ask nothing), and never allowed
-  // to stop the schedules going out.
-  if (!only && process.env.SVITLO_WEATHER === '1' && (process.env.MIRROR_SLOW_LANE !== '1' || process.env.MIRROR_SLOW_TURN === '1')) {
+  // says so (SVITLO_WEATHER=1). Every cycle, because every cycle's tree must hold the file for the deploy; the source itself is asked
+  // at most every half hour (its own rule), so most cycles only put the served copy back. Never allowed to stop the schedules going out.
+  if (!only && process.env.SVITLO_WEATHER === '1') {
     try {
       const weather = await publishWeather({ outDir: OUT_DIR });
       if (weather.asked) console.log(`[weather] ${weather.read} region(s) read${weather.failed ? `, ${weather.failed} not read` : ''}${weather.written ? ', file changed' : ''}`);

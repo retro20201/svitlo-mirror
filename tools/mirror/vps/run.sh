@@ -18,7 +18,10 @@ export CROWD_STATE_FILE="$STATE/crowd-state.json"
 [ -f "$STATE/news-on" ] && export SVITLO_OPERATOR_NEWS=1
 # «Новини України» (lib/national-news.mjs): the outlets' headlines go into news-ua.json while this file exists — same switch, same place.
 [ -f "$STATE/national-news-on" ] && export SVITLO_NATIONAL_NEWS=1
+# «Погода» (lib/weather.mjs, docs/WEATHER.md): v1/weather.json is written while this file exists — same switch, same place. When the
+# weather source was last asked is kept beside it, so it is asked once in half an hour whatever became of the answer.
 [ -f "$STATE/weather-on" ] && export SVITLO_WEATHER=1
+export WEATHER_STATE_FILE="$STATE/weather-asked-at"
 
 main() {
   cd "$REPO" || exit 1
