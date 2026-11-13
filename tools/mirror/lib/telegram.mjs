@@ -152,7 +152,9 @@ export function dayOfPost(post) {
 
 function parseVersion(post) {
   const text = normalise(post.text);
-  if (!/ГПВ|погодинн/i.test(text)) return null;
+  // Запоріжжя's own wording changed in November 2026 from "оновлено ГПВ на 09 квітня" to "ОНОВЛЕННЯ! Графік відключення на
+  // 13.11.2026 …" with no ГПВ anywhere in it; the stacked rows (MIN_ROWS below) are what vouch for it being a table.
+  if (!/ГПВ|погодинн|графік\S*\s+відключен/i.test(text)) return null;
 
   const postedAt = new Date(post.postedAt);
   const target = targetDate(text, postedAt) ?? (SAME_DAY.test(text) ? postedAt : null);

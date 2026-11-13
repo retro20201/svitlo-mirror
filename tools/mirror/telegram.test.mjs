@@ -938,3 +938,102 @@ test('a post that dates only its revision still names that day', () => {
   const only = { id: 5, postedAt: '2026-02-05T21:26:00+00:00', text: `⚡ Зміни на 23:26 05.02.2026 до графіка погодинних відключень\n\nЧерга 1.1: 06-08\nЧерга 1.2: -\nЧерга 2.1: -\nЧерга 2.2: -\nЧерга 3.1: -\nЧерга 3.2: -\nЧерга 4.1: -\nЧерга 4.2: -\nЧерга 5.1: -\nЧерга 5.2: -\nЧерга 6.1: -\nЧерга 6.2: -` };
   assert.equal(dayOfPost(only).epoch, kyivDay('2026-02-05'));
 });
+
+// Запоріжжя, 12–13 листопада 2026: the evening table in the usual words, then at 07:56 a revision headed
+// "ОНОВЛЕННЯ! Графік відключення на 13.11.2026" — no ГПВ in it, which the parser used to take for news.
+const ZAPO_3591 = {
+  id: 3591,
+  postedAt: '2026-11-12T18:52:34+00:00',
+  text: `Відповідно до команди НЕК «Укренерго», з метою стабілізації ситуації в Об’єднаній енергосистемі завтра, 13 листопада. по Запорізькій області будуть застосовані графіки погодинних відключень (ГПВ).
+
+Години відсутності електропостачання по чергам (підчергам) (з урахуванням 30 хвилин на перемикання):
+
+1.1: 13:00 – 18:00
+1.2: 11:30 – 16:30
+2.1: 04:00 – 09:00, 17:30 – 22:30
+2.2: 05:30 – 10:30, 19:00 – 24:00
+3.1: 00:00 – 03:00, 11:30 – 16:30
+3.2: 08:30 – 13:30
+4.1: 00:00 – 04:30, 14:30 – 19:30
+4.2: 02:30 – 07:30, 16:00 – 21:00
+5.1: 07:00 – 12:00, 20:30 – 24:00
+5.2: 10:00 – 15:00
+6.1: 02:30 – 07:30, 16:00 – 21:00
+6.2: 00:00 – 03:00, 07:00 – 12:00, 20:30 – 24:00
+ 
+Також з 00:00 до 24:00 діятимуть графіки обмеження потужності (ГОП) в повному обсязі (5 черг).
+ 
+Актуальні графіки відключень цілодобово – на нашому сайті на сторінці Стабілізаційні відключення.`
+};
+
+const ZAPO_3592 = {
+  id: 3592,
+  postedAt: '2026-11-13T05:56:33+00:00',
+  text: `ОНОВЛЕННЯ! Графік відключення на 13.11.2026 (пʼятниця) для абонентів ЗАПОРІЖЖЯОБЛЕНЕРГО:
+
+⚡️ Черга 1.1
+ з 13:00 до 18:00
+
+⚡️ Черга 1.2
+ з 13:00 до 16:00
+
+⚡️ Черга 2.1
+ з 06:30 до 09:00
+ з 17:30 до 22:30
+
+⚡️ Черга 2.2
+ з 06:30 до 10:30
+ з 19:00 до 24:00
+
+⚡️ Черга 3.1
+ з 00:00 до 01:00
+ з 13:00 до 16:00
+
+⚡️ Черга 3.2
+ з 08:30 до 13:30
+
+⚡️ Черга 4.1
+ з 00:00 до 01:00
+ з 14:30 до 19:30
+
+⚡️ Черга 4.2
+ з 15:30 до 20:30
+
+⚡️ Черга 5.1
+ з 06:30 до 07:30
+ з 20:00 до 24:00
+
+⚡️ Черга 5.2
+ з 10:00 до 15:00
+
+⚡️ Черга 6.1
+ з 15:30 до 20:30
+
+⚡️ Черга 6.2
+ з 00:00 до 01:00
+ з 06:30 до 07:30
+ з 20:00 до 24:00`
+};
+
+test('a stacked table headed "Графік відключення" with no ГПВ in it is still a table', () => {
+  const parsed = parseGpvPost(ZAPO_3592);
+  assert.ok(parsed, 'the 07:56 revision of 13 November was thrown away as a non-table post');
+  assert.equal(parsed.epoch, kyivDay('2026-11-13'));
+  assert.deepEqual(outageHours(parsed.queues['GPV5.1']), { 7: 'second', 8: 'first', 21: 'no', 22: 'no', 23: 'no', 24: 'no' });
+  assert.deepEqual(outageHours(parsed.queues['GPV1.2']), { 14: 'no', 15: 'no', 16: 'no' });
+});
+
+test('that revision replaces the morning the evening before had promised', () => {
+  // 3591 (the evening before): 5.1 07:00–12:00, 20:30–24:00. 3592 at 07:56: 06:30–07:30 and 20:00–24:00.
+  // What had already happened by 07:56 stays as the evening table had it; what was still ahead is the revision's.
+  const day = scheduleFromPosts([ZAPO_3591, ZAPO_3592], { since: 0 }).fact[kyivDay('2026-11-13')];
+  const hours = outageHours(day['GPV5.1']);
+  for (const hour of [13, 14, 15, 16, 17, 18, 19, 20]) assert.equal(day['GPV5.1'][hour], 'yes', `hour ${hour} is light again`);
+  assert.equal(hours[21], 'no', 'the evening starts at 20:00, not 20:30');
+  assert.equal(hours[24], 'no');
+});
+
+test('a post called "Графік відключення" with no table in it is still not one', () => {
+  const news = { id: 9, postedAt: '2026-11-13T09:00:00+00:00', text: 'Графік відключення на 13.11.2026 дивіться на нашому сайті. Черга 1.1, 1.2 — оновлення чекайте за посиланням.' };
+  assert.equal(parseGpvPost(news), null);
+});
