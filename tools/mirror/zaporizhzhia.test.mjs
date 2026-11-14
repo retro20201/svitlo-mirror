@@ -141,3 +141,43 @@ test('when the site does not answer, what phones have stands in for it — no fl
   assert.equal(carriedParts(next), true);
   assert.equal(carriedParts(both), null);
 });
+
+// 14 November 2026, a letter at 08:18: queue 5.2, «05:30–10:30» on the screen, the light on at home. The channel's only post about
+// the day was the evening's table; the site had revised it seven times since, pushing 5.2's morning cut back and at 08:01 taking it
+// out. The page is as the Kyiv server got it at 10:50, the posts about 13–14 November only; the channel's posts are 3590–3596.
+const SITE_NOV = readFileSync(new URL('./zaporizhzhia.fixture-2026-11-14-site.html', import.meta.url), 'utf8');
+const CHANNEL_NOV = JSON.parse(readFileSync(new URL('./zaporizhzhia.fixture-2026-11-14-channel.json', import.meta.url), 'utf8'));
+const dark = (hours) => Object.entries(hours).filter(([, state]) => state !== 'yes').map(([hour]) => Number(hour));
+
+test('a channel that only repeats a table the site has since replaced does not hold the day dark', async () => {
+  const now = new Date('2026-11-14T08:50:00Z');
+  const snapshot = await fetchRegion(REGION, now, { fetchSite: async () => SITE_NOV, fetchTelegram: async () => CHANNEL_NOV });
+  const today = snapshot.fact.data[day('2026-11-14')];
+  assert.deepEqual(dark(today['GPV5.2']), [20, 21, 22, 23, 24], 'the evening cut only: the morning one was taken out at 08:01');
+  assert.deepEqual(dark(today['GPV1.1']), [12, 13, 14, 15, 24], '11:00, not the evening table\'s 10:00');
+  assert.equal(snapshot.fact.update, '14.11.2026 09:26', 'the stamp of the site\'s last revision');
+  assert.deepEqual(validate(snapshot), []);
+  // The day before, which both outlets told and neither has replaced since, is as it was: united.
+  assert.deepEqual(dark(snapshot.fact.data[day('2026-11-13')]['GPV5.2']), [11, 12, 13, 14]);
+});
+
+test('…but a table the site never had stays united with the site\'s', async () => {
+  const now = new Date('2026-11-14T08:50:00Z');
+  // The channel's own revision: the evening's table with one more cut, which no version of the site's has.
+  const own = CHANNEL_NOV.map((post) => (post.id === 3596
+    ? { ...post, text: post.text.replace('⚡ Черга 2.1\n', '⚡ Черга 2.1\n з 03:00 до 04:00\n') }
+    : post));
+  assert.notEqual(JSON.stringify(own), JSON.stringify(CHANNEL_NOV), 'the fixture has the line that is changed');
+  const snapshot = await fetchRegion(REGION, now, { fetchSite: async () => SITE_NOV, fetchTelegram: async () => own });
+  const today = snapshot.fact.data[day('2026-11-14')];
+  assert.ok(dark(today['GPV2.1']).includes(4), 'the cut only the channel has');
+  assert.ok(dark(today['GPV5.2']).includes(8), 'and with it the channel\'s whole table, as before');
+});
+
+test('the channel alone, or equal to the site\'s newest table, is read as before', async () => {
+  const now = new Date('2026-11-14T08:50:00Z');
+  const { value: alone } = await quiet(() => fetchRegion(REGION, now, {
+    fetchSite: async () => { throw new Error('timeout'); }, fetchTelegram: async () => CHANNEL_NOV
+  }));
+  assert.ok(dark(alone.fact.data[day('2026-11-14')]['GPV5.2']).includes(8), 'no site this cycle: the channel is all there is');
+});

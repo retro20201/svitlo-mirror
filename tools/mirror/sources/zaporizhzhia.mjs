@@ -109,6 +109,48 @@ export function parseListing(html, now = new Date()) {
   return posts;
 }
 
+/**
+ * The channel's reading without the days on which it only repeats a table the site has since replaced.
+ *
+ * The union of the two outlets never says light where either says dark — right while they are two tellings of the same
+ * revision, wrong once one of them is simply old. On 14 November 2026 the channel still carried the evening's table for the day
+ * (its only post, 21:47 the night before) while the site revised it at 23:02, 00:31, 05:11, 06:09, 06:46, 08:01 and 09:26, each
+ * time with fewer hours dark; the union kept every hour of the evening's table, and at 08:18 queue 5.2 was «05:30–10:30» on the
+ * screen with the light on at home and no such cut in the operator's table since 06:09.
+ *
+ * A day of the channel's is left out only when it is, queue for queue and half-hour for half-hour, one of the site's own versions
+ * of that day and the site has a later one: then it is known to be that older version, whatever time its post carries (the channel
+ * edits posts in place, so a post's time says little). A table the site never had — a revision only the channel made, or the same
+ * revision told differently — is united with the site's as before.
+ */
+export function withoutSuperseded(channelReading, siteVersions) {
+  const halves = { ...channelReading.halves };
+  let dropped = 0;
+  for (const [epoch, day] of Object.entries(channelReading.halves ?? {})) {
+    const versions = siteVersions
+      .filter((version) => String(version.epoch) === String(epoch) && version.halves)
+      .sort((a, b) => a.at - b.at || a.id - b.id);
+    const twin = versions.findIndex((version) => sameDay(version.halves, day));
+    if (twin !== -1 && twin < versions.length - 1) {
+      delete halves[epoch];
+      dropped++;
+    }
+  }
+  return dropped ? { ...channelReading, halves } : channelReading;
+}
+
+/** Two tables of one day that say the same of every queue either of them names. */
+function sameDay(a, b) {
+  const queues = new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})]);
+  for (const queue of queues) {
+    const left = a?.[queue];
+    const right = b?.[queue];
+    if (!left || !right || left.length !== right.length) return false;
+    for (let slot = 0; slot < left.length; slot++) if (left[slot] !== right[slot]) return false;
+  }
+  return queues.size > 0;
+}
+
 export async function fetchRegion(region, now = new Date(), {
   fetchSite = () => getTextTrusting(SITE, { intermediate: INTERMEDIATE }),
   fetchTelegram = () => fetchChannel(CHANNEL)
@@ -124,9 +166,11 @@ export async function fetchRegion(region, now = new Date(), {
   if (channel.status === 'rejected') console.warn(`[zaporizhzhia] channel: ${channel.reason.message}; site only`);
 
   const since = kyivDayStart(now) - DAY_SECONDS;
+  const siteVersions = site.status === 'fulfilled' ? site.value.map(parseGpvPost).filter(Boolean) : null;
+  const channelReading = channel.status === 'fulfilled' ? scheduleFromPosts(channel.value, { since }) : null;
   const readings = [
-    site.status === 'fulfilled' ? mergeVersions(site.value.map(parseGpvPost).filter(Boolean), { since }) : null,
-    channel.status === 'fulfilled' ? scheduleFromPosts(channel.value, { since }) : null
+    siteVersions ? mergeVersions(siteVersions, { since }) : null,
+    channelReading && siteVersions ? withoutSuperseded(channelReading, siteVersions) : channelReading
   ].filter(Boolean);
   // Without the site this cycle, what phones already have stands in for it. Publishing the channel
   // alone turned every hour only the site called dark back to light for one cycle and dark again
