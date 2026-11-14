@@ -62,6 +62,15 @@
   "aliases": true,
   "aliasKeys": 1070
  },
+ "zaporizhzhia": {
+  "shape": "nested",
+  "settlements": 1,
+  "streets": 1077,
+  "built": 1077,
+  "addresses": 35626,
+  "lines": true,
+  "multiLine": 205
+ },
  "zhytomyr": {
   "shape": "nested",
   "settlements": 1547,
