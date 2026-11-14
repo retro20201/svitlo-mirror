@@ -245,6 +245,32 @@ Step 5 is an App Store release, so do it in the same version that ships address 
 switching hosts under a shipped build.
 
 
+## Запоріжжя (the city): `build-zaporizhzhia.mjs`
+
+АТ «Запоріжжяобленерго» answers «Дізнатися свою чергу по м. Запоріжжя» with a Google Apps Script of its own, linked from
+`www.zoe.com.ua/outage/` (that page opens from a Ukrainian address only; the script itself from anywhere). The page asks the
+script for its whole table once and searches it in the browser, so one request reads everything the operator publishes:
+
+    node tools/addr/build-zaporizhzhia.mjs            # the live table
+    node tools/addr/build-zaporizhzhia.mjs --from <saved answer of the call> --out <dir>
+    node tools/addr/write-index.mjs
+
+First built 14 November 2026: 13 063 rows → 1 077 streets, 35 626 buildings, 205 on two черги. **The city only** — the
+dictionary has one settlement, «Запоріжжя»; the district's sheets say «Відключення відсутні» and the rest of the oblast
+has no list, so a person from Мелітополь or Вільнянськ is told their town is not found and picks the черга by hand.
+
+How the table is read (the head of the builder has the evidence):
+
+* a «house» is often a group — «22|24», «1–5», «165-247 непарні», «114 п.4-6». A range is one side of the street
+  («1–5» is 1, 3, 5) unless the operator says «поспіль» or its ends differ in parity;
+* an empty черга is «Не вимикається» and gives none: 3 601 rows. A house with only such rows is not in the dictionary;
+* a house under two черги — its own rows, two entrances, or a range over a house listed apart — has both (`x/`);
+* a piece that is no house number («149 корпус 1», «119кв8») is left out and printed in the run's last line.
+
+It refuses to write fewer than 800 streets or 6 000 buildings (`--allow-small`). The call is the page's own, not a
+documented API, and the operator has replaced the script before: when it answers 404, take the new link from the
+operator's page and put it in `SCRIPT`. Rerun when the operator announces new черги (it did on 1 October).
+
 ## Regions whose operator answers an address itself
 
 `v1/addr/operators.json` is a list of region ids — today `["mykolaiv"]`. АТ «Миколаївобленерго» publishes its
