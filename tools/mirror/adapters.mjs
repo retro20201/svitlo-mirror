@@ -1,6 +1,15 @@
 /** Region `source` → its adapter, loaded only when a run needs it. Shared by mirror.mjs and relay.mjs. */
 export const ADAPTERS = {
-  dtek: () => import('./sources/dtek.mjs'),
+  // A region with `cekQueues` (regions.mjs) has the hours of another operator's queues put into what its adapter read
+  // (lib/cek-in-dnipro.mjs); an adapter that throws, throws as before, with whatever it offered as a fallback.
+  dtek: async () => {
+    const dtek = await import('./sources/dtek.mjs');
+    const { withCekQueues } = await import('./lib/cek-in-dnipro.mjs');
+    return {
+      ...dtek,
+      fetchRegion: async (region) => (region.cekQueues ? withCekQueues(await dtek.fetchRegion(region)) : dtek.fetchRegion(region))
+    };
+  },
   mykolaiv: () => import('./sources/mykolaiv.mjs'),
   kharkiv: () => import('./sources/kharkiv.mjs'),
   zaporizhzhia: () => import('./sources/zaporizhzhia.mjs'),

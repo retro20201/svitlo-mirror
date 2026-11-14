@@ -122,7 +122,7 @@ export async function withChannelEmergency(
     const hours = region.emergencyTelegram?.maxAgeHours;
     reading = await read({
       area: region.emergencyTelegram?.area ?? 'oblast', now, channel: region.emergencyTelegram?.channel,
-      maxAgeMs: hours ? hours * 3600 * 1000 : undefined
+      maxAgeMs: hours ? hours * 3600 * 1000 : undefined, skip: region.emergencyTelegram?.skip
     });
   } catch (error) {
     log(`${region.id}: channel failed: ${error.message}`);

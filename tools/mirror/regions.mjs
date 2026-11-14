@@ -45,7 +45,9 @@ export const REGIONS = [
     emergencyTelegram: { area: 'oblast', maxAgeHours: 36 } },
   { id: 'dnipro',        title: 'Дніпро',              subtitle: 'ДТЕК: місто та область', operator: 'ДТЕК Дніпровські електромережі',          source: 'dtek', site: 'https://www.dtek-dnem.com.ua/ua/shutdowns',    status: 'live',
     // YASNO marks the days; the channel names the districts and comes first (lib/dtek-emergency.mjs, area 'dnipro').
-    yasno: { regionId: 3, dsoId: 301 }, emergencyTelegram: { area: 'dnipro', maxAgeHours: 36 } },
+    // ДТЕК's list of queues here also has «ЦЕК 1.1» … «ЦЕК 6.2» (GPV1001.1 … GPV1006.2) — ЦЕК's subscribers, for whom ДТЕК publishes
+    // no day table: `cekQueues` fills their hours from ЦЕК's own channel (lib/cek-in-dnipro.mjs).
+    yasno: { regionId: 3, dsoId: 301 }, emergencyTelegram: { area: 'dnipro', maxAgeHours: 36 }, cekQueues: true },
   { id: 'odesa',         title: 'Одеса',               subtitle: 'місто та область', operator: 'ДТЕК Одеські електромережі',              source: 'dtek', site: 'https://www.dtek-oem.com.ua/ua/shutdowns',    status: 'live' },
 
   // The Dnipropetrovsk-oblast subscribers of ПрАТ «ПЕЕМ «ЦЕК», whom ДТЕК does not serve — Жовті Води, Вільногірськ, Павлоград, part of
@@ -53,7 +55,9 @@ export const REGIONS = [
   // address dictionary is the operator's own page (tools/addr/build-cek.mjs). `seasonal` until a table is published, `live` then.
   { id: 'cek',           title: 'Дніпропетровщина (ЦЕК)', subtitle: 'абоненти ЦЕК',  operator: 'ПрАТ «ПЕЕМ «ЦЕК»',                       source: 'cek', site: 'https://cek.dp.ua/', status: 'seasonal',
     // «Діють ЕКСТРЕНІ ВІДКЛЮЧЕННЯ‼️ ГРАФІКИ ПОГОДИННИХ ВІДКЛЮЧЕНЬ не діють‼️» and «скасування ЕКСТРЕНИХ ВІДКЛЮЧЕНЬ» on its channel.
-    emergencyTelegram: { area: 'own', channel: 'cek_info', maxAgeHours: 36 } },
+    // Not the ones addressed to «споживачі м. ПАВЛОГРАД, які відключаються за окремим графіком»: that grid of two queues is not in the
+    // app, and its order is not the twelve queues' (13 November 2026: it put the whole region under the warning).
+    emergencyTelegram: { area: 'own', channel: 'cek_info', maxAgeHours: 36, skip: /м\.\s*павлоград/iu } },
 
   // --- seasonal: the API answers, but out of season it returns queue names with no hours,
   //     so the app must not offer it as a working region until schedules come back
