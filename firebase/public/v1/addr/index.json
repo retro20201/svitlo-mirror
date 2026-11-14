@@ -61,5 +61,14 @@
   "multiLine": 25581,
   "aliases": true,
   "aliasKeys": 1070
+ },
+ "zhytomyr": {
+  "shape": "nested",
+  "settlements": 1547,
+  "streets": 14192,
+  "built": 14192,
+  "addresses": 303763,
+  "lines": true,
+  "multiLine": 210
  }
 }
