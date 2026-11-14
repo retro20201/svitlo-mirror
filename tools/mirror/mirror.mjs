@@ -29,6 +29,7 @@ import { writeCalendars } from './lib/ics.mjs';
 import { publishCrowd } from './lib/crowd-fetch.mjs';
 import { publishNews } from './lib/operator-posts.mjs';
 import { publishNational } from './lib/national-news.mjs';
+import { publishVinnytsiaNews } from './lib/voe-news.mjs';
 import { publishWeather } from './lib/weather.mjs';
 import { validate, hasSchedule, statusFor, kyivDayStart } from './lib/canonical.mjs';
 
@@ -266,6 +267,22 @@ async function main() {
       if (news.written) changed++;
     } catch (error) {
       console.warn(`[news] skipped: ${error.message}`);
+    }
+  }
+
+  // Вінниччина has no channel: its «Новини оператора» are the news list of the operator's own site (lib/voe-news.mjs) — the one
+  // place that says the schedules are in force while the hours themselves cannot be read. Under the same switch; the site is
+  // asked on the slow turn only, and the served feed is put back on the turns between.
+  if (!only && process.env.SVITLO_OPERATOR_NEWS === '1') {
+    try {
+      const ask = process.env.MIRROR_SLOW_LANE !== '1' || process.env.MIRROR_SLOW_TURN === '1';
+      const voe = await publishVinnytsiaNews({ outDir: OUT_DIR, ask });
+      if (voe.changed) {
+        console.log('[news] vinnytsia: feed changed');
+        changed++;
+      }
+    } catch (error) {
+      console.warn(`[news] vinnytsia skipped: ${error.message}`);
     }
   }
 
