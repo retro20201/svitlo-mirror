@@ -31,6 +31,7 @@ import { publishNews } from './lib/operator-posts.mjs';
 import { publishNational } from './lib/national-news.mjs';
 import { publishVinnytsiaNews } from './lib/voe-news.mjs';
 import { publishWeather } from './lib/weather.mjs';
+import { publishArchive } from './lib/archive.mjs';
 import { validate, hasSchedule, statusFor, kyivDayStart } from './lib/canonical.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -318,6 +319,23 @@ async function main() {
   if (!sameIndex) {
     await writeFile(indexFile, JSON.stringify(payload), 'utf8');
     changed++;
+  }
+
+  // «Архів» (lib/archive.mjs): the day that is over, put away per region for the phones that were not open on it. Only where
+  // the server keeps a place for it outside the tree (SVITLO_ARCHIVE_DIR — vps/run.sh), after every region file of the cycle
+  // is written, and never allowed to stop the schedules going out.
+  if (!only && process.env.SVITLO_ARCHIVE_DIR) {
+    try {
+      const archive = await publishArchive({
+        outDir: OUT_DIR, stateDir: process.env.SVITLO_ARCHIVE_DIR, regions: REGIONS.filter((region) => region.source).map((region) => region.id)
+      });
+      if (archive.closed) {
+        console.log(`[archive] ${archive.closed} day(s) put away`);
+        changed++;
+      }
+    } catch (error) {
+      console.warn(`[archive] skipped: ${error.message}`);
+    }
   }
 
   const live = index.filter((r) => r.status === 'live').length;

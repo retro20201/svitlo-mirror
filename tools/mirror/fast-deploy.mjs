@@ -117,8 +117,9 @@ export async function discard(call, prepared) {
 }
 
 /**
- * This cycle's region files as the site serves them: /v1/<name>.json and the calendars
- * /v1/ics/<region>/<queue>.ics (lib/ics.mjs), never the dictionaries.
+ * This cycle's region files as the site serves them: /v1/<name>.json, the calendars
+ * /v1/ics/<region>/<queue>.ics (lib/ics.mjs) and the days and indexes of the archive the cycle laid
+ * into the tree, /v1/archive/<region>/<name>.json (lib/archive.mjs) — never the dictionaries.
  */
 export async function regionFiles(dir = V1) {
   const names = (await readdir(dir)).filter((name) => /^[a-z0-9-]+\.json$/.test(name)).sort();
@@ -128,6 +129,12 @@ export async function regionFiles(dir = V1) {
   for (const region of regions) {
     const calendars = (await readdir(join(dir, 'ics', region))).filter((name) => /^[A-Za-z0-9._-]+\.ics$/.test(name)).sort();
     for (const name of calendars) files.push([`/v1/ics/${region}/${name}`, await readFile(join(dir, 'ics', region, name))]);
+  }
+  let archived = [];
+  try { archived = (await readdir(join(dir, 'archive'))).filter((name) => /^[a-z0-9-]+$/.test(name)).sort(); } catch { /* none yet */ }
+  for (const region of archived) {
+    const days = (await readdir(join(dir, 'archive', region))).filter((name) => /^(?:index|\d{4}-\d{2}-\d{2})\.json$/.test(name)).sort();
+    for (const name of days) files.push([`/v1/archive/${region}/${name}`, await readFile(join(dir, 'archive', region, name))]);
   }
   return files;
 }

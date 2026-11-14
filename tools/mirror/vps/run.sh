@@ -22,6 +22,9 @@ export CROWD_STATE_FILE="$STATE/crowd-state.json"
 # weather source was last asked is kept beside it, so it is asked once in half an hour whatever became of the answer.
 [ -f "$STATE/weather-on" ] && export SVITLO_WEATHER=1
 export WEATHER_STATE_FILE="$STATE/weather-asked-at"
+# «Архів» (lib/archive.mjs): the days that are over are put away while this file exists — into $STATE/archive, outside the
+# tree, because the tree is cleaned every cycle. The same switch as the news: `touch $STATE/archive-on`.
+[ -f "$STATE/archive-on" ] && export SVITLO_ARCHIVE_DIR="$STATE/archive"
 
 main() {
   cd "$REPO" || exit 1
@@ -157,6 +160,12 @@ main() {
     fi
     if [ "$fast" = "false" ]; then
       [ -s "$prepared" ] && node tools/mirror/fast-deploy.mjs discard "$prepared" > /dev/null 2>&1
+      # A full deploy publishes the tree and nothing else: the whole archive goes into it first, or the site would be
+      # left with the few days this cycle laid there (lib/archive.mjs).
+      if [ -n "${SVITLO_ARCHIVE_DIR:-}" ] && [ -d "$SVITLO_ARCHIVE_DIR/v1" ]; then
+        mkdir -p firebase/public/v1/archive && cp -R "$SVITLO_ARCHIVE_DIR/v1/." firebase/public/v1/archive/ \
+          || { echo "[archive] could not be laid into the tree — not deploying in full without it"; exit 1; }
+      fi
       if ! "$FIREBASE" deploy --only hosting --project koly-svitlo --non-interactive --message "kyiv ${head:0:9}"; then
         echo "[deploy] failed — no push; handing over to GitHub"
         node tools/mirror/heartbeat.mjs clear
