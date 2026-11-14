@@ -41,6 +41,13 @@ const ACCIDENT = [
 // The short form some oblenergo channels use for an order: «О 14:00 ГАВ введені в повному обсязі (для 1-10 черг)», «О 17:09 введено ГАВ
 // для 6-10 черг», «О 10:28 додатково введено ГАВ для 6-10 черг» (@SumyEnergo, 8–9 November 2026). Not «не введено ГАВ».
 const GAV_APPLIED = /(?<![\p{L}])ГАВ\s+(?:введен|застосов|запроваджен)\S*|(?<![Нн]е\s)(?:введен|застосов|запроваджен)\S*\s+(?:додатково\s+)?ГАВ(?![\p{L}])/iu;
+// An operator's own word that part of its area is dark beyond any schedule: «Маємо масштабне аварійне знеструмлення в частині
+// Сумщини», «Маємо аварійне знеструмлення через збройну агресію російської федерації», «У частині Сумщини маємо знеструмлення …»
+// (@SumyEnergo, 22 October – 14 November 2026: six such posts, none of them read; a letter at 08:28 on the 14th, an hour and a half
+// after one, from a queue the table had in the light). It is no order and has no end said, so it stands for the region's own
+// `maxAgeHours`, and the banner carries the operator's words. Only on a channel of the operator's own: ДТЕК's shared channel says a
+// fault on a line in other words, and that is not this.
+const BLACKOUT = /маємо\s+((?:масштабн\S*\s+|аварійн\S*\s+){0,2}знеструмлен[^.!\n✅❗]*)/iu;
 // «… родин знову зі світлом після обстрілів»: the area is back. Only for a post that announces nothing itself — one
 // can say both («170 000 родин знову зі світлом … в частині Бучанського району діють екстрені відключення»).
 const RESTORED = /знову\s+зі\s+світлом/iu;
@@ -127,9 +134,11 @@ export function readEmergency(posts, { now = new Date(), area = 'oblast', maxAge
     if (!wanted.test(headOf(text))) continue;
     if (skip && skip.test(text.slice(0, ADDRESS_HEAD_CHARS))) continue;
     const ended = ENDED.some((pattern) => pattern.test(text));
-    if (APPLIED.test(text) || GAV_APPLIED.test(text) || ACCIDENT.some((pattern) => pattern.test(text))) {
+    const blackout = area === 'own' ? BLACKOUT.exec(text) : null;
+    if (APPLIED.test(text) || GAV_APPLIED.test(text) || ACCIDENT.some((pattern) => pattern.test(text)) || blackout) {
       // Edited in place with «UPD: … скасовані»: the same post that announced it ends it.
-      state = ended ? null : { at: post.postedAt, note: districtsOf(text) ?? (area === 'own' ? addresseeOf(text) : null) };
+      const said = blackout ? blackout[1].trim().replace(/\s+/g, ' ') : null;
+      state = ended ? null : { at: post.postedAt, note: districtsOf(text) ?? said ?? (area === 'own' ? addresseeOf(text) : null) };
     } else if (ended || RESTORED.test(text)) {
       state = null;
     }
