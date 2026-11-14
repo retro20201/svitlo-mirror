@@ -96,6 +96,19 @@ dictionary in the repo is built from the copy read before that; run the builder 
 `write-index.mjs`'s counts. It is the operator's hand-edited page — the same article carries the schedule announcements, created in
 2017 — so expect it to change.
 
+    node tools/addr/build-zhytomyr.mjs                 # Житомирська, from the operator's twelve lists (one per підчерга)
+    node tools/addr/build-zhytomyr.mjs --from saved/   # the same, from saved 1.html … 12.html (as served, windows-1251)
+    node tools/addr/write-index.mjs                    # after either
+
+Житомиробленерго prints, for each підчерга, every street and building on it (`ztoe.com.ua/unhooking-search.php?pidcherga_id=1…12`):
+twelve GETs four seconds apart are the whole oblast, `robots.txt` does not disallow the page. First built on 14 November 2026:
+1 547 settlements, 14 192 streets, 303 763 houses on one line and 210 on several (published in `x/` only, as for Хмельницька);
+every one of the 306 209 house mentions in the lists was then looked up in the written files and found on its line. Only household
+rows are read. What the builder tidies, each seen in that run: a village listed under two apostrophes, names typed in capitals,
+«N/A» in place of a street type or of the street itself («Без вулиці»), «0»/«000» for "no number", and land of a village council
+(«Оліївська сільрада, масив Крок»). It refuses to write fewer than 1 000 settlements or 200 000 houses (`--allow-small`). The lists
+change when the operator re-segments its lines — run it again when letters say a house is on another черга, and compare the counts.
+
 ## Output
 
     v1/addr/kyiv/streets.json          ["вул. Абрикосова", …]      index i -> s/<i>.json

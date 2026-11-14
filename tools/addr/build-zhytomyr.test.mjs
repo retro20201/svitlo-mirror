@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseAddressPage, decodePage, buildings, bareName, settlementTitles, buildRegion } from './build-zhytomyr.mjs';
+import {
+  parseAddressPage, decodePage, buildings, bareName, settlementTitles, buildRegion, calm, settlementName, streetTitle, NO_STREET
+} from './build-zhytomyr.mjs';
 import { writeRegion } from './build-khmelnytskyi.mjs';
 
 // Rows as unhooking-search.php?pidcherga_id=… prints them (3 November 2026 shape), shortened.
@@ -90,4 +92,66 @@ test('the dictionary is written in the shape the app reads, and a rebuild keeps 
   const again = JSON.parse(await readFile(join(out, 'settlements.json'), 'utf8'));
   assert.deepEqual(again.slice(0, 4), settlements, 'a new settlement is appended');
   assert.equal(again[4], 'Андрушівка');
+});
+
+// What the first live run (14 November 2026, 22 623 household rows) showed that the made-up rows above did not.
+
+test('«0», «00» and «000» are the operator saying "no number", and a plot number loses its colon', () => {
+  assert.deepEqual(buildings('0'), []);
+  assert.deepEqual(buildings('000, 12, 00'), ['12']);
+  assert.deepEqual(buildings(':1390, 156, : 1802, 10'), ['1390', '156', '1802', '10']);
+  assert.deepEqual(buildings('16, :16'), ['16'], 'the same number twice is one building');
+  // A two-flat house as Малин lists it is kept as written: which flat is on which line is the point.
+  assert.deepEqual(buildings('98-1, 98-2'), ['98-1', '98-2']);
+});
+
+test('a name typed in capitals is calmed down, an abbreviation and a number are left alone', () => {
+  assert.equal(calm('вул. ВАСИЛЯ СТУСА'), 'вул. Василя Стуса');
+  assert.equal(calm('вул. 8-ГО БЕРЕЗНЯ'), 'вул. 8-го Березня');
+  assert.equal(calm('вул. ГЕРОЇВ УПА'), 'вул. Героїв УПА');
+  assert.equal(calm('пров. ІІ ШЕВЧЕНКА'), 'пров. ІІ Шевченка');
+  assert.equal(calm('вул. Г.ЛОГАНІВСЬКА'), 'вул. Г.Логанівська');
+  assert.equal(calm('вул. СІМ’Ї СОСНІНИХ'), 'вул. Сім’ї Сосніних');
+  assert.equal(calm('с. ГЛИБОЧИЦЯ'), 'с. Глибочиця');
+  // Nothing to calm: left exactly as written, abbreviations nobody listed included.
+  assert.equal(calm('вул. Героїв УПА'), 'вул. Героїв УПА');
+  assert.equal(calm('вул. ПМК-5'), 'вул. ПМК-5');
+  assert.equal(calm('садове товариство "Джерело"'), 'садове товариство "Джерело"');
+});
+
+test('a street cell with «N/A» loses it, and one that names no street says so in one way', () => {
+  assert.equal(streetTitle('N/A Лісова'), 'Лісова');
+  assert.equal(streetTitle('N/A садове товариство "Джерело"'), 'садове товариство "Джерело"');
+  assert.equal(streetTitle('N/A квартал № 47 виділ № 4'), 'квартал № 47 виділ № 4');
+  for (const cell of ['N/A Не Вказано', 'вул. N/A', 'N/A N/A', 'вул. .', 'вул. не указана']) {
+    assert.equal(streetTitle(cell), NO_STREET, cell);
+  }
+  assert.equal(streetTitle('вул.  Закам\'янська'), 'вул. Закам’янська');
+  assert.equal(streetTitle('вул. 1 ЛІСНА'), 'вул. 1 Лісна');
+  assert.equal(streetTitle('вул. Миру'), 'вул. Миру');
+});
+
+test('land of a village council is named as that, not as a village of the same root', () => {
+  assert.equal(settlementName('с/рада Тетерівська'), 'Тетерівська сільрада');
+  assert.equal(settlementName('с/рада Оліївська станція Світин'), 'Оліївська сільрада, станція Світин');
+  assert.equal(settlementName('с. ОЛІЇВКА'), 'с. Оліївка');
+  assert.equal(settlementName('місто Баранівка'), 'місто Баранівка');
+});
+
+test('one village under two apostrophes is one village, and its street under two is one street', () => {
+  const live = page(
+    row('Хорошівський', 'с. Кам’янка', 'вул. Об’їздна', '1, 2', '3', '1', home),
+    row('Хорошівський', "с. Кам'янка", "вул. Об'їздна", '3', '3', '1', home),
+    row('Хорошівський', "с. Кам'янка", 'N/A Не Вказано', '0', '3', '1', home),
+    row('Хорошівський', "с. Кам'янка", 'вул. N/A', '7', '3', '1', home),
+    row('Житомирський', 'с/рада Оліївська', 'масив Крок', '4, 000', '3', '1', home),
+    row('Житомирський', 'с. ОЛІЇВКА', 'вул. ЛЕСІ УКРАЇНКИ', '5', '3', '1', home)
+  );
+  const { merged, dropped } = buildRegion([parseAddressPage(live)]);
+  assert.deepEqual([...merged.keys()].sort(), ['Кам’янка', 'Оліївка', 'Оліївська сільрада']);
+  assert.deepEqual(Object.keys(merged.get('Кам’янка').get('вул. Об’їздна')), ['1', '2', '3']);
+  assert.deepEqual(Object.keys(merged.get('Кам’янка').get(NO_STREET)), ['7'], 'the row with no number at all is dropped');
+  assert.equal(dropped.noHouses, 1);
+  assert.deepEqual(Object.keys(merged.get('Оліївська сільрада').get('масив Крок')), ['4']);
+  assert.deepEqual([...merged.get('Оліївка').keys()], ['вул. Лесі Українки']);
 });

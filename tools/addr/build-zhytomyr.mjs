@@ -18,8 +18,10 @@
  * Only rows for households («побутові споживачі») are read: a business at the same address is on the
  * line its contract names, which is often not the one the building's flats are on.
  *
- * Run from a Ukrainian address (the Kyiv server): `node tools/addr/build-zhytomyr.mjs [--out <dir>]
- * [--from <dir with 1.html … 12.html, as served>]`. The page is windows-1251.
+ * Run: `node tools/addr/build-zhytomyr.mjs [--out <dir>] [--from <dir with 1.html … 12.html, as
+ * served>]`, then `node tools/addr/write-index.mjs`. The page is windows-1251. ztoe.com.ua did not
+ * answer at all on 3 November 2026 and answered a plain request from outside Ukraine on the 14th
+ * (twelve pages, 0.4–1.5 MB each); if it times out, try from the Kyiv server.
  */
 import { mkdir, readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
@@ -32,6 +34,9 @@ const PAGE = (id) => `https://www.ztoe.com.ua/unhooking-search.php?pidcherga_id=
 /** The twelve підчерги of the national scheme: 1.1 … 6.2. */
 export const PIDCHERGA_IDS = Array.from({ length: 12 }, (_, i) => i + 1);
 const PAUSE_MS = 4000;
+/** The first live run, 14 November 2026: 1 547 settlements, 303 thousand houses. */
+const MIN_SETTLEMENTS = 1000;
+const MIN_HOUSES = 200_000;
 
 const ENTITIES = { '&nbsp;': ' ', '&amp;': '&', '&quot;': '"', '&#039;': "'", '&apos;': "'", '&lt;': '<', '&gt;': '>' };
 const text = (cell) => cell
@@ -66,14 +71,77 @@ const TYPE = /^(?:місто|м\.|смт\.?|селище міського тип
 export const bareName = (name) => name.replace(TYPE, '').trim() || name.trim();
 
 /**
+ * One apostrophe for every spelling, and single spaces. On 14 November 2026 «с. Кам’янка» and
+ * «с. Кам'янка» of one РЕМ came out as two villages, each with half the streets, and Житомир had
+ * «вул. Закам'янська» twice. «’» is what the ДТЕК dictionaries carry; the app's search drops any.
+ */
+const tidy = (name) => name.replace(/(?<=\p{L})['ʼ‘`´](?=\p{L})/gu, '’').replace(/\s+/g, ' ').trim();
+
+/** Left in capitals inside a name that is otherwise calmed down: «вул. ГЕРОЇВ УПА» → «вул. Героїв УПА». */
+const ABBREVIATIONS = new Set(['СГТ', 'СТ', 'ОК', 'ГК', 'УПА', 'ОУН', 'УНР', 'ЗСУ', 'АТО', 'ОМБ', 'УПТК', 'ОСТМ', 'КТП']);
+/** «ІІ» and «III», in either alphabet: a number, not a word. */
+const ROMAN = /^[IVXІХ]+$/u;
+const isShouted = (word) => word.length >= 2 && word === word.toUpperCase() && word !== word.toLowerCase();
+
+/**
+ * «вул. ВАСИЛЯ СТУСА» → «вул. Василя Стуса», «вул. 8-ГО БЕРЕЗНЯ» → «вул. 8-го Березня».
+ *
+ * Some РЕМ type their lists in capitals (872 street names of 14 236 and three villages on
+ * 14 November 2026). The search does not mind, the list on the phone does. Only a name with a
+ * capitalised word of four letters or more is touched, so «вул. Героїв УПА» and an abbreviation
+ * nobody listed here stay as the operator wrote them; initials («Г.ЛОГАНІВСЬКА») keep their letter.
+ */
+export function calm(name) {
+  const words = name.match(/[\p{L}’]+/gu) ?? [];
+  if (!words.some((word) => word.length >= 4 && isShouted(word) && !ABBREVIATIONS.has(word))) return name;
+  return name.replace(/(\d-)?([\p{L}’]+)/gu, (whole, ordinal, word) => {
+    if (!isShouted(word) || ABBREVIATIONS.has(word) || ROMAN.test(word)) return whole;
+    const lower = word.toLowerCase();
+    return ordinal ? ordinal + lower : lower[0].toUpperCase() + lower.slice(1);
+  });
+}
+
+/** «с/рада Оліївська станція Світин»: land of a village council outside any village — dachas, a station. */
+const COUNCIL = /^с\/р(?:ада)?\.?\s+(\S+)(?:\s+(.+))?$/iu;
+
+/**
+ * The settlement cell as it is listed. A council's land is named as what it is («Оліївська
+ * сільрада, станція Світин»): with the type merely dropped it read «Оліївська», a village that
+ * does not exist, next to the real Оліївка.
+ */
+export function settlementName(cell) {
+  const name = tidy(cell);
+  const council = COUNCIL.exec(name);
+  return calm(council ? `${council[1]} сільрада${council[2] ? `, ${council[2]}` : ''}` : name);
+}
+
+/** The street of the rows that name none: a village with no street names, a plot in a field. */
+export const NO_STREET = 'Без вулиці';
+
+/**
+ * The street cell as it is listed. The operator's form puts «N/A» where the type of street was
+ * not chosen («N/A Лісова», «N/A садове товариство "Джерело"») — that is dropped; and where nothing
+ * else is said («N/A Не Вказано», «вул. N/A», «N/A N/A», «вул. .», «вул. не указана») the houses
+ * go under one honest name instead of five spellings of "unknown".
+ */
+export function streetTitle(cell) {
+  const name = tidy(cell).replace(/^N\/A\s+(?=\S)/iu, '');
+  const bare = name.replace(/^(?:вул\.?|вулиця)\s*/iu, '');
+  if (!/\p{L}{2}|\d/u.test(bare) || /^(?:не\s+в?казан\p{L}*|не\s+указан\p{L}*)$/iu.test(bare)) return NO_STREET;
+  return calm(name);
+}
+
+/**
  * «1, 10, 2а» → ["1", "10", "2а"], without what is not a building: «б/н», a lone «а», a dot, a
- * trailing dash («42-»). The operator's cells carry such stray pieces (`42-, . , , 25`), and a key
- * without a digit can never be what someone types.
+ * trailing dash («42-»), the colon in front of a plot number («:1390»), and «0», «00», «000» — the
+ * operator's way of saying "no number" (370 such on 14 November 2026). The cells carry such stray
+ * pieces (`42-, . , , 25`), and a key without a digit can never be what someone types.
  */
 export function buildings(cell) {
-  return houseList(cell)
-    .map((part) => part.replace(/[-–\s.]+$/u, '').trim())
-    .filter((part) => /\d/u.test(part));
+  const parts = houseList(cell)
+    .map((part) => part.replace(/^[:\s.]+/u, '').replace(/[-–\s.]+$/u, '').trim())
+    .filter((part) => /\d/u.test(part) && !/^0+$/u.test(part));
+  return [...new Set(parts)];
 }
 
 /**
@@ -103,7 +171,8 @@ export function settlementTitles(pairs) {
 
 /** Rows of all pages → `settlement title → street → { house: [queueKey, …] }`, and what was left out. */
 export function buildRegion(pages) {
-  const rows = pages.flatMap((page) => page.rows);
+  const rows = pages.flatMap((page) => page.rows)
+    .map((row) => ({ ...row, settlement: settlementName(row.settlement), street: streetTitle(row.street) }));
   const titleOf = settlementTitles(rows);
   const merged = new Map();
   const dropped = { noHouses: 0 };
@@ -140,6 +209,14 @@ async function main() {
     if (!from && id !== PIDCHERGA_IDS.at(-1)) await new Promise((resolve) => setTimeout(resolve, PAUSE_MS));
   }
   const { merged, dropped } = buildRegion(pages);
+  // Twelve pages that still have rows but far fewer of them are a changed page, not a smaller oblast:
+  // written over the published dictionary they would leave most villages without their streets.
+  const found = [...merged.values()].flatMap((streets) => [...streets.values()])
+    .reduce((n, houses) => n + Object.keys(houses).length, 0);
+  if (!process.argv.includes('--allow-small') && (merged.size < MIN_SETTLEMENTS || found < MIN_HOUSES)) {
+    throw new Error(`${merged.size} населених пунктів, ${found} будинків — менше за ${MIN_SETTLEMENTS} і ${MIN_HOUSES}: `
+      + 'nothing is published (--allow-small if the operator really lists so few)');
+  }
   await mkdir(out, { recursive: true });
   const stats = await writeRegion(out, merged);
   const tooMany = [...merged.values()].flatMap((streets) => [...streets.values()])
