@@ -34,10 +34,10 @@ export const NEWS_SOURCES = [
   { region: 'odesa', channel: 'dtek_ua', opens: /^Оде(?:щин|са(?![а-яіїєґ'’]))/iu }
 ];
 
-const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-const MAX_ITEMS = 12;
-const TITLE_CHARS = 110;
-const EXCERPT_CHARS = 220;
+export const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+export const MAX_ITEMS = 12;
+export const TITLE_CHARS = 110;
+export const EXCERPT_CHARS = 220;
 
 /** About the power: the words an operator uses for it. «Енергетик» and «ремонт» are not among them — a memorial to a lineman has both. */
 const ABOUT_POWER = /відключен|електропостачан|знеструм|графік|ГПВ|ГАВ|аварі|Укренерго|енергосистем|світл[оау]\b/iu;
@@ -91,7 +91,7 @@ export function plainOf(text) {
 
 const capital = (text) => text.replace(/^\p{L}/u, (letter) => letter.toUpperCase());
 
-function cut(text, limit) {
+export function cut(text, limit) {
   if (text.length <= limit) return text;
   const head = text.slice(0, limit);
   const whole = head.replace(WORD_BREAK, '');

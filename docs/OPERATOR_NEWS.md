@@ -18,3 +18,17 @@ Off by default. On the server: `touch /var/lib/svitlo-mirror/news-on` (off: `rm`
 The files are top-level `v1/*.json`, so the fast deploy carries them; no `firebase.json` change.
 
 Regions with no channel here (Одеса apart, via ДТЕК) have no file: the app shows the section as empty for them.
+
+## Вінниччина: the operator's site instead of a channel
+
+АТ «Вінницяобленерго» has no public Telegram channel, so `lib/voe-news.mjs` reads the first page of `www.voe.com.ua/news` and
+writes `news-vinnytsia.json` in the same shape. Its daily cards «Введення ГПВ» / «Зміни по ГПВ» become headlines with the day
+and the hours in them («Введення ГПВ: 14.11 з 06:00 до 24:00»); «ГОП» (limits for businesses) and what is not about the power
+are left out. It matters more here than elsewhere: the черги's hours are behind the operator's address search, which turns this
+server away, so this line is the only thing the app can say about a day's outages in the region.
+
+* Under the same switch (`news-on`). The site is asked on the slow turn only — one page in five and a half minutes — with the
+  mirror's own user agent; it answers a Ukrainian address only, so this runs from the Kyiv server.
+* The list dates a card by the day, so `at` is when the card was first seen, kept inside that day; a card already served keeps
+  its `at`. Between turns, and when the site cannot be read, the served feed is put back unchanged.
+* A page that answers without cards is treated as not read (a changed layout or a challenge page), never as an empty feed.
