@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { readEmergency } from './lib/dtek-emergency.mjs';
-import { cekTargets, mergeCekQueues, withCekQueues } from './lib/cek-in-dnipro.mjs';
+import { cekTargets, cekEmergency, mergeCekQueues, withCekQueues } from './lib/cek-in-dnipro.mjs';
 import { scheduleOf, snapshotFrom } from './sources/cek.mjs';
 import { buildSnapshot, validate } from './lib/canonical.mjs';
 import { regionById } from './regions.mjs';
@@ -148,6 +148,61 @@ test('a channel that cannot be read leaves ДТЕК\'s snapshot as it was', asyn
   const after = await withCekQueues(snapshot, { read: async () => { throw new Error('timeout'); }, now: at('2026-11-13T21:00:00Z'), log: (line) => lines.push(line) });
   assert.equal(after, snapshot);
   assert.equal(lines.length, 1);
+});
+
+// MARK: - ЦЕК's emergency order for its queues under ДТЕК's region
+
+// 14 November 2026: ЦЕК declared emergency outages for Дніпро twice (12:19–14:46, 20:02–21:35 Kyiv time) and ДТЕК said nothing. The
+// region `cek` had the warning; «ЦЕК 5.2» under «Дніпро» had its hours drawn as if they held.
+const NOV_14_ON = post(4392, '2026-11-14T18:02:01+00:00', '📢 Шановні споживачі м. ДНІПРО‼️ Попереджаємо, що за командою диспетчерського центру НЕК "Укренерго" застосовуються ЕКСТРЕНІ ВІДКЛЮЧЕННЯ‼️ ГРАФІКИ ПОГОДИННИХ ВІДКЛЮЧЕНЬ не діють‼️');
+const NOV_14_OFF = post(4394, '2026-11-14T19:35:00+00:00', '📢 Шановні споживачі м. ДНІПРО‼️ Повідомляємо про скасування ЕКСТРЕНИХ ВІДКЛЮЧЕНЬ ‼️ Повертаємося до ГРАФІКІВ ПОГОДИННИХ ВІДКЛЮЧЕНЬ‼️');
+const NOV_14 = [...NOVEMBER, NOV_14_ON, NOV_14_OFF];
+
+test('ЦЕК\'s order is carried for ЦЕК\'s queues alone, under ДТЕК\'s names for them, while it is on', () => {
+  const during = cekEmergency(dnipro(), NOV_14, { now: at('2026-11-14T19:00:00Z') });
+  assert.deepEqual(during, { queues: ['GPV1005.1', 'GPV1005.2'], days: [day('2026-11-14')], note: 'для споживачів м. Дніпро', since: '2026-11-14T18:02:01+00:00' });
+  // No order: the queues are still named — they have an operator of their own — and no day is.
+  assert.deepEqual(cekEmergency(dnipro(), NOV_14, { now: at('2026-11-14T19:40:00Z') }), { queues: ['GPV1005.1', 'GPV1005.2'], days: [] });
+  assert.deepEqual(cekEmergency(dnipro(), NOV_14, { now: at('2026-11-14T17:00:00Z') }).days, [], 'before the post');
+  // Павлоград's own order is not the twelve queues', here as in the region `cek`.
+  assert.deepEqual(cekEmergency(dnipro(), NOVEMBER, { now: at('2026-11-13T16:30:00Z') }).days, []);
+  assert.equal(cekEmergency({ preset: { sch_names: { 'GPV1.1': 'Черга 1.1' } } }, NOV_14, { now: at('2026-11-14T19:00:00Z') }), null, 'a region without ЦЕК\'s names');
+});
+
+test('ДТЕК\'s region gets the order beside the hours, and its own flag is not touched', async () => {
+  const lines = [];
+  const before = dnipro();
+  const after = await withCekQueues(before, { read: async () => NOV_14, now: at('2026-11-14T19:00:00Z'), log: (line) => lines.push(line) });
+  assert.deepEqual(after.fact.queueEmergency, { queues: ['GPV1005.1', 'GPV1005.2'], days: [day('2026-11-14')], note: 'для споживачів м. Дніпро' });
+  assert.equal(after.fact.emergency, undefined, 'ДТЕК declared nothing: the region as a whole is not warned');
+  assert.equal(after.fact.update, before.fact.update);
+  assert.deepEqual(validate(after), []);
+  assert.equal(lines.length, 1, 'the order is in the journal');
+  assert.match(lines[0], /2026-11-14T18:02:01/u);
+
+  const later = await withCekQueues(before, { read: async () => NOV_14, now: at('2026-11-14T19:40:00Z'), log: (line) => lines.push(line) });
+  assert.deepEqual(later.fact.queueEmergency, { queues: ['GPV1005.1', 'GPV1005.2'], days: [] }, 'cancelled: the queues named, no day');
+  assert.equal(lines.length, 1);
+
+  // ДТЕК's own flag, when it has one, stays what ДТЕК said.
+  const flagged = { ...before, fact: { ...before.fact, emergency: [day('2026-11-14')], emergencyNote: 'у Дніпрі' } };
+  const both = await withCekQueues(flagged, { read: async () => NOV_14, now: at('2026-11-14T19:40:00Z'), log: () => {} });
+  assert.deepEqual(both.fact.emergency, [day('2026-11-14')]);
+  assert.equal(both.fact.emergencyNote, 'у Дніпрі');
+  assert.deepEqual(both.fact.queueEmergency.days, []);
+});
+
+test('a channel that does not answer keeps the order the served copy had, for today and no longer', async () => {
+  const snapshot = dnipro();
+  const fails = async () => { throw new Error('timeout'); };
+  const served = { fact: { queueEmergency: { queues: ['GPV1005.1', 'GPV1005.2'], days: [day('2026-11-14')], note: 'для споживачів м. Дніпро' } } };
+  const held = await withCekQueues(snapshot, { read: fails, now: at('2026-11-14T19:10:00Z'), log: () => {}, previous: served });
+  assert.deepEqual(held.fact.queueEmergency, served.fact.queueEmergency);
+  assert.deepEqual(held.fact.data, snapshot.fact.data);
+  const nextDay = await withCekQueues(snapshot, { read: fails, now: at('2026-11-14T22:10:00Z'), log: () => {}, previous: served });
+  assert.equal(nextDay, snapshot, 'yesterday\'s order is not today\'s');
+  const none = await withCekQueues(snapshot, { read: fails, now: at('2026-11-14T19:10:00Z'), log: () => {}, previous: { fact: { queueEmergency: { queues: ['GPV1005.1'], days: [] } } } });
+  assert.equal(none, snapshot);
 });
 
 test('the region asks for it', () => {

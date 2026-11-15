@@ -47,6 +47,20 @@ test('a first-ever mirror of a region counts as a change', () => {
   assert.equal(affectsSchedule(null, { fact: { data: { 1787691600: {} } } }, ON_THE_DAY), true);
 });
 
+test('an emergency order for some of the region\'s queues is worth a wake-up when it starts and when it ends, and not otherwise', () => {
+  const fact = { data: { 1787691600: { 'GPV1.1': { 20: 'no' } } } };
+  const queues = ['GPV1001.1', 'GPV1001.2'];
+  const none = { fact };
+  const named = { fact: { ...fact, queueEmergency: { queues, days: [] } } };
+  const on = { fact: { ...fact, queueEmergency: { queues, days: [1787691600], note: 'для споживачів м. Дніпро' } } };
+  assert.equal(affectsSchedule(none, named, ON_THE_DAY), false, 'the field appearing with no day in it');
+  assert.equal(affectsSchedule(named, on, ON_THE_DAY), true);
+  assert.equal(affectsSchedule(on, named, ON_THE_DAY), true);
+  assert.equal(affectsSchedule(on, { fact: { ...fact, queueEmergency: { queues: [...queues].reverse(), days: [1787691600] } } }, ON_THE_DAY), false, 'the same order, the note and the order of the list aside');
+  // Yesterday's order dropping off at midnight changes nothing on a phone.
+  assert.equal(affectsSchedule({ fact: { ...fact, queueEmergency: { queues, days: [1787605200] } } }, named, ON_THE_DAY), false);
+});
+
 test('topic names carry no characters FCM rejects', () => {
   assert.equal(topicFor('kyiv'), 'region-kyiv');
   assert.equal(topicFor('kyiv-region'), 'region-kyiv-region');

@@ -7,7 +7,9 @@ export const ADAPTERS = {
     const { withCekQueues } = await import('./lib/cek-in-dnipro.mjs');
     return {
       ...dtek,
-      fetchRegion: async (region) => (region.cekQueues ? withCekQueues(await dtek.fetchRegion(region)) : dtek.fetchRegion(region))
+      fetchRegion: async (region) => (region.cekQueues
+        ? withCekQueues(await dtek.fetchRegion(region), { previous: region.previous })
+        : dtek.fetchRegion(region))
     };
   },
   mykolaiv: () => import('./sources/mykolaiv.mjs'),
