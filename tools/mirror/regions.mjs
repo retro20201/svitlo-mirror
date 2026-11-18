@@ -137,6 +137,9 @@ export const REGIONS = [
     emergencyTelegram: { area: 'own' } },
   { id: 'zaporizhzhia',  title: 'Запорізька область',  subtitle: 'область',          operator: 'АТ «Запоріжжяобленерго»',                 source: 'zaporizhzhia', site: 'https://www.zoe.com.ua/', status: 'seasonal',
     // «Години відсутності електропостачання … (з урахуванням 30 хвилин на перемикання)» on every table (@Zaporizhzhyaoblenergo_news).
+    // No `emergencyTelegram`: the operator's site says when the emergency schedules (ГАВ, СГАВ) start and when they are lifted, the
+    // channel only when they start — so «Аварійні відключення» is read off the page the tables come from (sources/zaporizhzhia.mjs).
+    emergencySite: true,
     includesSwitching: true },
   // The table the old note denied exists: poe.pl.ua's own widget fetches it (sources/poltava.mjs).
   // The site refuses non-Ukrainian addresses, so it only ever arrives from the Kyiv server.
@@ -168,9 +171,11 @@ export function regionById(id) {
  * Whether the operator's own data says when it cuts beyond the schedule: YASNO's
  * `EmergencyShutdowns`, so Київ and Дніпро only. Nowhere else is there anything machine-readable
  * to base «Аварійні відключення» on, and the app offers that switch only where this is true.
+ * Since then: an operator's channel that announces each order (`emergencyTelegram`), and a site
+ * that posts each one and its end (`emergencySite`, Запоріжжя).
  */
 export function hasEmergencySignal(region) {
-  return Boolean(region?.yasno || region?.emergencyTelegram);
+  return Boolean(region?.yasno || region?.emergencyTelegram || region?.emergencySite);
 }
 
 /** A region's row in `index.json`, before a read adds what it found. */

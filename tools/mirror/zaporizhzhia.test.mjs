@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { parseListing, fetchRegion } from './sources/zaporizhzhia.mjs';
+import { parseListing, readSiteEmergency, fetchRegion } from './sources/zaporizhzhia.mjs';
 import { scheduleFromPosts, parseGpvPost } from './lib/telegram.mjs';
 import { kyivDayStart, validate } from './lib/canonical.mjs';
 import { carriedParts } from './lib/carried.mjs';
@@ -180,4 +180,113 @@ test('the channel alone, or equal to the site\'s newest table, is read as before
     fetchSite: async () => { throw new Error('timeout'); }, fetchTelegram: async () => CHANNEL_NOV
   }));
   assert.ok(dark(alone.fact.data[day('2026-11-14')]['GPV5.2']).includes(8), 'no site this cycle: the channel is all there is');
+});
+
+// 16–18 November 2026: Укренерго's emergency schedules (ГАВ) and the special ones (СГАВ) started and lifted five times over, each
+// time in a post of the site's own between its tables. On the 17th both stood from 06:05 to 19:36, and four letters came from
+// queues the table had in the light (09:46, 12:29, 13:50, 15:37) with no «Аварійні відключення» on the screen: nothing read it.
+// The page is as the Kyiv server got it on the 18th at 19:16, its twenty posts.
+const SITE_ORDERS = readFileSync(new URL('./zaporizhzhia.fixture-2026-11-18-site.html', import.meta.url), 'utf8');
+/** The page as it stood while post `id` was its newest: the listing is newest first. */
+const pageWhenNewest = (id) => SITE_ORDERS.slice(SITE_ORDERS.indexOf(`<article id="post-${id}"`));
+const hushed = async (fn) => { const log = console.log; console.log = () => {}; try { return await quiet(fn); } finally { console.log = log; } };
+
+test('the site\'s own posts say when the emergency schedules stand and when they are lifted', () => {
+  const read = (id, now) => readSiteEmergency(pageWhenNewest(id), new Date(now));
+  const off = { active: false, since: null, note: null };
+  // Before the first of them: the page says nothing either way.
+  assert.equal(read(393162, '2026-11-16T14:30:00Z'), null);
+  // 16:35 on the 16th, both at once, in one post.
+  assert.deepEqual(read(393190, '2026-11-16T14:40:00Z'), {
+    active: true, since: '2026-11-16T14:35:00.000Z',
+    note: 'запроваджено графіки аварійних відключень (ГАВ) та спеціальні графіки аварійних відключень (СГАВ)'
+  });
+  // 19:06, 21:20, 22:30: the special ones lifted, started, lifted. The first order stands through all of it — and the post that
+  // started both is no longer quoted, since half of what it says is not so.
+  for (const [id, now] of [[393188, '2026-11-16T17:10:00Z'], [393180, '2026-11-16T19:25:00Z'], [393183, '2026-11-16T20:35:00Z']]) {
+    assert.deepEqual(read(id, now), { active: true, since: '2026-11-16T14:35:00.000Z', note: null }, String(id));
+  }
+  // A table for the 17th at 00:13 changes nothing; at 00:45 the first order is lifted, and nothing is in force.
+  assert.equal(read(393166, '2026-11-16T22:20:00Z').active, true);
+  assert.deepEqual(read(393185, '2026-11-16T22:50:00Z'), off);
+  // 06:05 and 06:15 on the 17th: ГАВ in full, then СГАВ for three queues — still so at the hour of each letter.
+  assert.deepEqual(read(393186, '2026-11-17T04:10:00Z'), {
+    active: true, since: '2026-11-17T04:05:00.000Z', note: 'запроваджено у повному обсязі графіки аварійних відключень (ГАВ)'
+  });
+  for (const now of ['2026-11-17T07:46:00Z', '2026-11-17T10:29:00Z', '2026-11-17T11:50:00Z', '2026-11-17T13:37:00Z']) {
+    assert.deepEqual(read(393187, now), {
+      active: true, since: '2026-11-17T04:05:00.000Z',
+      note: 'запроваджено у повному обсязі графіки аварійних відключень (ГАВ); запроваджено спеціальні графіки аварійних відключень (СГАВ) в обсязі 3 черг'
+    }, now);
+  }
+  // 19:36: both lifted in one post. A day and nine tables later the times, which carry no date, still fall where they were.
+  assert.deepEqual(read(393197, '2026-11-17T17:40:00Z'), off);
+  assert.deepEqual(readSiteEmergency(SITE_ORDERS, new Date('2026-11-18T17:16:00Z')), off);
+});
+
+test('while an order stands the region carries the warning, in the operator\'s words, and loses it when the order is lifted', async () => {
+  const at = (id, now) => hushed(() => fetchRegion(REGION, new Date(now), { fetchSite: async () => pageWhenNewest(id), fetchTelegram: async () => [] }));
+  const { value: morning } = await at(393187, '2026-11-17T07:46:00Z');
+  assert.deepEqual(morning.fact.emergency, [day('2026-11-17')]);
+  assert.match(morning.fact.emergencyNote, /^запроваджено у повному обсязі графіки аварійних відключень \(ГАВ\); /);
+  assert.deepEqual(validate(morning), []);
+  assert.equal(carriedParts(morning), null);
+  // The table is the one it would have been without the warning.
+  assert.deepEqual(dark(morning.fact.data[day('2026-11-17')]['GPV5.2']), [2, 3, 4, 5, 6, 11, 12, 13, 14, 15, 20, 21, 22, 23, 24]);
+
+  const { value: evening } = await at(393197, '2026-11-17T17:40:00Z');
+  assert.equal('emergency' in evening.fact, false);
+  assert.equal('emergencyNote' in evening.fact, false);
+});
+
+test('a page with no word on the orders, or no page at all, leaves the warning phones have — for the rest of its day', async () => {
+  const { value: warned } = await hushed(() => fetchRegion(REGION, new Date('2026-11-17T07:46:00Z'), {
+    fetchSite: async () => pageWhenNewest(393187), fetchTelegram: async () => []
+  }));
+  const region = { ...REGION, previous: warned };
+  // The order's post has left the first page: tables only.
+  const tablesOnly = article(9, 'ОНОВЛЕНО ГПВ НА 17 ЛИСТОПАДА ПО ЗАПОРІЗЬКІЙ ОБЛАСТІ (оновлено 12:10)');
+  const { value: kept } = await hushed(() => fetchRegion(region, new Date('2026-11-17T10:30:00Z'), { fetchSite: async () => tablesOnly, fetchTelegram: async () => [] }));
+  assert.deepEqual(kept.fact.emergency, [day('2026-11-17')]);
+  assert.equal(kept.fact.emergencyNote, warned.fact.emergencyNote);
+  assert.deepEqual(carriedParts(kept), ['emergency']);
+
+  const down = { fetchSite: async () => { throw new Error('connect ETIMEDOUT'); }, fetchTelegram: async () => [] };
+  const { value: held } = await hushed(() => fetchRegion(region, new Date('2026-11-17T10:30:00Z'), down));
+  assert.deepEqual(held.fact.emergency, [day('2026-11-17')]);
+  assert.equal(carriedParts(held), true);
+
+  // Past midnight it is yesterday's warning, and goes.
+  const { value: next } = await hushed(() => fetchRegion(region, new Date('2026-11-17T22:30:00Z'), down));
+  assert.equal('emergency' in next.fact, false);
+  // And a region that had none gets none from a silent page.
+  const { value: none } = await hushed(() => fetchRegion(REGION, new Date('2026-11-17T10:30:00Z'), { fetchSite: async () => tablesOnly, fetchTelegram: async () => [] }));
+  assert.equal('emergency' in none.fact, false);
+  assert.equal(carriedParts(none), null);
+});
+
+test('an order the page has carried for a day and a half with nothing to lift it is not believed any more', () => {
+  const order = '<p>За вказівкою НЕК “Укренерго” по Запорізькій області запроваджено у повному обсязі графіки аварійних відключень (ГАВ).</p>';
+  const listing = (newest) => [
+    article(4, `ОНОВЛЕНО ГПВ НА 20 ЛИСТОПАДА ПО ЗАПОРІЗЬКІЙ ОБЛАСТІ (оновлено ${newest})`),
+    article(3, 'ОНОВЛЕНО ГПВ НА 19 ЛИСТОПАДА ПО ЗАПОРІЗЬКІЙ ОБЛАСТІ (оновлено 07:00)'),
+    article(2, 'УВАГА! ДІЮТЬ ГРАФІКИ АВАРІЙНИХ ВІДКЛЮЧЕНЬ (оновлено о 06:05)', order),
+    article(1, 'ОНОВЛЕНО ГПВ НА 19 ЛИСТОПАДА ПО ЗАПОРІЗЬКІЙ ОБЛАСТІ (оновлено 05:30)')
+  ].join('\n');
+  // Under a table revised at 07:00 on the 19th, 06:05 is that morning's: thirty-four hours old at 16:30 on the 20th, thirty-nine at 21:30.
+  const afternoon = readSiteEmergency(listing('16:00'), new Date('2026-11-20T14:30:00Z'));
+  assert.deepEqual(afternoon, { active: true, since: '2026-11-19T04:05:00.000Z', note: 'запроваджено у повному обсязі графіки аварійних відключень (ГАВ)' });
+  assert.deepEqual(readSiteEmergency(listing('21:00'), new Date('2026-11-20T19:30:00Z')), { active: false, since: null, note: null });
+});
+
+test('a title that names neither order speaks of both, and its own words decide whether it starts or lifts them', () => {
+  const page = (title, body) => article(2, title, `<p>${body}</p>`) + article(1, 'ОНОВЛЕНО ГПВ НА 17 ЛИСТОПАДА ПО ЗАПОРІЗЬКІЙ ОБЛАСТІ (оновлено 05:00)');
+  const now = new Date('2026-11-17T08:00:00Z');
+  const started = readSiteEmergency(page('УВАГА! АВАРІЙНІ ВІДКЛЮЧЕННЯ (оновлено о 09:40)', 'По Запорізькій області застосовано аварійні відключення.'), now);
+  assert.deepEqual(started, { active: true, since: '2026-11-17T07:40:00.000Z', note: 'застосовано аварійні відключення' });
+  const lifted = readSiteEmergency(page('УВАГА! АВАРІЙНІ ВІДКЛЮЧЕННЯ (оновлено о 09:40)', 'Аварійні відключення по Запорізькій області скасовано.'), now);
+  assert.deepEqual(lifted, { active: false, since: null, note: null });
+  // The reminder under a table is no post about an order, whatever it mentions.
+  const table = article(1, 'ОНОВЛЕНО ГПВ НА 17 ЛИСТОПАДА ПО ЗАПОРІЗЬКІЙ ОБЛАСТІ (оновлено 05:00)', '<p>1.1: 09:00 – 14:00</p><p>У разі запровадження ГАВ графіки не діють.</p>');
+  assert.equal(readSiteEmergency(table, now), null);
 });

@@ -30,6 +30,9 @@ import { markCarried } from '../lib/carried.mjs';
  * Either outlet alone still publishes: the site answers only Ukrainian addresses (the GitHub
  * fallback gets the channel only), and sends its certificate without the intermediate, which is
  * supplied from certs/ for that one request.
+ *
+ * The same page says when Укренерго's emergency schedules are in force and when they are lifted
+ * (`readSiteEmergency`): that is where the region's «Аварійні відключення» comes from.
  */
 const SITE = 'https://www.zoe.com.ua/outage/';
 const CHANNEL = 'Zaporizhzhyaoblenergo_news';
@@ -50,6 +53,22 @@ function plain(fragment) {
     .split('\n').map((line) => line.trim()).filter(Boolean).join('\n');
 }
 
+/** The page's posts as it lists them, newest first: each one's number, title and text. */
+function articlesOf(html) {
+  const articles = [...html.matchAll(/<article id="post-(\d+)"[^>]*>([\s\S]*?)<\/article>/g)];
+  // A page with no posts is a changed layout or a block page, not a quiet day.
+  if (articles.length === 0) throw new Error('no posts on the outage page');
+  return articles.map(([, id, body]) => {
+    const title = plain(/<h2[^>]*>([\s\S]*?)<\/h2>/.exec(body)?.[1] ?? '');
+    // The body up to the </div> that closes it, not the first one inside it: a table pasted as
+    // <div> rows ended at its first row, and every subqueue after it read as light.
+    const open = /<div class="content">/.exec(body);
+    const end = open ? closingDiv(body, open.index + open[0].length) : -1;
+    const content = open ? plain(body.slice(open.index + open[0].length, end === -1 ? undefined : end)) : '';
+    return { id: Number(id), title, content };
+  });
+}
+
 /**
  * The outage page → posts for `parseGpvPost`, oldest first, each given the moment its version was
  * written. The page lists newest first and its post ids are not chronological, so page order is
@@ -62,24 +81,14 @@ function plain(fragment) {
  * A post with no time follows the one before it.
  */
 export function parseListing(html, now = new Date()) {
-  const articles = [...html.matchAll(/<article id="post-(\d+)"[^>]*>([\s\S]*?)<\/article>/g)];
-  // A page with no posts is a changed layout or a block page, not a quiet day.
-  if (articles.length === 0) throw new Error('no posts on the outage page');
-
   const items = [];
-  for (const [, id, body] of articles) {
-    const title = plain(/<h2[^>]*>([\s\S]*?)<\/h2>/.exec(body)?.[1] ?? '');
-    // The body up to the </div> that closes it, not the first one inside it: a table pasted as
-    // <div> rows ended at its first row, and every subqueue after it read as light.
-    const open = /<div class="content">/.exec(body);
-    const end = open ? closingDiv(body, open.index + open[0].length) : -1;
-    const content = open ? plain(body.slice(open.index + open[0].length, end === -1 ? undefined : end)) : '';
+  for (const { id, title, content } of articlesOf(html)) {
     const stamp = STAMP.exec(title);
     // The stamp is taken out before parsing, so "(оновлено о 20:55)" is not read again as an
     // in-place edit of whatever day it happens to fall on.
     const text = `${title.replace(STAMP, '').trim()}\n${content}`;
-    const subject = dayOfPost({ id: Number(id), postedAt: now.toISOString(), text });
-    if (subject) items.push({ id: Number(id), text, subject, stamp, at: null });
+    const subject = dayOfPost({ id, postedAt: now.toISOString(), text });
+    if (subject) items.push({ id, text, subject, stamp, at: null });
   }
 
   // Newest first, as the page lists them.
@@ -107,6 +116,117 @@ export function parseListing(html, now = new Date()) {
     posts.push({ id: item.id, postedAt: new Date(at).toISOString(), text: item.text });
   }
   return posts;
+}
+
+// «УВАГА! ДІЮТЬ ГРАФІКИ АВАРІЙНИХ ВІДКЛЮЧЕНЬ (оновлено о 06:05)», «… СПЕЦІАЛЬНІ ГРАФІКИ АВАРІЙНИХ ВІДКЛЮЧЕНЬ – СКАСОВАНО! (оновлено о 22:30)».
+const ORDER_TITLE = /аварійн\S*\s+відключен|(?<![\p{L}])С?ГАВ(?![\p{L}])/iu;
+// Two orders, started and lifted apart: «графіки аварійних відключень (ГАВ)» and «спеціальні графіки аварійних відключень (СГАВ)».
+const SCHEDULES = /(спеціальн\S*\s+)?графік\S*\s+аварійн\S*\s+відключен/giu;
+const SPECIAL = /(?<![\p{L}])СГАВ(?![\p{L}])/iu;
+const ORDINARY = /(?<![\p{L}])ГАВ(?![\p{L}])/iu;
+const LIFTED = /скасован|припинен/iu;
+const IN_FORCE = /діють|запроваджен|застосов|введен/iu;
+// The operator's sentence, from its verb on: «запроваджено у повному обсязі графіки аварійних відключень (ГАВ)».
+const SAID = /(?:запроваджен|застосов|введен)[^.\n]*/iu;
+/** The site lifts every order it starts, in a post of its own; one left standing longer than this was not lifted there. */
+const ORDER_MAX_AGE_MS = 36 * 3600 * 1000;
+
+/** Which of the two orders a title is about; both, when it names neither. */
+function ordersOf(title) {
+  const named = new Set();
+  for (const match of title.matchAll(SCHEDULES)) named.add(match[1] ? 'special' : 'ordinary');
+  if (SPECIAL.test(title)) named.add('special');
+  if (ORDINARY.test(title)) named.add('ordinary');
+  return named.size ? [...named] : ['ordinary', 'special'];
+}
+
+/** The latest moment at `minutes` past a Kyiv midnight that is not after `upper`. */
+function lastBefore(minutes, upper) {
+  let day = kyivDayStart(new Date(upper));
+  for (let back = 0; back < 2; back++) {
+    const candidate = (day + minutes * 60) * 1000;
+    if (candidate <= upper) return candidate;
+    day = kyivDayStart(new Date(day * 1000 - 3600 * 1000));
+  }
+  return null;
+}
+
+/**
+ * The outage page → whether Укренерго's emergency schedules are in force in the oblast right now.
+ *
+ * Between its tables the page carries the operator's word on them, each in a post of its own: «УВАГА! ДІЮТЬ ГРАФІКИ АВАРІЙНИХ
+ * ВІДКЛЮЧЕНЬ (оновлено о 06:05)» — «запроваджено у повному обсязі графіки аварійних відключень (ГАВ)» — and, when the order ends,
+ * «УВАГА! ГРАФІКИ АВАРІЙНИХ ВІДКЛЮЧЕНЬ (ГАВ) – СКАСОВАНО! (оновлено о 00:45)». The special ones (СГАВ, «в обсязі 3 черг») are a
+ * second order beside the first, started and lifted on its own; either one in force is the region's «Аварійні відключення».
+ *
+ * On 17 November 2026 both stood from 06:05 to 19:36 and four letters came in, 09:46 to 15:37, from queues the table had in the
+ * light: the hours on the screen were the operator's, and nothing on it said they did not hold. The channel is not read for this:
+ * it announces an order but not its end at night (lifted at 22:30 and 00:45 on the 16th–17th, on the site only).
+ *
+ * A title's time has no date, as a table's has none. Walking down from the newest post, each takes the latest such time that is
+ * not after the post above it; the tables between them, which do name their day, keep that honest to within a day. So an order is
+ * never read as older than it is, and `maxAgeMs` drops one the page has carried for a day and a half with nothing to lift it.
+ *
+ * @returns {{ active: boolean, since: string|null, note: string|null }|null} `null` when the page has no such post at all: it
+ *   says nothing either way, and what phones have stays (an order's post can leave the first page while the order stands).
+ */
+export function readSiteEmergency(html, now = new Date(), { maxAgeMs = ORDER_MAX_AGE_MS } = {}) {
+  const latest = {};
+  let upper = now.getTime() + 5 * 60_000;
+  for (const { id, title, content } of articlesOf(html)) {
+    const stamp = STAMP.exec(title);
+    if (!stamp) continue;
+    const minutes = Number(stamp[1]) * 60 + Number(stamp[2]);
+    if (!ORDER_TITLE.test(title)) {
+      // A table: it only says how late the posts under it can be.
+      const subject = dayOfPost({ id, postedAt: now.toISOString(), text: `${title.replace(STAMP, '').trim()}\n${content}` });
+      const fits = subject && [subject.epoch, subject.epoch - DAY_SECONDS]
+        .map((epoch) => (epoch + minutes * 60) * 1000)
+        .find((candidate) => candidate <= upper);
+      if (fits) upper = fits;
+      continue;
+    }
+    const at = lastBefore(minutes, upper);
+    if (at === null) continue;
+    upper = at;
+    const heading = title.replace(STAMP, '');
+    const lifted = LIFTED.test(heading) || (!IN_FORCE.test(heading) && LIFTED.test(content));
+    if (!lifted && !IN_FORCE.test(heading) && !IN_FORCE.test(content)) continue;
+    const orders = ordersOf(heading);
+    const post = { id, at, on: !lifted, orders, said: lifted ? null : SAID.exec(content)?.[0].trim().replace(/\s+/g, ' ') ?? null };
+    // Newest first: the first post about an order is the last word on it.
+    for (const order of orders) latest[order] ??= post;
+  }
+
+  const known = Object.values(latest);
+  if (known.length === 0) return null;
+  const standing = Object.entries(latest)
+    .filter(([, post]) => post.on && now.getTime() - post.at <= maxAgeMs)
+    .sort(([, a], [, b]) => a.at - b.at);
+  if (standing.length === 0) return { active: false, since: null, note: null };
+  // The operator's words, and only while they are true: a post that started both orders says too much once one of them is lifted.
+  const whole = (post) => post.said && post.orders.every((order) => latest[order] === post);
+  const posts = [...new Set(standing.map(([, post]) => post))];
+  const note = posts.every(whole) ? posts.map((post) => post.said).join('; ') : null;
+  return { active: true, since: new Date(standing[0][1].at).toISOString(), note };
+}
+
+/**
+ * The region's snapshot with what the page says of the emergency schedules. Without a word from the page — it did not answer, or
+ * carries no such post — the warning phones already have stays for the rest of its day, marked as carried: it is what they have,
+ * not a second look.
+ */
+function withSiteEmergency(snapshot, region, reading, now) {
+  const today = kyivDayStart(now);
+  if (!reading) {
+    const held = (region.previous?.fact?.emergency ?? []).map(Number).filter((day) => day >= today);
+    if (!held.length) return snapshot;
+    const note = region.previous.fact.emergencyNote;
+    return markCarried({ ...snapshot, fact: { ...snapshot.fact, emergency: held, ...(note ? { emergencyNote: note } : {}) } }, ['emergency']);
+  }
+  if (!reading.active) return snapshot;
+  console.log(`[emergency] ${region.id}: emergency since ${reading.since}${reading.note ? ` (${reading.note})` : ''}`);
+  return { ...snapshot, fact: { ...snapshot.fact, emergency: [today], ...(reading.note ? { emergencyNote: reading.note } : {}) } };
 }
 
 /**
@@ -156,7 +276,7 @@ export async function fetchRegion(region, now = new Date(), {
   fetchTelegram = () => fetchChannel(CHANNEL)
 } = {}) {
   const [site, channel] = await Promise.allSettled([
-    fetchSite().then((html) => parseListing(html, now)),
+    fetchSite().then((html) => ({ posts: parseListing(html, now), emergency: readSiteEmergency(html, now) })),
     fetchTelegram()
   ]);
   if (site.status === 'rejected' && channel.status === 'rejected') {
@@ -166,7 +286,7 @@ export async function fetchRegion(region, now = new Date(), {
   if (channel.status === 'rejected') console.warn(`[zaporizhzhia] channel: ${channel.reason.message}; site only`);
 
   const since = kyivDayStart(now) - DAY_SECONDS;
-  const siteVersions = site.status === 'fulfilled' ? site.value.map(parseGpvPost).filter(Boolean) : null;
+  const siteVersions = site.status === 'fulfilled' ? site.value.posts.map(parseGpvPost).filter(Boolean) : null;
   const channelReading = channel.status === 'fulfilled' ? scheduleFromPosts(channel.value, { since }) : null;
   const readings = [
     siteVersions ? mergeVersions(siteVersions, { since }) : null,
@@ -201,5 +321,6 @@ export async function fetchRegion(region, now = new Date(), {
     update,
     source: 'zaporizhzhia'
   });
-  return leaned ? markCarried(snapshot, true) : snapshot;
+  const warned = withSiteEmergency(snapshot, region, site.status === 'fulfilled' ? site.value.emergency : null, now);
+  return leaned ? markCarried(warned, true) : warned;
 }

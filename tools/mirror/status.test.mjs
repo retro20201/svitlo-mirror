@@ -76,11 +76,12 @@ test('a post time is shown in Kyiv wall clock; an operator\'s own stamp passes t
 });
 
 test('only the regions with an emergency signal tell the app they carry an emergency signal', async () => {
-  // YASNO's `EmergencyShutdowns` and an operator's channel that announces each order are the only sources of
-  // «аварійні»; the app offers that switch only where the index says so. Everywhere else the row stays as it was.
+  // YASNO's `EmergencyShutdowns`, an operator's channel that announces each order and Запоріжжя's site, which posts each one
+  // and its end, are the only sources of «аварійні»; the app offers that switch — and joins the region's emergency pushes — only
+  // where the index says so. Everywhere else the row stays as it was.
   const { REGIONS, indexEntry } = await import('./regions.mjs');
   const flagged = REGIONS.filter((region) => indexEntry(region).emergencySignal === true).map((region) => region.id);
-  assert.deepEqual(flagged, ['kyiv', 'kyiv-region', 'dnipro', 'cek', 'zhytomyr', 'sumy', 'kharkiv', 'chernihiv', 'cherkasy']);
+  assert.deepEqual(flagged, ['kyiv', 'kyiv-region', 'dnipro', 'cek', 'zhytomyr', 'sumy', 'kharkiv', 'chernihiv', 'cherkasy', 'zaporizhzhia']);
   assert.ok(REGIONS.every((region) => flagged.includes(region.id) || !('emergencySignal' in indexEntry(region))));
   assert.deepEqual(Object.keys(indexEntry(REGIONS.find((region) => region.id === 'kyiv'))),
     ['id', 'title', 'subtitle', 'operator', 'status', 'emergencySignal', 'operatorSite']);
