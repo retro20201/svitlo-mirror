@@ -137,6 +137,8 @@ export const REGIONS = [
     emergencyTelegram: { area: 'own' } },
   { id: 'zaporizhzhia',  title: 'Запорізька область',  subtitle: 'область',          operator: 'АТ «Запоріжжяобленерго»',                 source: 'zaporizhzhia', site: 'https://www.zoe.com.ua/', status: 'seasonal',
     // «Години відсутності електропостачання … (з урахуванням 30 хвилин на перемикання)» on every table (@Zaporizhzhyaoblenergo_news).
+    // No `emergencyTelegram`: the operator's site says when the emergency schedules (ГАВ, СГАВ) start and when they are lifted, the
+    // channel only when they start — so «Аварійні відключення» is read off the page the tables come from (sources/zaporizhzhia.mjs).
     includesSwitching: true },
   // The table the old note denied exists: poe.pl.ua's own widget fetches it (sources/poltava.mjs).
   // The site refuses non-Ukrainian addresses, so it only ever arrives from the Kyiv server.
