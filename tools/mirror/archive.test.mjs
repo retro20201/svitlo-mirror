@@ -62,6 +62,12 @@ test('what is put away is the region file with that one day in it', () => {
   const declared = narrowed({ ...file, fact: { ...file.fact, emergency: [NOV_14, NOV_15] } }, NOV_14, dayTable(file, NOV_14));
   assert.deepEqual(declared.fact.emergency, [NOV_14]);
   assert.equal(declared.fact.emergencyNote, 'завтра');
+  // An order that was some queues' alone: kept for the day it was on, and dropped from a day it was not.
+  const order = { queues: ['GPV1001.1'], days: [NOV_14], note: 'для споживачів м. Дніпро' };
+  const withOrder = { ...file, fact: { ...file.fact, queueEmergency: order } };
+  assert.deepEqual(narrowed(withOrder, NOV_14, dayTable(file, NOV_14)).fact.queueEmergency, order);
+  assert.equal(narrowed(withOrder, NOV_15, dayTable(file, NOV_15)).fact.queueEmergency, undefined);
+  assert.equal(narrowed({ ...file, fact: { ...file.fact, queueEmergency: { queues: ['GPV1001.1'], days: [] } } }, NOV_14, dayTable(file, NOV_14)).fact.queueEmergency, undefined);
 });
 
 test('the running day is noted in its last form; an emergency once declared and a table taken down are remembered', () => {

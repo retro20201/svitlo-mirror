@@ -1,6 +1,7 @@
 import { kyivDayStart } from './canonical.mjs';
-import { pageOf } from './dtek-emergency.mjs';
+import { pageOf, readEmergency } from './dtek-emergency.mjs';
 import { scheduleOf } from '../sources/cek.mjs';
+import { regionById } from '../regions.mjs';
 
 /**
  * ЦЕК's hours for the queues ДТЕК lists under its own Дніпро region.
@@ -14,8 +15,15 @@ import { scheduleOf } from '../sources/cek.mjs';
  * ЦЕК's table is what the region `cek` is read from (sources/cek.mjs, the channel @cek_info). Here the same hours are put into ДТЕК's
  * region under ДТЕК's names for them, so whoever chose «ЦЕК 5.2» under «Дніпро» sees ЦЕК's 5.2 without choosing anything again.
  *
- * Only the hours. The region's emergency flag stays ДТЕК's own: ЦЕК's orders are in the region `cek`. A channel that cannot be read
- * leaves the snapshot as ДТЕК gave it — a forecast, as before — and never fails the region.
+ * And ЦЕК's emergency orders, for those queues alone: `fact.queueEmergency` — `{ queues, days, note? }`. The region's own flag
+ * (`fact.emergency`) stays ДТЕК's: it warns every phone in the region, with an alert to all who asked for one, and ЦЕК's people are
+ * a few in a hundred of them. On 14 November 2026 ЦЕК declared emergency outages for Дніпро twice (12:19–14:46, 20:02–21:35) with
+ * ДТЕК saying nothing: the region `cek` had the warning, «ЦЕК 5.2» under «Дніпро» had its hours drawn as if they held. The field
+ * names the queues that have an operator of their own, and the days that operator's order is on — none, when there is none: an app
+ * that knows the field reads those queues' warning from it and not from the region's flag; one that does not, reads as before.
+ *
+ * A channel that cannot be read leaves the snapshot as ДТЕК gave it — a forecast, as before — and never fails the region; an
+ * order the served copy already had stays on it meanwhile.
  */
 
 /** ДТЕК's name for one of ЦЕК's queues: «ЦЕК 5.2». */
@@ -55,16 +63,50 @@ export function mergeCekQueues(snapshot, cekFact, { today = kyivDayStart() } = {
   return merged ? { ...snapshot, fact: { ...(snapshot.fact ?? {}), data } } : snapshot;
 }
 
+/**
+ * ЦЕК's emergency order as ДТЕК's region carries it: ДТЕК's keys for ЦЕК's queues, and today while the order is on.
+ *
+ * Read off the same posts by the rules the region `cek` is read by (its `emergencyTelegram`: how long an order with no end is
+ * believed, and Павлоград's own orders left out), so the two never say different things. `note`: whom the post addressed, when it
+ * named a city — «для споживачів м. Дніпро».
+ *
+ * @returns {{ queues: string[], days: number[], note?: string, since?: string } | null} null for a snapshot with none of ЦЕК's queues
+ */
+export function cekEmergency(snapshot, posts, { now = new Date(), signal = regionById('cek')?.emergencyTelegram } = {}) {
+  const queues = [...cekTargets(snapshot).values()].sort();
+  if (!queues.length) return null;
+  const hours = signal?.maxAgeHours;
+  const reading = readEmergency(posts, { now, area: 'own', maxAgeMs: hours ? hours * 3600 * 1000 : undefined, skip: signal?.skip ?? null });
+  if (!reading.active) return { queues, days: [] };
+  return { queues, days: [kyivDayStart(now)], ...(reading.note ? { note: reading.note } : {}), since: reading.since };
+}
+
+/** The order the served copy had, for a cycle the channel did not answer in: today's and later, or nothing. */
+function heldEmergency(snapshot, previous, today) {
+  const held = previous?.fact?.queueEmergency;
+  const days = Array.isArray(held?.days) ? held.days.map(Number).filter((day) => day >= today) : [];
+  if (!days.length || !Array.isArray(held.queues)) return snapshot;
+  return { ...snapshot, fact: { ...(snapshot.fact ?? {}), queueEmergency: { ...held, days } } };
+}
+
+/**
+ * @param {object} snapshot ДТЕК's region as its adapter read it
+ * @param {{ read?: Function, now?: Date, log?: Function, previous?: object|null }} options `previous`: the copy being served
+ */
 export async function withCekQueues(
-  snapshot, { read = () => pageOf('cek_info'), now = new Date(), log = (line) => console.log(`[cek-in-dnipro] ${line}`) } = {}
+  snapshot, { read = () => pageOf('cek_info'), now = new Date(), log = (line) => console.log(`[cek-in-dnipro] ${line}`), previous = null } = {}
 ) {
   if (!cekTargets(snapshot).size) return snapshot;
+  // From the day `now` is in: the reader's own floor is yesterday by the real clock, which a test of another day is not near.
+  const today = kyivDayStart(now);
   try {
-    // From the day `now` is in: the reader's own floor is yesterday by the real clock, which a test of another day is not near.
-    const today = kyivDayStart(now);
-    return mergeCekQueues(snapshot, scheduleOf(await read(), { since: today }).fact, { today });
+    const posts = await read();
+    const merged = mergeCekQueues(snapshot, scheduleOf(posts, { since: today }).fact, { today });
+    const { since, ...order } = cekEmergency(snapshot, posts, { now });
+    if (since) log(`ЦЕК's emergency order since ${since}${order.note ? ` (${order.note})` : ''}`);
+    return { ...merged, fact: { ...(merged.fact ?? {}), queueEmergency: order } };
   } catch (error) {
     log(`ЦЕК's hours were not read: ${error.message}`);
-    return snapshot;
+    return heldEmergency(snapshot, previous, today);
   }
 }

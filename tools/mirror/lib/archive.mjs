@@ -51,11 +51,19 @@ export function dayTable(snapshot, day) {
 
 /** The region file with that one day in it and nothing about the days around it. */
 export function narrowed(snapshot, day, table) {
-  const { pendingChange: _pending, emergency: _days, emergencyNote, ...fact } = snapshot.fact ?? {};
+  const { pendingChange: _pending, emergency: _days, emergencyNote, queueEmergency, ...fact } = snapshot.fact ?? {};
   const declared = emergencyOn(snapshot, day);
+  // An order that is some queues' alone (lib/cek-in-dnipro.mjs) is kept the same way: for this day, or not at all.
+  const forQueues = Array.isArray(queueEmergency?.days) && queueEmergency.days.map(Number).includes(day);
   return {
     ...snapshot,
-    fact: { ...fact, ...(declared ? { emergency: [day], ...(emergencyNote ? { emergencyNote } : {}) } : {}), data: { [String(day)]: table }, today: day }
+    fact: {
+      ...fact,
+      ...(declared ? { emergency: [day], ...(emergencyNote ? { emergencyNote } : {}) } : {}),
+      ...(forQueues ? { queueEmergency: { ...queueEmergency, days: [day] } } : {}),
+      data: { [String(day)]: table },
+      today: day
+    }
   };
 }
 

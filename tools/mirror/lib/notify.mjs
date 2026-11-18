@@ -56,7 +56,14 @@ export function affectsSchedule(previous, next, now = new Date()) {
   // that the schedule may not hold, and that warning is worth a wake-up as soon as it appears.
   // Only today's and later: yesterday's flag dropping off at midnight changes nothing on a phone.
   const emergency = (payload) => JSON.stringify((payload?.fact?.emergency ?? []).filter((day) => day >= today));
-  return fact(previous) !== fact(next) || emergency(previous) !== emergency(next);
+  // The same for an order that is some queues' alone (`fact.queueEmergency`, lib/cek-in-dnipro.mjs). The field with no day in it
+  // is the field not there: its first appearance, and the list of queues by itself, wake nobody.
+  const queueEmergency = (payload) => {
+    const order = payload?.fact?.queueEmergency;
+    const days = (Array.isArray(order?.days) ? order.days : []).map(Number).filter((day) => day >= today).sort((a, b) => a - b);
+    return days.length ? JSON.stringify([days, [...(order.queues ?? [])].sort()]) : '[]';
+  };
+  return fact(previous) !== fact(next) || emergency(previous) !== emergency(next) || queueEmergency(previous) !== queueEmergency(next);
 }
 
 /**
