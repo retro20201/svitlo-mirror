@@ -90,9 +90,24 @@ export function assertNewsTopic(topic, { test = false } = {}) {
   if (typeof topic !== 'string' || !allowed.test(topic)) throw new TopicRefused(`refusing a visible alert to "${topic}"`);
 }
 
+/**
+ * The one condition a visible alert is sent by: an emergency order of some queues alone, to the phones that hold the region's
+ * emergency topic and that queue's (`ownEmergencyCondition`). Exactly that shape, both topics of the same region — a condition
+ * is a little language, and `||` or `!` in it would reach people who asked for nothing.
+ */
+const OWN_EMERGENCY = /^'e_([a-z][a-z-]*)' in topics && 'q_\1_[A-Za-z0-9%-]+' in topics$/;
+
+export function assertNewsTarget(message, { test = false } = {}) {
+  const { topic, condition } = message ?? {};
+  if (condition === undefined) return assertNewsTopic(topic, { test });
+  if (topic !== undefined || test || typeof condition !== 'string' || !OWN_EMERGENCY.test(condition)) {
+    throw new TopicRefused(`refusing a visible alert to the condition "${condition}"`);
+  }
+}
+
 /** The only way a visible alert leaves this file. */
 export async function sendNews(message, { credentialsPath, signal, test = false }) {
-  assertNewsTopic(message?.message?.topic, { test });
+  assertNewsTarget(message?.message, { test });
   return sendFcm(message, { credentialsPath, signal });
 }
 

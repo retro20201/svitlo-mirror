@@ -1,6 +1,7 @@
 /**
  * What a served region file says for schedule news: per queue and day, the half-hours definitely
- * without light; per picture day, the picture's identity; the emergency days.
+ * without light; per picture day, the picture's identity; the emergency days — the region's, and
+ * those of an order that is some queues' alone.
  *
  * Apart from lib/news.mjs because run.sh's fingerprint covers this file and not that one. These are
  * the values the ledger keeps as bases, so a change here changes what an old base means: each
@@ -74,5 +75,14 @@ export function observeRegion(meta, snapshot, now = new Date()) {
   const emergency = hasEmergencySignal(meta)
     ? [...new Set((fact.emergency ?? []).map(Number))].filter((day) => day === today || day === tomorrow)
     : [];
-  return { region: meta.id, title: meta.title, names, days, sheets, emergency };
+  // An order that is some queues' alone (`fact.queueEmergency`, lib/cek-in-dnipro.mjs): ЦЕК's, for its twelve queues under
+  // ДТЕК's «Дніпро». The region's flag above is not theirs and theirs is not the region's. Absent wherever there is no such
+  // order on, so every other region's observation is what it always was.
+  const order = fact.queueEmergency;
+  const ownDays = Array.isArray(order?.days)
+    ? [...new Set(order.days.map(Number))].filter((day) => day === today || day === tomorrow)
+    : [];
+  const ownQueues = Array.isArray(order?.queues) ? order.queues.filter((queue) => typeof queue === 'string' && queue in names).sort() : [];
+  const own = ownDays.length && ownQueues.length ? { queues: ownQueues, days: ownDays } : null;
+  return { region: meta.id, title: meta.title, names, days, sheets, emergency, ...(own ? { own } : {}) };
 }

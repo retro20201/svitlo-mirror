@@ -6,6 +6,9 @@
  * alert reaches a phone where the app was force-quit, Low Power Mode is on, Background App Refresh
  * is off or it is ten at night — the ordinary state of a phone during blackouts. They go to opt-in
  * topics only: `q_<region>_<queue>`, `s_<region>` for a day published as a picture, `e_<region>`.
+ * An emergency order that is some queues' alone (ЦЕК's, under ДТЕК's «Дніпро») goes to the phones
+ * that hold both `e_<region>` and that queue's `q_` topic — an FCM condition, so no build has to
+ * learn a new topic.
  *
  * Pure: no files, no network, the clock passed in. send-news.mjs feeds it the files being served,
  * read by lib/news-observe.mjs, and a ledger, and does the sending.
@@ -36,6 +39,12 @@ export const encQueue = (queue) => [...Buffer.from(queue, 'utf8')].map((b) =>
 export const newsTopic = (region, queue) => `q_${region}_${encQueue(queue)}`;   // q_poltava_GPV3-1
 export const sheetTopic = (region) => `s_${region}`;
 export const emergencyTopic = (region) => `e_${region}`;
+/**
+ * Whoever asked for emergency alerts in the region and follows this queue. The queue's own topic is joined only with schedule
+ * news switched on; a phone with emergency alerts alone is not reached, and hears of the order from the banner in the app.
+ */
+export const ownEmergencyCondition = (region, queue) =>
+  `'${emergencyTopic(region)}' in topics && '${newsTopic(region, queue)}' in topics`;
 
 // --- Masks: a day as 48 half-hour bits, bit i = slot i (00:00–00:30 is slot 0), kept as the 12 hex
 // chars lib/news-observe.mjs reads them into.
@@ -234,8 +243,9 @@ export function decide({
     return { key, type: 'sheet', region: seen.region, day, kind, mask: value, base: target.base, regionTitle: seen.title, sends: target.sends };
   };
 
-  // Once per region-day: never repeated, and no "ended" — YASNO's flag is not that precise.
-  const emergencyEvent = (seen, { key, day, value }, current) => {
+  // Once per region-day: never repeated, and no "ended" — YASNO's flag is not that precise. The same for an order that is some
+  // queues' alone, once per queue and day: `queue` is then that queue, and the event is for its followers only.
+  const emergencyEvent = (seen, { key, day, value, queue }, current) => {
     if (current?.base != null) {
       current.pending = null;
       return null;
@@ -243,7 +253,10 @@ export function decide({
     const target = entry(key);
     if (!settle(target, value, at)) return held(key, 'emergency', 'settle');
     if (gaveUp(target)) return adopted(key, 'emergency', target, value, 'gave-up');
-    return { key, type: 'emergency', region: seen.region, day, kind: 'emergency', mask: value, base: null, regionTitle: seen.title, sends: target.sends };
+    return {
+      key, type: 'emergency', region: seen.region, day, kind: 'emergency', mask: value, base: null, regionTitle: seen.title,
+      ...(queue != null ? { queue, queueName: seen.names[queue] ?? queue } : {}), sends: target.sends
+    };
   };
 
   for (const region of freshIds) {
@@ -259,6 +272,12 @@ export function decide({
       items.push({ type: 'sheet', key: keyOf(region, SHEET, day), day: Number(day), value: sheet.key, isRevision: sheet.isRevision });
     }
     for (const day of seen.emergency) items.push({ type: 'emergency', key: keyOf(region, EMERGENCY, day), day, value: '1' });
+    // ЦЕК's order for its queues under «Дніпро»: a key per queue — `#emergency:GPV1005.2` — beside the region's own.
+    for (const day of seen.own?.days ?? []) {
+      for (const queue of seen.own.queues) {
+        items.push({ type: 'emergency', key: keyOf(region, `${EMERGENCY}:${queue}`, day), day, value: '1', queue });
+      }
+    }
     // Observed on one side of midnight and decided on the other: only today and tomorrow are news.
     const current = items.filter((item) => item.day === today || item.day === tomorrow);
     const observed = new Set(current.map((item) => item.key));
@@ -285,7 +304,8 @@ export function decide({
         adopt(entry(item.key), item.value);
         continue;
       }
-      if (kept.has(item.type === 'emergency' ? 'emergency' : item.day)) {
+      // `'emergency'` is the region's flag held over; the queues' own order is another operator's and is not held with it.
+      if (kept.has(item.type !== 'emergency' ? item.day : item.queue != null ? 'queueEmergency' : 'emergency')) {
         if (prior?.pending || prior?.base !== item.value) log.push({ key: item.key, kind: '-', outcome: 'held(carried)' });
         continue;
       }
@@ -424,9 +444,11 @@ export function render(event, now = new Date()) {
   const date = dayLabel(event.day);
 
   if (event.type === 'emergency') {
+    // An order for some queues alone is signed with the queue, as its schedule news is: «Дніпро · ЦЕК 5.2».
+    const subtitle = event.queue != null ? `${event.regionTitle} · ${event.queueName ?? event.queue}` : event.regionTitle;
     return when === 'today'
-      ? { title: 'Аварійні відключення', subtitle: event.regionTitle, body: 'Оператор вимикає світло понад графік. Сьогодні графік може не виконуватися.' }
-      : { title: 'Аварійні відключення завтра', subtitle: event.regionTitle, body: `Оператор попередив про відключення понад графік на ${date}.` };
+      ? { title: 'Аварійні відключення', subtitle, body: 'Оператор вимикає світло понад графік. Сьогодні графік може не виконуватися.' }
+      : { title: 'Аварійні відключення завтра', subtitle, body: `Оператор попередив про відключення понад графік на ${date}.` };
   }
   if (event.type === 'sheet') {
     return event.kind === 'sheet-published'
@@ -472,8 +494,8 @@ export function render(event, now = new Date()) {
 
 function collapseId(event) {
   if (event.type === 'sheet') return `n.${event.region}.s.${event.day}`;
-  if (event.type === 'emergency') return `n.${event.region}.e.${event.day}`;
-  const id = `n.${event.region}.${event.queue}.${event.day}`;
+  if (event.type === 'emergency' && event.queue == null) return `n.${event.region}.e.${event.day}`;
+  const id = event.type === 'emergency' ? `n.${event.region}.e.${event.queue}.${event.day}` : `n.${event.region}.${event.queue}.${event.day}`;
   // APNs takes at most 64 bytes, and a header is no place for a free-text Тернопіль label.
   return Buffer.byteLength(id) <= 64 && /^[\x21-\x7e]+$/.test(id)
     ? id
@@ -494,16 +516,21 @@ export function isNight(now = new Date()) {
 export function buildMessage(event, text, now = new Date()) {
   const { region, day } = event;
   const queue = event.type === 'queue' ? event.queue : null;
+  // An emergency order of some queues alone: to the followers of the queue among those who asked for emergency alerts.
+  const own = event.type === 'emergency' && event.queue != null ? event.queue : null;
   const topic = event.topic ?? (queue !== null ? newsTopic(region, queue)
     : event.type === 'sheet' ? sheetTopic(region) : emergencyTopic(region));
+  // The link opens that queue's day. `data.queue` stays a schedule alert's alone: with it, the app keeps a banner about the
+  // queue on screen off the screen (the table is redrawing under the person's eyes) — an emergency is said aloud all the same.
+  const linked = queue ?? own;
   const link = `svitlo://day?region=${encodeURIComponent(region)}` +
-    `${queue !== null ? `&queue=${encodeURIComponent(queue)}` : ''}&day=${day}`;
+    `${linked !== null ? `&queue=${encodeURIComponent(linked)}` : ''}&day=${day}`;
   const level = isNight(now) ? 'passive'
     : event.type === 'emergency' ? 'time-sensitive'
     : (event.sends ?? 0) < SOUNDED_SENDS ? 'active' : 'passive';
   return {
     message: {
-      topic,
+      ...(own !== null && !event.topic ? { condition: ownEmergencyCondition(region, own) } : { topic }),
       data: {
         type: 'news',
         kind: event.kind,
