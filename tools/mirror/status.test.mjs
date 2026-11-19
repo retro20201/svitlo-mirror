@@ -87,7 +87,7 @@ test('only the regions with an emergency signal tell the app they carry an emerg
     'zaporizhzhia', 'poltava']);
   assert.ok(REGIONS.every((region) => flagged.includes(region.id) || !('emergencySignal' in indexEntry(region))));
   assert.deepEqual(Object.keys(indexEntry(REGIONS.find((region) => region.id === 'kyiv'))),
-    ['id', 'title', 'subtitle', 'operator', 'status', 'emergencySignal', 'operatorSite']);
+    ['id', 'title', 'subtitle', 'operator', 'status', 'emergencySignal', 'operatorSite', 'operatorSiteByAddress']);
   // Херсон has no table to warn over: nothing is read there at all.
   assert.deepEqual(Object.keys(indexEntry(REGIONS.find((region) => region.id === 'kherson'))),
     ['id', 'title', 'subtitle', 'operator', 'status', 'note']);
@@ -132,4 +132,16 @@ test('a region names its operator\'s site only when we know it, and always over 
   assert.match(byId.kyiv, /dtek-kem\.com\.ua\/ua\/shutdowns$/);
   assert.equal(byId.zhytomyr, 'https://www.ztoe.com.ua/');
   assert.equal('operatorSite' in indexEntry(REGIONS.find((region) => region.id === 'mykolaiv')), false);
+});
+
+test('only the pages that answer for one address are said to', async () => {
+  // ДТЕК's «Графік відключень» tells whether the power is off at an address now, why and until when; the app names its button
+  // for that. An operator's front page is not such an answer, and its row stays exactly as it was.
+  const { REGIONS, indexEntry } = await import('./regions.mjs');
+  const flagged = REGIONS.filter((region) => indexEntry(region).operatorSiteByAddress === true).map((region) => region.id);
+  assert.deepEqual(flagged, ['kyiv', 'kyiv-region', 'dnipro', 'odesa']);
+  assert.ok(REGIONS.every((region) => flagged.includes(region.id) || !('operatorSiteByAddress' in indexEntry(region))));
+  for (const id of flagged) assert.match(indexEntry(REGIONS.find((region) => region.id === id)).operatorSite, /\/ua\/shutdowns$/);
+  // Said of a page only: a region without a site has nothing to say it of.
+  assert.equal('operatorSiteByAddress' in indexEntry({ id: 'x', title: 'X', subtitle: '', operator: '', status: 'live', siteByAddress: true }), false);
 });
