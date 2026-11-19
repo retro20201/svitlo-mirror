@@ -1,5 +1,5 @@
 /** Region `source` → its adapter, loaded only when a run needs it. Shared by mirror.mjs and relay.mjs. */
-export const ADAPTERS = {
+const SOURCES = {
   // A region with `cekQueues` (regions.mjs) has the hours of another operator's queues put into what its adapter read
   // (lib/cek-in-dnipro.mjs); an adapter that throws, throws as before, with whatever it offered as a fallback.
   dtek: async () => {
@@ -32,3 +32,19 @@ export const ADAPTERS = {
   chernivtsi: () => import('./sources/chernivtsi.mjs'),
   cek: () => import('./sources/cek.mjs')
 };
+
+/**
+ * A region with `emergencyUkrenergo` (regions.mjs) — an oblast whose own operator announces no emergency outages anywhere a machine
+ * can read — has Укренерго's word on them added to whatever its adapter read (lib/ukrenergo-emergency.mjs). Every other region
+ * comes back as its adapter gave it, and an adapter that throws, throws as before.
+ */
+const withUkrenergo = (load) => async () => {
+  const adapter = await load();
+  const { withUkrenergoEmergency } = await import('./lib/ukrenergo-emergency.mjs');
+  return {
+    ...adapter,
+    fetchRegion: async (region, ...rest) => withUkrenergoEmergency(await adapter.fetchRegion(region, ...rest), region)
+  };
+};
+
+export const ADAPTERS = Object.fromEntries(Object.entries(SOURCES).map(([source, load]) => [source, withUkrenergo(load)]));

@@ -48,7 +48,7 @@ export const REGIONS = [
     // ДТЕК's list of queues here also has «ЦЕК 1.1» … «ЦЕК 6.2» (GPV1001.1 … GPV1006.2) — ЦЕК's subscribers, for whom ДТЕК publishes
     // no day table: `cekQueues` fills their hours from ЦЕК's own channel (lib/cek-in-dnipro.mjs).
     yasno: { regionId: 3, dsoId: 301 }, emergencyTelegram: { area: 'dnipro', maxAgeHours: 36 }, cekQueues: true },
-  { id: 'odesa',         title: 'Одеса',               subtitle: 'місто та область', operator: 'ДТЕК Одеські електромережі',              source: 'dtek', site: 'https://www.dtek-oem.com.ua/ua/shutdowns',    status: 'live' },
+  { id: 'odesa',         title: 'Одеса',               subtitle: 'місто та область', operator: 'ДТЕК Одеські електромережі',              source: 'dtek', site: 'https://www.dtek-oem.com.ua/ua/shutdowns',    status: 'live', emergencyUkrenergo: { oblast: 'Одеськ' } },
 
   // The Dnipropetrovsk-oblast subscribers of ПрАТ «ПЕЕМ «ЦЕК», whom ДТЕК does not serve — Жовті Води, Вільногірськ, Павлоград, part of
   // Дніпро and Кривий Ріг. Its own hours under the same queue numbers as ДТЕК's, from its channel @cek_info (sources/cek.mjs); the
@@ -69,15 +69,15 @@ export const REGIONS = [
   // photos in the operator's channel, so they are neither mirrored nor parsed. The picker renders
   // `note` as plain text, so the channel is named for search rather than linked.
   { id: 'mykolaiv',      title: 'Миколаївська область', subtitle: 'область',         operator: 'АТ «Миколаївобленерго»',                  source: 'mykolaiv', status: 'seasonal',
-    note: 'графік публікують лише під час обмежень; планові ремонтні відключення за адресами — щодня в Telegram-каналі оператора @mk_energy_ua' },
+    note: 'графік публікують лише під час обмежень; планові ремонтні відключення за адресами — щодня в Telegram-каналі оператора @mk_energy_ua', emergencyUkrenergo: { oblast: 'Миколаївськ' } },
 
   // --- planned: publishes a queue schedule, adapter still to write
   // Read from the text under their schedule picture (api.loe.lviv.ua, menu items 238 and 256). The
   // probe it replaces watched /shedule-off, a client-side route of their React app: the server
   // answers it with the same 1 195-byte empty shell as the home page, so it could never fire.
-  { id: 'lviv',          title: 'Львівська область',   subtitle: 'область',          operator: 'ПрАТ «Львівобленерго»',        source: 'lviv', status: 'seasonal' },
+  { id: 'lviv',          title: 'Львівська область',   subtitle: 'область',          operator: 'ПрАТ «Львівобленерго»',        source: 'lviv', status: 'seasonal', emergencyUkrenergo: { oblast: 'Львівськ' } },
   // Read from the operator's district Telegram channels, which carry the oblast-wide table verbatim.
-  { id: 'kirovohrad',    title: 'Кіровоградська область', subtitle: 'область',       operator: 'АТ «Кіровоградобленерго»',     source: 'kirovohrad', status: 'seasonal' },
+  { id: 'kirovohrad',    title: 'Кіровоградська область', subtitle: 'область',       operator: 'АТ «Кіровоградобленерго»',     source: 'kirovohrad', status: 'seasonal', emergencyUkrenergo: { oblast: 'Кіровоградськ' } },
   { id: 'zhytomyr',      title: 'Житомирська область', subtitle: 'область',          operator: 'АТ «Житомиробленерго»',        source: 'zhytomyr', site: 'https://www.ztoe.com.ua/', status: 'seasonal', probe: 'https://www.ztoe.com.ua/',
     // Its channel says «зміни у ГПВ» before its table does (lib/operator-changes.mjs), and «запроваджено аварійні
     // відключення (ГАВ)» when Укренерго orders them (lib/dtek-emergency.mjs, area 'own').
@@ -95,22 +95,22 @@ export const REGIONS = [
     // It never writes the end of an order (none among the posts of 6–10 November 2026), only the next one, so an order is believed for
     // twelve hours, as Черкаси's is, and not for the day and a half of a channel that ends them.
     emergencyTelegram: { area: 'own', channel: 'SumyEnergo', maxAgeHours: 12 } },
-  { id: 'rivne',         title: 'Рівненська область',  subtitle: 'область',          operator: 'АТ «Рівнеобленерго»',          source: 'rivne', site: 'https://www.ez.rv.ua/', status: 'seasonal', probe: 'https://www.ez.rv.ua/grafiky-pogodynnyh-vidklyuchen/' },
+  { id: 'rivne',         title: 'Рівненська область',  subtitle: 'область',          operator: 'АТ «Рівнеобленерго»',          source: 'rivne', site: 'https://www.ez.rv.ua/', status: 'seasonal', probe: 'https://www.ez.rv.ua/grafiky-pogodynnyh-vidklyuchen/', emergencyUkrenergo: { oblast: 'Рівненськ' } },
 
   // The «403 to every automated request» was Cloudflare refusing non-Ukrainian addresses: from the
   // Kyiv server the operator's address search answers. One house per підчерга (sources/vinnytsia.mjs).
   // `site` is that address search itself — «Чому немає світла?» on the operator's own home page — and not the home page: while
   // the search turns this server away, the app sends the person there for their hours.
-  { id: 'vinnytsia',     title: 'Вінницька область',   subtitle: 'область',          operator: 'АТ «Вінницяобленерго»',                   source: 'vinnytsia', site: 'https://disconnection.voe.com.ua/', status: 'seasonal', minIntervalMinutes: 15 },
+  { id: 'vinnytsia',     title: 'Вінницька область',   subtitle: 'область',          operator: 'АТ «Вінницяобленерго»',                   source: 'vinnytsia', site: 'https://disconnection.voe.com.ua/', status: 'seasonal', minIntervalMinutes: 15, emergencyUkrenergo: { oblast: 'Вінницьк' } },
   // energy.volyn.ua answers only Ukrainian IPs, but its schedule is an iframe of the operator's
   // «poweron» service, whose API hands out the day's picture — read by colour, see sources/volyn.mjs.
-  { id: 'volyn',         title: 'Волинська область',   subtitle: 'область',          operator: 'ПрАТ «Волиньобленерго»',                  source: 'volyn', site: 'https://energy.volyn.ua/', status: 'seasonal' },
+  { id: 'volyn',         title: 'Волинська область',   subtitle: 'область',          operator: 'ПрАТ «Волиньобленерго»',                  source: 'volyn', site: 'https://energy.volyn.ua/', status: 'seasonal', emergencyUkrenergo: { oblast: 'Волинськ' } },
   // Day-ahead from be-svitlo.oe.if.ua, the open API behind the operator's own svitlo.oe.if.ua —
   // checked 2026-10-01: CloudFront, robots.txt `Allow: /`, no Cloudflare challenge any more.
   // /uk/shutdowns_table on oe.if.ua stays untouched (its robots.txt disallows it). Out of season the
   // API answers `[]`, so the region reports itself seasonal until today or tomorrow is published.
-  { id: 'ivano-frankivsk', title: 'Івано-Франківська область', subtitle: 'область',  operator: 'АТ «Прикарпаттяобленерго»',               source: 'ivano-frankivsk', site: 'https://oe.if.ua/', status: 'seasonal' },
-  { id: 'ternopil',      title: 'Тернопільська область', subtitle: 'область',        operator: 'АТ «Тернопільобленерго»',                 source: 'ternopil', status: 'seasonal' },
+  { id: 'ivano-frankivsk', title: 'Івано-Франківська область', subtitle: 'область',  operator: 'АТ «Прикарпаттяобленерго»',               source: 'ivano-frankivsk', site: 'https://oe.if.ua/', status: 'seasonal', emergencyUkrenergo: { oblast: 'Івано-Франківськ' } },
+  { id: 'ternopil',      title: 'Тернопільська область', subtitle: 'область',        operator: 'АТ «Тернопільобленерго»',                 source: 'ternopil', status: 'seasonal', emergencyUkrenergo: { oblast: 'Тернопільськ' } },
   { id: 'kharkiv',       title: 'Харківська область',  subtitle: 'область',          operator: 'АТ «Харківобленерго»',                    source: 'kharkiv', status: 'seasonal',
     // «Години відсутності електропостачання … з урахуванням часу на перемикання (орієнтовно)» (@kharkivenergy, 30–31 October 2026).
     includesSwitching: true,
@@ -118,18 +118,18 @@ export const REGIONS = [
     emergencyTelegram: { area: 'own' } },
   // «Blocked» was Cloudflare refusing non-Ukrainian addresses. The operator's own «Група 1–12»,
   // not national підчерги (sources/chernivtsi.mjs).
-  { id: 'chernivtsi',    title: 'Чернівецька область', subtitle: 'область',          operator: 'АТ «Чернівціобленерго»',                  source: 'chernivtsi', site: 'https://oblenergo.cv.ua/', status: 'seasonal' },
+  { id: 'chernivtsi',    title: 'Чернівецька область', subtitle: 'область',          operator: 'АТ «Чернівціобленерго»',                  source: 'chernivtsi', site: 'https://oblenergo.cv.ua/', status: 'seasonal', emergencyUkrenergo: { oblast: 'Чернівецьк' } },
   // The tables and free-text amendments the operator posts to @chernigivoblenergo; its website
   // bans an address for fetching robots.txt and is not touched.
   { id: 'chernihiv',     title: 'Чернігівська область', subtitle: 'область',         operator: 'АТ «Чернігівобленерго»',                  source: 'chernihiv', status: 'seasonal',
     // «У Чернігівській області застосовано 5 черг Графіка аварійних відключень (ГАВ)» on its own channel (sources/chernihiv.mjs).
     emergencyTelegram: { area: 'own', channel: 'chernigivoblenergo', maxAgeHours: 36 } },
   // The grid the operator posts to @zakarpatenergyofficial, read by colour; the caption dates it.
-  { id: 'zakarpattia',   title: 'Закарпатська область', subtitle: 'область',         operator: 'АТ «Закарпаттяобленерго»',                source: 'zakarpattia', status: 'seasonal' },
+  { id: 'zakarpattia',   title: 'Закарпатська область', subtitle: 'область',         operator: 'АТ «Закарпаттяобленерго»',                source: 'zakarpattia', status: 'seasonal', emergencyUkrenergo: { oblast: 'Закарпатськ' } },
 
   // The tables the operator posts as text to @khmelnytskoblenergo since 6 листопада 2026; before that, and whenever the channel holds none, its
   // archive's pictures (sources/khmelnytskyi.mjs). There is no `note`: «лише зображенням» is no longer true while the text is posted.
-  { id: 'khmelnytskyi',  title: 'Хмельницька область', subtitle: 'область',          operator: 'АТ «Хмельницькобленерго»',                source: 'khmelnytskyi', site: 'https://hoe.com.ua/', status: 'seasonal' },
+  { id: 'khmelnytskyi',  title: 'Хмельницька область', subtitle: 'область',          operator: 'АТ «Хмельницькобленерго»',                source: 'khmelnytskyi', site: 'https://hoe.com.ua/', status: 'seasonal', emergencyUkrenergo: { oblast: 'Хмельницьк' } },
 
   // --- noFeed: nothing machine-readable to parse
   { id: 'cherkasy',      title: 'Черкаська область',   subtitle: 'область',          operator: 'АТ «Черкасиобленерго»',                   source: 'cherkasy', status: 'seasonal',
@@ -143,7 +143,7 @@ export const REGIONS = [
     includesSwitching: true },
   // The table the old note denied exists: poe.pl.ua's own widget fetches it (sources/poltava.mjs).
   // The site refuses non-Ukrainian addresses, so it only ever arrives from the Kyiv server.
-  { id: 'poltava',       title: 'Полтавська область',  subtitle: 'область',          operator: 'АТ «Полтаваобленерго»',                   source: 'poltava', site: 'https://www.poe.pl.ua/', status: 'seasonal' },
+  { id: 'poltava',       title: 'Полтавська область',  subtitle: 'область',          operator: 'АТ «Полтаваобленерго»',                   source: 'poltava', site: 'https://www.poe.pl.ua/', status: 'seasonal', emergencyUkrenergo: { oblast: 'Полтавськ' } },
   // Checked 2026-10-01 from a Kyiv IP: the operator's whole «Відключення» section has answered 200
   // with an empty body since December 2023, winter 2025–26 included, and neither its channel nor
   // the ОВА's has ever carried an hourly table by черга. Outages there follow the shelling.
@@ -173,9 +173,13 @@ export function regionById(id) {
  * to base «Аварійні відключення» on, and the app offers that switch only where this is true.
  * Since then: an operator's channel that announces each order (`emergencyTelegram`), and a site
  * that posts each one and its end (`emergencySite`, Запоріжжя).
+ * And for every oblast with none of those, Укренерго's own word (`emergencyUkrenergo`): its channel names the oblasts under an
+ * order — «у Сумській, Полтавській, Харківській та Дніпропетровській областях наразі вимушено застосовуються аварійні
+ * відключення» — while Полтаваобленерго's page said nothing (a letter of 19 November 2026). `oblast` is the stem the channel
+ * declines. A coarse word, for the whole oblast and with no end written: lib/ukrenergo-emergency.mjs says how it is read.
  */
 export function hasEmergencySignal(region) {
-  return Boolean(region?.yasno || region?.emergencyTelegram || region?.emergencySite);
+  return Boolean(region?.yasno || region?.emergencyTelegram || region?.emergencySite || region?.emergencyUkrenergo);
 }
 
 /** A region's row in `index.json`, before a read adds what it found. */
