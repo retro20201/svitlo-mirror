@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import {
-  fetchChannel, scheduleFromPosts, parseGpvPost, dayOfPost, mergeVersions, unionHalves, factFromHalves, closingDiv
+  fetchChannel, parseGpvPost, dayOfPost, mergeVersions, slotWithin, unionHalves, factFromHalves, closingDiv
 } from '../lib/telegram.mjs';
 import { getTextTrusting } from '../lib/https-ca.mjs';
 import { buildSnapshot, halvesFromHours, kyivDayStart, queueNames, stampTime, NATIONAL_QUEUES } from '../lib/canonical.mjs';
@@ -230,7 +230,7 @@ function withSiteEmergency(snapshot, region, reading, now) {
 }
 
 /**
- * The channel's reading without the days on which it only repeats a table the site has since replaced.
+ * The channel's reading without the half-hours in which it only repeats a state of the site's table that the site has since replaced.
  *
  * The union of the two outlets never says light where either says dark — right while they are two tellings of the same
  * revision, wrong once one of them is simply old. On 14 November 2026 the channel still carried the evening's table for the day
@@ -238,37 +238,47 @@ function withSiteEmergency(snapshot, region, reading, now) {
  * time with fewer hours dark; the union kept every hour of the evening's table, and at 08:18 queue 5.2 was «05:30–10:30» on the
  * screen with the light on at home and no such cut in the operator's table since 06:09.
  *
- * A day of the channel's is left out only when it is, queue for queue and half-hour for half-hour, one of the site's own versions
- * of that day and the site has a later one: then it is known to be that older version, whatever time its post carries (the channel
- * edits posts in place, so a post's time says little). A table the site never had — a revision only the channel made, or the same
- * revision told differently — is united with the site's as before.
+ * The first rule left a day of the channel's out when it was, half-hour for half-hour, one of the site's own tables with a later
+ * one after it — which holds only while the channel has one post for the day. On 19 November 2026 it had two: the evening's
+ * table and the 05:42 «оновлено ГПВ», since edited in place to the site's 07:52 version (the channel edits posts in place, so a
+ * post's time says little). Laid over one another they were no single table the site ever had, nothing was left out, and when
+ * the site moved 4.1 from «14:30–19:30» to «16:30–19:30» at 14:09 the screen kept 14:30: a person wrote at 14:49 with the light on.
+ *
+ * So the day is compared as the app is given it — versions laid over one another (lib/telegram.mjs, `mergeVersions`) — with the
+ * site's day as it stood before each of its revisions, and only from the half-hour that revision went out: a revision speaks of
+ * what is still ahead, and what the two outlets said of the hours before it is history either way. Where the channel says, of
+ * everything from that half-hour on, exactly what the site said until then, it is that older state, and from there the site's
+ * newer word stands alone. The hours before stay united, as they were shown. A table the site never had — a revision only the
+ * channel made, or the same revision told differently — is united with the site's as before.
  */
 export function withoutSuperseded(channelReading, siteVersions) {
   const halves = { ...channelReading.halves };
-  let dropped = 0;
+  let cuts = 0;
   for (const [epoch, day] of Object.entries(channelReading.halves ?? {})) {
     const versions = siteVersions
-      .filter((version) => String(version.epoch) === String(epoch) && version.halves)
+      .filter((version) => String(version.epoch) === String(epoch))
       .sort((a, b) => a.at - b.at || a.id - b.id);
-    const twin = versions.findIndex((version) => sameDay(version.halves, day));
-    if (twin !== -1 && twin < versions.length - 1) {
-      delete halves[epoch];
-      dropped++;
+    let cut = 48;
+    for (let index = 1; index < versions.length; index++) {
+      const from = slotWithin(Number(epoch), Date.parse(versions[index].postedAt));
+      if (from >= cut) continue;
+      const before = mergeVersions(versions.slice(0, index), { since: Number(epoch) }).halves[epoch];
+      if (before && sameFrom(before, day, from)) cut = from;
     }
+    if (cut === 48) continue;
+    halves[epoch] = Object.fromEntries(Object.entries(day).map(([queue, slots]) =>
+      [queue, slots.map((state, slot) => (slot >= cut ? 'on' : state))]));
+    cuts++;
   }
-  return dropped ? { ...channelReading, halves } : channelReading;
+  return cuts ? { ...channelReading, halves } : channelReading;
 }
 
-/** Two tables of one day that say the same of every queue either of them names. */
-function sameDay(a, b) {
-  const queues = new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})]);
-  for (const queue of queues) {
-    const left = a?.[queue];
-    const right = b?.[queue];
-    if (!left || !right || left.length !== right.length) return false;
-    for (let slot = 0; slot < left.length; slot++) if (left[slot] !== right[slot]) return false;
+/** Two tellings of one day that say the same of every queue either of them names, from half-hour `from` on. */
+function sameFrom(a, b, from) {
+  for (const queue of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    for (let slot = from; slot < 48; slot++) if ((a[queue]?.[slot] ?? 'on') !== (b[queue]?.[slot] ?? 'on')) return false;
   }
-  return queues.size > 0;
+  return true;
 }
 
 export async function fetchRegion(region, now = new Date(), {
@@ -287,7 +297,15 @@ export async function fetchRegion(region, now = new Date(), {
 
   const since = kyivDayStart(now) - DAY_SECONDS;
   const siteVersions = site.status === 'fulfilled' ? site.value.posts.map(parseGpvPost).filter(Boolean) : null;
-  const channelReading = channel.status === 'fulfilled' ? scheduleFromPosts(channel.value, { since }) : null;
+  // Without the site this cycle, what phones already have stands in for it (below), and of the channel only what it has posted
+  // since the table phones have: an older post of its is in that table already — or was left out of it as a state the site had
+  // replaced (`withoutSuperseded`), and one cycle without the site must not bring its dark hours back for a cycle.
+  const leaned = site.status === 'rejected' && region.previous?.fact?.data && !Array.isArray(region.previous.fact.data);
+  const held = leaned ? stampTime(region.previous.fact.update) : NaN;
+  const channelVersions = channel.status === 'fulfilled'
+    ? channel.value.map(parseGpvPost).filter(Boolean).filter((version) => Number.isNaN(held) || version.at > held)
+    : null;
+  const channelReading = channelVersions ? mergeVersions(channelVersions, { since }) : null;
   const readings = [
     siteVersions ? mergeVersions(siteVersions, { since }) : null,
     channelReading && siteVersions ? withoutSuperseded(channelReading, siteVersions) : channelReading
@@ -297,7 +315,6 @@ export async function fetchRegion(region, now = new Date(), {
   // the next — a wake-up for the whole oblast each way, and «світло є» in between. The cost is that
   // a dark hour the channel later cancels stays dark until the site answers or the day is over.
   // The site is the table itself, so such a read is no fresh look at the region at all (carried.mjs).
-  const leaned = site.status === 'rejected' && region.previous?.fact?.data && !Array.isArray(region.previous.fact.data);
   if (leaned) {
     const kept = {};
     for (const [epoch, queues] of Object.entries(region.previous.fact.data)) {
