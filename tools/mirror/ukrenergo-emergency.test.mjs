@@ -76,10 +76,12 @@ test('a sentence about later is no word on this hour', () => {
   assert.equal(statementOf('Завтра у Полтавській області будуть застосовані графіки аварійних відключень.'), null);
 });
 
-test('every oblast with no signal of its own reads Укренерго, by a stem its own title starts with, and the index says so', () => {
+test('every oblast with no signal of its own and a table we can read reads Укренерго, by a stem its own title starts with, and the index says so', () => {
   const reading = REGIONS.filter((region) => region.emergencyUkrenergo).map((region) => region.id);
-  assert.deepEqual(reading, ['odesa', 'mykolaiv', 'lviv', 'kirovohrad', 'rivne', 'vinnytsia', 'volyn', 'ivano-frankivsk', 'ternopil',
+  // Not Вінниця: its table has not been readable since 16 October 2026, and the word is added only to what an adapter read.
+  assert.deepEqual(reading, ['odesa', 'mykolaiv', 'lviv', 'kirovohrad', 'rivne', 'volyn', 'ivano-frankivsk', 'ternopil',
     'chernivtsi', 'zakarpattia', 'khmelnytskyi', 'poltava']);
+  assert.ok(!('emergencySignal' in indexEntry(regionById('vinnytsia'))));
   for (const id of reading) {
     const region = regionById(id);
     assert.ok(!region.yasno && !region.emergencyTelegram && !region.emergencySite, `${id} has a nearer word`);
