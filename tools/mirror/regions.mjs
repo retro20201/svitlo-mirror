@@ -47,7 +47,10 @@ export const REGIONS = [
     // YASNO marks the days; the channel names the districts and comes first (lib/dtek-emergency.mjs, area 'dnipro').
     // ДТЕК's list of queues here also has «ЦЕК 1.1» … «ЦЕК 6.2» (GPV1001.1 … GPV1006.2) — ЦЕК's subscribers, for whom ДТЕК publishes
     // no day table: `cekQueues` fills their hours from ЦЕК's own channel (lib/cek-in-dnipro.mjs).
-    yasno: { regionId: 3, dsoId: 301 }, emergencyTelegram: { area: 'dnipro', maxAgeHours: 36 }, cekQueues: true },
+    // Укренерго's list stands in when both are silent (lib/ukrenergo-emergency.mjs): on 19 November 2026 it named Дніпропетровська
+    // область at 10:39, neither of the two said a word all day, and ДТЕК's bot answered «Екстренні відключення» for an address in Дніпро.
+    yasno: { regionId: 3, dsoId: 301 }, emergencyTelegram: { area: 'dnipro', maxAgeHours: 36 }, cekQueues: true,
+    emergencyUkrenergo: { oblast: 'Дніпропетровськ' } },
   { id: 'odesa',         title: 'Одеса',               subtitle: 'місто та область', operator: 'ДТЕК Одеські електромережі',              source: 'dtek', site: 'https://www.dtek-oem.com.ua/ua/shutdowns',    status: 'live', emergencyUkrenergo: { oblast: 'Одеськ' } },
 
   // The Dnipropetrovsk-oblast subscribers of ПрАТ «ПЕЕМ «ЦЕК», whom ДТЕК does not serve — Жовті Води, Вільногірськ, Павлоград, part of

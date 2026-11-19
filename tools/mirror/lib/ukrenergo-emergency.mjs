@@ -1,4 +1,4 @@
-import { pageOf } from './dtek-emergency.mjs';
+import { pageOf, lastEndFromChannel } from './dtek-emergency.mjs';
 import { markCarried, carriedParts } from './carried.mjs';
 import { kyivDayStart } from './canonical.mjs';
 
@@ -20,6 +20,13 @@ import { kyivDayStart } from './canonical.mjs';
  * The banner carries the sentence, the channel's name and the hour, so the person sees whose word it is and how old.
  *
  * `https://t.me/s/Ukrenergo` is the channel's public preview page, asked for once a cycle for every oblast that reads it.
+ *
+ * It also stands in where an operator has a word of its own and did not say it. On 19 November 2026 the same post named
+ * Дніпропетровська область; ДТЕК's channel, which announces each order there, wrote nothing all day, YASNO marked nothing, and
+ * at 16:29 ДТЕК's own bot told a person on просп. Героїв in Дніпро «Екстренні відключення (Аварійне без застосування графіку
+ * погодинних відключень)» while the app had their queue in the light and no warning over it. There the operator's word stays
+ * the nearer one: its own warning for today is left as it is, and an order it has ended since Укренерго spoke is ended —
+ * Укренерго names the oblast once a morning and never says when an order there is over.
  */
 export const CHANNEL = 'Ukrenergo';
 export const MAX_AGE_MS = 12 * 3600 * 1000;
@@ -97,34 +104,70 @@ export async function readUkrenergoFromChannel({ oblast, now = new Date(), maxAg
 }
 
 /**
+ * An end the operator wrote into its order's own post is an edit, and the page gives no hour for an edit. It is taken as
+ * newer than Укренерго's word when the post itself is from the twelve hours before that word: an order announced at 09:00,
+ * named by Укренерго at 10:39 and struck out at 14:00 must not warn until 22:39. An older post's edit is taken as older —
+ * yesterday morning's order, ended yesterday, says nothing of today.
+ */
+const IN_PLACE_MS = MAX_AGE_MS;
+
+/** Whether the operator's own channel ended an order after Укренерго's word of `since` (lib/dtek-emergency.mjs `lastEnd`). */
+export function endedSince(end, since) {
+  if (!end) return false;
+  const [ended, said] = [Date.parse(end.at), Date.parse(since)];
+  return ended >= said || (end.inPlace && ended >= said - IN_PLACE_MS);
+}
+
+/** The last end the region's own channel has said, or null; for a region with no channel of its own, null. */
+async function operatorEnd(region, now) {
+  const own = region.emergencyTelegram;
+  if (!own) return null;
+  return lastEndFromChannel({
+    channel: own.channel, area: own.area ?? 'oblast', now, skip: own.skip, maxAgeMs: own.maxAgeHours ? own.maxAgeHours * 3600 * 1000 : undefined
+  });
+}
+
+/**
  * A region with `emergencyUkrenergo` (regions.mjs) has today in `fact.emergency` while Укренерго's word stands, and the word itself
- * in `fact.emergencyNote`. When the channel does not answer, the warning phones already have stays for the day it was given for,
+ * in `fact.emergencyNote`. When a channel does not answer, the warning phones already have stays for the day it was given for,
  * marked as carried: it is what they have, not a second look.
+ *
+ * What the region's own adapter says is nearer and is not touched: its warning for today is returned as it came, the other
+ * days it marks (YASNO's tomorrow) stay beside Укренерго's today, and an order its channel has ended since Укренерго spoke
+ * is over (`endedSince`).
  */
 export async function withUkrenergoEmergency(
-  snapshot, region, { read = readUkrenergoFromChannel, now = new Date(), log = (line) => console.log(`[ukrenergo] ${line}`) } = {}
+  snapshot, region,
+  { read = readUkrenergoFromChannel, readEnd = operatorEnd, now = new Date(), log = (line) => console.log(`[ukrenergo] ${line}`) } = {}
 ) {
   const signal = region.emergencyUkrenergo;
-  // An operator's own word, should an adapter ever bring one, is nearer than Укренерго's and is left as it is.
-  if (!signal || !snapshot?.fact || snapshot.fact.emergency?.length) return snapshot;
+  if (!signal || !snapshot?.fact) return snapshot;
+  const today = kyivDayStart(now);
+  const own = (snapshot.fact.emergency ?? []).map(Number);
+  if (own.includes(today)) return snapshot;
   let reading = null;
   try {
     reading = await read({ oblast: signal.oblast, now, maxAgeMs: signal.maxAgeHours ? signal.maxAgeHours * 3600 * 1000 : undefined });
+    if (reading.active && endedSince(await readEnd(region, now), reading.since)) {
+      log(`${region.id}: the operator has ended its order since Укренерго's word of ${reading.since}`);
+      reading = { active: false, since: null, note: null };
+    }
   } catch (error) {
+    reading = null;
     log(`${region.id}: channel failed: ${error.message}`);
   }
   // What the adapter itself carried over (Чернівці's tomorrow, a picture channel's day) stays marked on the copy made here.
   const carried = carriedParts(snapshot);
   const kept = (result, parts = []) => markCarried(result, carried === true ? true : [...(carried ?? []), ...parts]);
   const { emergency, emergencyNote, ...rest } = snapshot.fact;
+  // The days the adapter marked itself — none of them today — and its note for them.
+  const asRead = own.length ? snapshot.fact : rest;
+  const withToday = (note) => ({ ...rest, emergency: [...own, today].sort((a, b) => a - b), ...(note ?? emergencyNote ? { emergencyNote: note ?? emergencyNote } : {}) });
   if (!reading) {
-    const today = kyivDayStart(now);
-    const held = (region.previous?.fact?.emergency ?? []).map(Number).filter((day) => day >= today);
-    if (!held.length) return kept({ ...snapshot, fact: rest });
-    const note = region.previous?.fact?.emergencyNote;
-    return kept({ ...snapshot, fact: { ...rest, emergency: held, ...(note ? { emergencyNote: note } : {}) } }, ['emergency']);
+    if (!(region.previous?.fact?.emergency ?? []).map(Number).includes(today)) return kept({ ...snapshot, fact: asRead });
+    return kept({ ...snapshot, fact: withToday(region.previous.fact.emergencyNote) }, ['emergency']);
   }
-  if (!reading.active) return kept({ ...snapshot, fact: rest });
+  if (!reading.active) return kept({ ...snapshot, fact: asRead });
   log(`${region.id}: emergency since ${reading.since}`);
-  return kept({ ...snapshot, fact: { ...rest, emergency: [kyivDayStart(now)], emergencyNote: reading.note } });
+  return kept({ ...snapshot, fact: withToday(reading.note) });
 }

@@ -122,13 +122,35 @@ const ADDRESS_HEAD_CHARS = 120;
  * @returns {{ active: boolean, since: string|null, note: string|null }}
  */
 export function readEmergency(posts, { now = new Date(), area = 'oblast', maxAgeMs = MAX_AGE_MS, skip = null } = {}) {
+  let state = null;
+  // Edited in place with «UPD: … скасовані»: the same post that announced it ends it.
+  for (const word of wordsOf(posts, { now, area, maxAgeMs, skip })) {
+    state = word.applied && !word.ended ? { at: word.post.postedAt, note: word.note } : null;
+  }
+  const fresh = state && now.getTime() - Date.parse(state.at) <= maxAgeMs;
+  return fresh ? { active: true, since: state.at, note: state.note } : { active: false, since: null, note: null };
+}
+
+/**
+ * The channel's last word on an order for the area, when that word is its end: the hour of the post that says so, and whether
+ * the end was written into the order's own post («UPD: екстрені відключення скасовані») — an edit, whose own hour the page does
+ * not give. `null` when the last word announces an order, or the channel has said nothing of one.
+ * @returns {{ at: string, inPlace: boolean }|null}
+ */
+export function lastEnd(posts, { now = new Date(), area = 'oblast', maxAgeMs = MAX_AGE_MS, skip = null } = {}) {
+  let last = null;
+  for (const word of wordsOf(posts, { now, area, maxAgeMs, skip })) last = word;
+  return last?.ended ? { at: last.post.postedAt, inPlace: last.applied } : null;
+}
+
+/** Each post that says something of an order for the area, oldest first: whether it announces one, ends one, or both. */
+function* wordsOf(posts, { now, area, maxAgeMs, skip }) {
   const wanted = area === 'own' ? EVERY_POST : area === 'city' ? CITY : area === 'dnipro' ? DNIPRO : OBLAST;
   const since = now.getTime() - Math.max(LOOKBACK_MS, maxAgeMs);
   const ordered = posts
     .filter((post) => Date.parse(post.postedAt) >= since && Date.parse(post.postedAt) <= now.getTime() + 5 * 60 * 1000)
     .sort((a, b) => Date.parse(a.postedAt) - Date.parse(b.postedAt) || a.id - b.id);
 
-  let state = null;
   for (const post of ordered) {
     const text = area === 'own' ? (post.text ?? '').slice(0, OWN_HEAD_CHARS) : (post.text ?? '');
     if (!wanted.test(headOf(text))) continue;
@@ -136,15 +158,12 @@ export function readEmergency(posts, { now = new Date(), area = 'oblast', maxAge
     const ended = ENDED.some((pattern) => pattern.test(text));
     const blackout = area === 'own' ? BLACKOUT.exec(text) : null;
     if (APPLIED.test(text) || GAV_APPLIED.test(text) || ACCIDENT.some((pattern) => pattern.test(text)) || blackout) {
-      // Edited in place with «UPD: … скасовані»: the same post that announced it ends it.
       const said = blackout ? blackout[1].trim().replace(/\s+/g, ' ') : null;
-      state = ended ? null : { at: post.postedAt, note: districtsOf(text) ?? said ?? (area === 'own' ? addresseeOf(text) : null) };
+      yield { post, applied: true, ended, note: districtsOf(text) ?? said ?? (area === 'own' ? addresseeOf(text) : null) };
     } else if (ended || RESTORED.test(text)) {
-      state = null;
+      yield { post, applied: false, ended: true, note: null };
     }
   }
-  const fresh = state && now.getTime() - Date.parse(state.at) <= maxAgeMs;
-  return fresh ? { active: true, since: state.at, note: state.note } : { active: false, since: null, note: null };
 }
 
 // Київ and Київщина both read the one page: a cycle asks for it once, not per region.
@@ -166,4 +185,9 @@ export const readerOf = (posts) => async ({ area = 'own', now = new Date(), maxA
 /** The channel's last page, read for `area`. Throws when it cannot be fetched. */
 export async function readEmergencyFromChannel({ channel = CHANNEL, area = 'oblast', now = new Date(), maxAgeMs, skip } = {}) {
   return readEmergency(await pageOf(channel), { now, area, maxAgeMs, skip });
+}
+
+/** `lastEnd` of the channel's last page — the page the region's own reader has asked for this cycle. Throws when it cannot be fetched. */
+export async function lastEndFromChannel({ channel = CHANNEL, area = 'oblast', now = new Date(), maxAgeMs, skip } = {}) {
+  return lastEnd(await pageOf(channel), { now, area, maxAgeMs, skip });
 }
