@@ -582,7 +582,7 @@ test('Київ\'s emergency is told once per day, after two reads, and never aga
   }
 });
 
-test('emergency tomorrow names the day; Полтава never has an emergency topic', () => {
+test('emergency tomorrow names the day; a region with no emergency signal never has an emergency topic', () => {
   const tomorrow = render({ type: 'emergency', kind: 'emergency', region: 'dnipro', day: 1791406800, regionTitle: 'Дніпро' },
     new Date(at('2026-10-07 21:00')));
   assert.deepEqual(tomorrow, {
@@ -591,7 +591,10 @@ test('emergency tomorrow names the day; Полтава never has an emergency to
   });
   const snapshot = poltava({ [TODAY]: day({ 'GPV3.1': dark('18:00-20:00') }) });
   snapshot.fact.emergency = [TODAY, TOMORROW];
-  assert.deepEqual(observeRegion(POLTAVA, snapshot, new Date(at('2026-10-08 12:00'))).emergency, []);
+  // Полтава was that region until it began to read Укренерго's list of the oblasts under an order (lib/ukrenergo-emergency.mjs).
+  const { emergencyUkrenergo, ...silent } = POLTAVA;
+  assert.deepEqual(observeRegion(silent, snapshot, new Date(at('2026-10-08 12:00'))).emergency, []);
+  assert.deepEqual(observeRegion(POLTAVA, snapshot, new Date(at('2026-10-08 12:00'))).emergency, [TODAY, TOMORROW]);
 });
 
 // --- Pictures
