@@ -101,7 +101,9 @@ export const REGIONS = [
   // Kyiv server the operator's address search answers. One house per підчерга (sources/vinnytsia.mjs).
   // `site` is that address search itself — «Чому немає світла?» on the operator's own home page — and not the home page: while
   // the search turns this server away, the app sends the person there for their hours.
-  { id: 'vinnytsia',     title: 'Вінницька область',   subtitle: 'область',          operator: 'АТ «Вінницяобленерго»',                   source: 'vinnytsia', site: 'https://disconnection.voe.com.ua/', status: 'seasonal', minIntervalMinutes: 15, emergencyUkrenergo: { oblast: 'Вінницьк' } },
+  { id: 'vinnytsia',     title: 'Вінницька область',   subtitle: 'область',          operator: 'АТ «Вінницяобленерго»',                   source: 'vinnytsia', site: 'https://disconnection.voe.com.ua/', status: 'seasonal', minIntervalMinutes: 15 },
+  // No `emergencyUkrenergo` here while the search turns this server away (HTTP 403 since 16 October 2026): Укренерго's word is added
+  // to what an adapter read, a read that fails rewrites nothing, and the index would promise a warning that cannot arrive.
   // energy.volyn.ua answers only Ukrainian IPs, but its schedule is an iframe of the operator's
   // «poweron» service, whose API hands out the day's picture — read by colour, see sources/volyn.mjs.
   { id: 'volyn',         title: 'Волинська область',   subtitle: 'область',          operator: 'ПрАТ «Волиньобленерго»',                  source: 'volyn', site: 'https://energy.volyn.ua/', status: 'seasonal', emergencyUkrenergo: { oblast: 'Волинськ' } },

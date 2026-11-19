@@ -83,7 +83,7 @@ test('only the regions with an emergency signal tell the app they carry an emerg
   const { REGIONS, indexEntry } = await import('./regions.mjs');
   const flagged = REGIONS.filter((region) => indexEntry(region).emergencySignal === true).map((region) => region.id);
   assert.deepEqual(flagged, ['kyiv', 'kyiv-region', 'dnipro', 'odesa', 'cek', 'mykolaiv', 'lviv', 'kirovohrad', 'zhytomyr', 'sumy', 'rivne',
-    'vinnytsia', 'volyn', 'ivano-frankivsk', 'ternopil', 'kharkiv', 'chernivtsi', 'chernihiv', 'zakarpattia', 'khmelnytskyi', 'cherkasy',
+    'volyn', 'ivano-frankivsk', 'ternopil', 'kharkiv', 'chernivtsi', 'chernihiv', 'zakarpattia', 'khmelnytskyi', 'cherkasy',
     'zaporizhzhia', 'poltava']);
   assert.ok(REGIONS.every((region) => flagged.includes(region.id) || !('emergencySignal' in indexEntry(region))));
   assert.deepEqual(Object.keys(indexEntry(REGIONS.find((region) => region.id === 'kyiv'))),
