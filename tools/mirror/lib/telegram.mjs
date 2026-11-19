@@ -316,7 +316,7 @@ function hoursOf(halves) {
  * began, 48 if after it ended. Read off the Kyiv wall clock, so the 25-hour day in October counts
  * its slots the way the operator's table does.
  */
-function slotWithin(epoch, at) {
+export function slotWithin(epoch, at) {
   const day = kyivDayStart(new Date(at));
   if (day < epoch) return 0;
   if (day > epoch) return 48;
