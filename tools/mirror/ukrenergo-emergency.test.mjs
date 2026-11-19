@@ -5,7 +5,8 @@ import { REGIONS, regionById, indexEntry } from './regions.mjs';
 import { ADAPTERS } from './adapters.mjs';
 import { kyivDayStart } from './lib/canonical.mjs';
 import { markCarried, carriedParts } from './lib/carried.mjs';
-import { statementOf, readUkrenergo, withUkrenergoEmergency, MAX_AGE_MS } from './lib/ukrenergo-emergency.mjs';
+import { statementOf, readUkrenergo, withUkrenergoEmergency, endedSince, MAX_AGE_MS } from './lib/ukrenergo-emergency.mjs';
+import { lastEnd } from './lib/dtek-emergency.mjs';
 
 // @Ukrenergo's own posts, 7 October – 19 November 2026: every one that names the oblasts under «аварійні відключення», and the
 // ones beside them that must not be read as naming any. On the 19th, at 10:39 Kyiv, the channel named Полтавська область; the
@@ -77,19 +78,22 @@ test('a sentence about later is no word on this hour', () => {
 });
 
 test('every oblast with no signal of its own and a table we can read reads Укренерго, by a stem its own title starts with, and the index says so', () => {
-  const reading = REGIONS.filter((region) => region.emergencyUkrenergo).map((region) => region.id);
+  const nearer = (region) => Boolean(region.yasno || region.emergencyTelegram || region.emergencySite);
+  const reading = REGIONS.filter((region) => region.emergencyUkrenergo && !nearer(region)).map((region) => region.id);
   // Not Вінниця: its table has not been readable since 16 October 2026, and the word is added only to what an adapter read.
   assert.deepEqual(reading, ['odesa', 'mykolaiv', 'lviv', 'kirovohrad', 'rivne', 'volyn', 'ivano-frankivsk', 'ternopil',
     'chernivtsi', 'zakarpattia', 'khmelnytskyi', 'poltava']);
   assert.ok(!('emergencySignal' in indexEntry(regionById('vinnytsia'))));
   for (const id of reading) {
     const region = regionById(id);
-    assert.ok(!region.yasno && !region.emergencyTelegram && !region.emergencySite, `${id} has a nearer word`);
     assert.equal(indexEntry(region).emergencySignal, true, id);
     // «Одеса» is titled by its city; ДТЕК serves the oblast under it.
     if (id !== 'odesa') assert.ok(region.title.startsWith(region.emergencyUkrenergo.oblast), id);
     assert.ok(new RegExp(`${region.emergencyUkrenergo.oblast}ій`, 'u').test(`у ${region.emergencyUkrenergo.oblast}ій області`));
   }
+  // And one that has a word of its own and reads Укренерго behind it, for the days its operator says nothing.
+  assert.deepEqual(REGIONS.filter((region) => region.emergencyUkrenergo && nearer(region)).map((region) => region.id), ['dnipro']);
+  assert.ok(/Дніпропетровській/u.test(`у ${regionById('dnipro').emergencyUkrenergo.oblast}ій області`));
   // Every adapter is still an adapter under the wrapper that adds the word.
   for (const source of Object.keys(ADAPTERS)) assert.equal(typeof ADAPTERS[source], 'function', source);
 });
@@ -141,4 +145,82 @@ test('what the adapter carried over stays marked on the copy, and a region that 
   // An operator's own word, should an adapter of these oblasts ever bring one, is not taken off by Укренерго's silence.
   const nearer = { regionId: 'poltava', fact: { data: {}, emergency: [kyivDayStart(now)], emergencyNote: 'у Кременчуцькому районі' } };
   assert.equal(await withUkrenergoEmergency(nearer, regionById('poltava'), { read: off, now, log: () => {} }), nearer);
+});
+
+// 19 November 2026 in Дніпро: Укренерго named Дніпропетровська область at 10:39; ДТЕК's channel and YASNO said nothing all day; at
+// 16:29 ДТЕК's bot told a person on просп. Героїв «Екстренні відключення (Аварійне без застосування графіку погодинних відключень)».
+const DNIPRO_NOW = '2026-11-19T14:35:00Z';
+const ukrenergoAt = (iso) => async ({ oblast, now, maxAgeMs }) =>
+  readUkrenergo(POSTS.filter((entry) => Date.parse(entry.postedAt) <= Date.parse(iso)), { oblast, now, maxAgeMs });
+/** ДТЕК's channel as the region's own reader has it: `posts` about Дніпропетровщина, read the way the region reads them. */
+const operatorSaid = (posts) => async (region, now) => lastEnd(posts, { area: region.emergencyTelegram.area, now, maxAgeMs: 36 * 3600 * 1000 });
+const dniproWith = (posts, extra = {}) => withUkrenergoEmergency(
+  { regionId: 'dnipro', fact: { data: {}, update: '19.11.2026 07:55' } }, { ...regionById('dnipro'), ...extra },
+  { read: ukrenergoAt(DNIPRO_NOW), readEnd: operatorSaid(posts), now: at(DNIPRO_NOW), log: () => {} });
+
+test('Дніпро, whose operator said nothing that day, is warned in Укренерго\'s words', async () => {
+  const result = await dniproWith([]);
+  assert.deepEqual(result.fact.emergency, [kyivDayStart(at(DNIPRO_NOW))]);
+  assert.match(result.fact.emergencyNote, /Дніпропетровській областях.+— Укренерго, 10:39$/u);
+  assert.equal(result.fact.update, '19.11.2026 07:55');
+});
+
+test('the operator\'s own warning for today is the nearer word and is handed back untouched; its other days stay beside Укренерго\'s today', async () => {
+  const today = kyivDayStart(at(DNIPRO_NOW));
+  const never = async () => { throw new Error('not asked'); };
+  const own = { regionId: 'dnipro', fact: { data: {}, emergency: [today], emergencyNote: 'у Криворізькому районі' } };
+  assert.equal(await withUkrenergoEmergency(own, regionById('dnipro'), { read: never, readEnd: never, now: at(DNIPRO_NOW), log: () => {} }), own);
+
+  // YASNO marks tomorrow and not today.
+  const tomorrow = { regionId: 'dnipro', fact: { data: {}, emergency: [today + 86400] } };
+  const both = await withUkrenergoEmergency(tomorrow, regionById('dnipro'),
+    { read: ukrenergoAt(DNIPRO_NOW), readEnd: operatorSaid([]), now: at(DNIPRO_NOW), log: () => {} });
+  assert.deepEqual(both.fact.emergency, [today, today + 86400]);
+  const quiet = await withUkrenergoEmergency(tomorrow, regionById('dnipro'),
+    { read: ukrenergoAt('2026-11-19T08:30:00Z'), readEnd: operatorSaid([]), now: at('2026-11-19T08:30:00Z'), log: () => {} });
+  assert.deepEqual(quiet.fact.emergency, [today + 86400], 'before Укренерго named the oblast, YASNO\'s day is all there is');
+});
+
+test('an order the operator has ended since Укренерго spoke is over, and one it ended before is not the last word', async () => {
+  const order = (id, postedAt, text) => ({ id, postedAt, text });
+  const announced = 'Дніпропетровщина: за командою Укренерго застосовані екстрені відключення.';
+  const over = 'Дніпропетровщина: екстрені відключення скасовані. Повертаємось до графіків.';
+
+  // Ended by a post of its own at 14:10 Kyiv, three and a half hours after Укренерго's list.
+  const later = [order(1, '2026-11-19T07:00:00+00:00', announced), order(2, '2026-11-19T12:10:00+00:00', over)];
+  assert.ok(!('emergency' in (await dniproWith(later)).fact));
+  // Ended at 09:50 Kyiv — and at 10:39 Укренерго says the oblast is under an order: that is the newer word.
+  const earlier = [order(1, '2026-11-19T05:00:00+00:00', announced), order(2, '2026-11-19T07:50:00+00:00', over)];
+  assert.ok('emergency' in (await dniproWith(earlier)).fact);
+
+  // «UPD: … скасовані» written into the morning's own post: the edit has no hour, the post is from the same morning.
+  const struck = [order(1, '2026-11-19T07:00:00+00:00', `${announced}\nUPD: екстрені відключення скасовані.`)];
+  assert.ok(!('emergency' in (await dniproWith(struck)).fact));
+  // The same written into the post of the morning before says nothing of today.
+  const yesterday = [order(1, '2026-11-18T07:00:00+00:00', `${announced}\nUPD: екстрені відключення скасовані.`)];
+  assert.ok('emergency' in (await dniproWith(yesterday)).fact);
+
+  assert.equal(endedSince(null, '2026-11-19T08:39:08+00:00'), false);
+  assert.deepEqual(lastEnd(later, { area: 'dnipro', now: at(DNIPRO_NOW) }), { at: '2026-11-19T12:10:00+00:00', inPlace: false });
+  assert.deepEqual(lastEnd(struck, { area: 'dnipro', now: at(DNIPRO_NOW) }), { at: '2026-11-19T07:00:00+00:00', inPlace: true });
+  assert.equal(lastEnd([order(1, '2026-11-19T07:00:00+00:00', announced)], { area: 'dnipro', now: at(DNIPRO_NOW) }), null, 'an order that stands is no end');
+  assert.equal(lastEnd(later, { area: 'city', now: at(DNIPRO_NOW) }), null, 'and Київ\'s reader does not hear Дніпропетровщина');
+});
+
+test('when the operator\'s channel does not answer, Укренерго\'s word is not taken on its own: phones keep what they have', async () => {
+  const today = kyivDayStart(at(DNIPRO_NOW));
+  const down = async () => { throw new Error('HTTP 502'); };
+  const lines = [];
+  const options = { read: ukrenergoAt(DNIPRO_NOW), readEnd: down, now: at(DNIPRO_NOW), log: (line) => lines.push(line) };
+  const snapshot = { regionId: 'dnipro', fact: { data: {} } };
+
+  const fresh = await withUkrenergoEmergency(snapshot, regionById('dnipro'), options);
+  assert.ok(!('emergency' in fresh.fact), 'no warning is started on half a look');
+  assert.deepEqual(lines, ['dnipro: channel failed: HTTP 502']);
+
+  const warned = { ...regionById('dnipro'), previous: { fact: { emergency: [today], emergencyNote: '«…» — Укренерго, 10:39' } } };
+  const held = await withUkrenergoEmergency(snapshot, warned, options);
+  assert.deepEqual(held.fact.emergency, [today]);
+  assert.equal(held.fact.emergencyNote, '«…» — Укренерго, 10:39');
+  assert.deepEqual(carriedParts(held), ['emergency']);
 });
