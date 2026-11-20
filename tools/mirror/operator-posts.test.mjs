@@ -136,6 +136,26 @@ test('a paragraph the operator left without a full stop does not run into the ne
   assert.equal(plainOf('Графіки на завтра:\nне змінюються, як і раніше.\nДякуємо за розуміння.'), 'Графіки на завтра: не змінюються, як і раніше. Дякуємо за розуміння.');
 });
 
+test('Хмельницькобленерго: its warning that the queues may not match is news, its day tables are not', () => {
+  // The channel on 20 листопада 2026 (tables shortened to six rows).
+  const table = (head) => `${head}\nГодини відсутності електроенергії:\n${['1.1 – 08:00-12:00', '1.2 – 08:00-12:00', '2.1 – 11:00-15:00',
+    '2.2 – 11:00-15:00; 19:00-22:00', '3.1 – 14:00-18:00', '3.2 – 14:00-18:00'].map((row) => `Підчерга ${row}.`).join('\n')}`;
+  const posts = [
+    post(1912, '2026-11-20T08:27:00+00:00', table('За розпорядженням НЕК «Укренерго» знову оновлено графік погодинних відключень (ГПВ) на 20 листопада (оновлено з 10:30).')),
+    post(1914, '2026-11-20T11:37:00+00:00', '⚠️ Увага! Черги ГПВ можуть не збігатися через задіяння резервних схем живлення\n\n'
+      + 'У зв’язку з тим, що в області частково задіяні резервні схеми живлення, ваша фактична черга погодинних відключень (ГПВ) може не '
+      + 'збігатися з тією, яка була визначена раніше.\n\nПеревірити актуальну чергу в розрізі вашої квартири (особового рахунку) можна у '
+      + 'наших офіційних чат-ботах у Viber або Telegram. 🤖'),
+    post(1915, '2026-11-20T18:48:00+00:00', table('За розпорядженням НЕК «Укренерго» 21.11.2026 р. на Хмельниччині будуть застосовані графіки погодинних відключень (ГПВ).'))
+  ];
+  const source = NEWS_SOURCES.find((candidate) => candidate.region === 'khmelnytskyi');
+  assert.equal(source.channel, 'khmelnytskoblenergo');
+  const items = feedOf(posts, { channel: source.channel, now: new Date('2026-11-20T19:10:00Z') });
+  assert.deepEqual(items.map((item) => item.url), ['https://t.me/khmelnytskoblenergo/1914']);
+  assert.equal(items[0].title, 'Черги ГПВ можуть не збігатися через задіяння резервних схем живлення.');
+  assert.ok(items[0].excerpt.startsWith('У зв’язку з тим, що в області частково задіяні резервні схеми живлення'), items[0].excerpt);
+});
+
 test('a post with no correction is unchanged, and a bare «UPD» with nothing after it is not one', () => {
   assert.equal(updateOf('Шановні споживачі! Графіки на завтра не змінюються.'), null);
   assert.equal(updateOf('Графіки змінено.\nUPD: ок'), null);

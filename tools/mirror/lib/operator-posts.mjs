@@ -27,6 +27,9 @@ export const NEWS_SOURCES = [
   { region: 'sumy', channel: 'SumyEnergo' },
   { region: 'zakarpattia', channel: 'zakarpatenergyofficial' },
   { region: 'zhytomyr', channel: 'ztoe_ua' },
+  // The channel its hours are read from (sources/khmelnytskyi.mjs). On 20 листопада 2026 it warned that «ваша фактична черга ГПВ може
+  // не збігатися з тією, яка була визначена раніше» — and a person with light through the hours of their queue heard it from nobody.
+  { region: 'khmelnytskyi', channel: 'khmelnytskoblenergo' },
   { region: 'cek', channel: 'cek_info' },
   { region: 'kyiv', channel: 'dtek_ua', opens: /^Київ(?![а-яіїєґ'’])/iu },
   { region: 'kyiv-region', channel: 'dtek_ua', opens: /^(?:Київщин|Київськ(?:а|ої)\s+област)/iu },
