@@ -1,7 +1,7 @@
 import { getJSON, getText } from '../lib/http.mjs';
 import { validate, kyivDayStart } from '../lib/canonical.mjs';
-import { markCarried } from '../lib/carried.mjs';
-import { readEmergencyFromChannel } from '../lib/dtek-emergency.mjs';
+import { markCarried, carriedParts } from '../lib/carried.mjs';
+import { readEmergencyFromChannel, readBanner } from '../lib/dtek-emergency.mjs';
 import { combine, fetchYasno } from './yasno.mjs';
 
 /**
@@ -99,6 +99,35 @@ async function fetchUpstream(region) {
  * so GitHub keeps reading the region whole.
  */
 export async function fetchRegion(region) {
+  return withSiteBanner(await readRegion(region));
+}
+
+/**
+ * ДТЕК's own banner over the schedule (`attention.text`; lib/dtek-emergency.mjs `readBanner`) adds today to `fact.emergency` while
+ * it says an order is in force, and gives the warning its words when nothing else has. It only adds — YASNO's days and the
+ * channel's districts stand as they were — and it ends with the banner: the next read without the words is a read without the day.
+ * A read that leaned wholly on the served copy is no look at the banner and is left alone.
+ */
+export function withSiteBanner(snapshot, { now = new Date(), log = (line) => console.log(`[dtek-banner] ${line}`) } = {}) {
+  const parts = carriedParts(snapshot);
+  const line = parts === true ? null : readBanner(snapshot?.attention?.text);
+  if (!line) return snapshot;
+  const today = kyivDayStart(now);
+  const marked = (snapshot.fact?.emergency ?? []).map(Number);
+  if (!marked.includes(today)) log(`${snapshot.regionId}: emergency by the site's banner (${line.slice(0, 90)})`);
+  const result = {
+    ...snapshot,
+    fact: {
+      ...snapshot.fact,
+      emergency: [...new Set([...marked, today])].sort((a, b) => a - b),
+      emergencyNote: snapshot.fact?.emergencyNote ?? `«${line}» — сайт ДТЕК`
+    }
+  };
+  // The banner is a look at the order itself; whatever else was carried stays carried.
+  return markCarried(result, (parts ?? []).filter((part) => part !== 'emergency'));
+}
+
+async function readRegion(region) {
   if (region.emergencyTelegram && !region.yasno) return withChannelEmergency(await fetchUpstream(region), region);
   if (!region.yasno) return fetchUpstream(region);
   const [upstream, yasno] = await Promise.allSettled([fetchUpstream(region), fetchYasno(region)]);
