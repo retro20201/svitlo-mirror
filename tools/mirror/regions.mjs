@@ -33,17 +33,17 @@
 export const REGIONS = [
   // --- live: ДТЕК's DisconSchedule, the richest source we have (weekly preset + half-hours)
   // Its 60 groups are «N.1»; see sources/dtek.mjs `shape` for why the rest and an empty template go.
-  { id: 'kyiv',          title: 'Київ',                subtitle: 'місто',            operator: 'ДТЕК Київські електромережі',            source: 'dtek', site: 'https://www.dtek-kem.com.ua/ua/shutdowns',     status: 'live',
+  { id: 'kyiv',          title: 'Київ',                subtitle: 'місто',            operator: 'ДТЕК Київські електромережі',            source: 'dtek', site: 'https://www.dtek-kem.com.ua/ua/shutdowns', siteByAddress: true,     status: 'live',
     queuePattern: /^GPV\d+\.1$/, staysLive: true, yasno: { regionId: 25, dsoId: 902 },
     // YASNO's `EmergencyShutdowns` comes late: ДТЕК's channel announces each order of Укренерго first (lib/dtek-emergency.mjs).
     // And it writes the end itself («повертаємось до графіків», «скасовано»): the order of 3 November, 05:18 UTC, was never ended,
     // the banner went at 19:18 on the twelve hours, and a person in the dark at 23:07 wrote that nothing had warned them.
     // An order is believed until the channel ends it, for a day and a half at most.
     emergencyTelegram: { area: 'city', maxAgeHours: 36 } },
-  { id: 'kyiv-region',   title: 'Київська область',    subtitle: 'область',          operator: 'ДТЕК Київські регіональні електромережі', source: 'dtek', site: 'https://www.dtek-krem.com.ua/ua/shutdowns',    status: 'live',
+  { id: 'kyiv-region',   title: 'Київська область',    subtitle: 'область',          operator: 'ДТЕК Київські регіональні електромережі', source: 'dtek', site: 'https://www.dtek-krem.com.ua/ua/shutdowns', siteByAddress: true,    status: 'live',
     // YASNO has nothing for the oblast: ДТЕК's own channel announces each order of Укренерго (lib/dtek-emergency.mjs).
     emergencyTelegram: { area: 'oblast', maxAgeHours: 36 } },
-  { id: 'dnipro',        title: 'Дніпро',              subtitle: 'ДТЕК: місто та область', operator: 'ДТЕК Дніпровські електромережі',          source: 'dtek', site: 'https://www.dtek-dnem.com.ua/ua/shutdowns',    status: 'live',
+  { id: 'dnipro',        title: 'Дніпро',              subtitle: 'ДТЕК: місто та область', operator: 'ДТЕК Дніпровські електромережі',          source: 'dtek', site: 'https://www.dtek-dnem.com.ua/ua/shutdowns', siteByAddress: true,    status: 'live',
     // YASNO marks the days; the channel names the districts and comes first (lib/dtek-emergency.mjs, area 'dnipro').
     // ДТЕК's list of queues here also has «ЦЕК 1.1» … «ЦЕК 6.2» (GPV1001.1 … GPV1006.2) — ЦЕК's subscribers, for whom ДТЕК publishes
     // no day table: `cekQueues` fills their hours from ЦЕК's own channel (lib/cek-in-dnipro.mjs).
@@ -51,7 +51,7 @@ export const REGIONS = [
     // область at 10:39, neither of the two said a word all day, and ДТЕК's bot answered «Екстренні відключення» for an address in Дніпро.
     yasno: { regionId: 3, dsoId: 301 }, emergencyTelegram: { area: 'dnipro', maxAgeHours: 36 }, cekQueues: true,
     emergencyUkrenergo: { oblast: 'Дніпропетровськ' } },
-  { id: 'odesa',         title: 'Одеса',               subtitle: 'місто та область', operator: 'ДТЕК Одеські електромережі',              source: 'dtek', site: 'https://www.dtek-oem.com.ua/ua/shutdowns',    status: 'live', emergencyUkrenergo: { oblast: 'Одеськ' } },
+  { id: 'odesa',         title: 'Одеса',               subtitle: 'місто та область', operator: 'ДТЕК Одеські електромережі',              source: 'dtek', site: 'https://www.dtek-oem.com.ua/ua/shutdowns', siteByAddress: true,    status: 'live', emergencyUkrenergo: { oblast: 'Одеськ' } },
 
   // The Dnipropetrovsk-oblast subscribers of ПрАТ «ПЕЕМ «ЦЕК», whom ДТЕК does not serve — Жовті Води, Вільногірськ, Павлоград, part of
   // Дніпро and Кривий Ріг. Its own hours under the same queue numbers as ДТЕК's, from its channel @cek_info (sources/cek.mjs); the
@@ -202,6 +202,10 @@ export function indexEntry(region) {
   // Where the person can ask the operator about an outage that is not in the schedule. Only the
   // operators whose own site we already read; a build that does not know the key skips it.
   if (region.site) entry.operatorSite = region.site;
+  // That page answers for one address: off now or not, why, and until when (ДТЕК's «Графік відключень» — the same words its
+  // bot sends). The app then names the button for it, «Перевірити адресу в оператора»: a person in Дніпро whose queue had
+  // light and whose house had none asked for exactly that (19 November 2026). A build that does not know the key skips it.
+  if (region.site && region.siteByAddress) entry.operatorSiteByAddress = true;
   // The operator's hours already hold time for switching, so power can be back before they end (a person in Запоріжжя,
   // 3 November 2026: «дали на пів години раніше»). The app says so under the schedule; a build that does not know the key skips it.
   if (region.includesSwitching) entry.includesSwitching = true;
