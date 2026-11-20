@@ -285,6 +285,21 @@ export function decide({
     // 1. Bootstrap, a lost or corrupt ledger, or new adapter code: what is out now is taken as
     // known. A change of our own code is not the operator's news.
     const rebaseline = !state || state.fp !== fingerprint;
+    // 1a. New code over a ledger that was following the region is not a bootstrap, and two things in its first read are the
+    // operator's whatever our code became. What the old code had already seen and was waiting to confirm: the same value again
+    // is the second read it waited for. And tomorrow, when the ledger holds nothing of it for the region: a day that was not
+    // there is «зʼявився графік на завтра» under any code. Both were lost to a deploy on 20 листопада 2026 — «скасовано» for a
+    // queue of Рівне that was settling, and tomorrow's tables of Житомир, Харків and Запоріжжя, out in the very cycle that
+    // adopted everything. A change to a day the ledger knows is still taken silently: there our code may be what moved it.
+    const followed = Boolean(state) && at - state.lastFreshAt <= GAP_MS;
+    const knewTomorrow = Object.keys(entries).some((key) => {
+      const parsed = parseKey(key);
+      return parsed.region === region && parsed.day === tomorrow && !parsed.queue.startsWith(EMERGENCY);
+    });
+    const operators = (item, prior) => followed && (
+      (prior?.pending != null && prior.pending.mask === item.value)
+      || (item.type !== 'emergency' && item.day === tomorrow && !knewTomorrow)
+    );
     // 2. Back after a gap: today is adopted, tomorrow is still news.
     const gap = !rebaseline && at - state.lastFreshAt > GAP_MS;
     // 3. What the adapter carried over from the served copy this time (lib/carried.mjs): the copy
@@ -294,7 +309,7 @@ export function decide({
 
     for (const item of current) {
       const prior = entries[item.key];
-      if (rebaseline) {
+      if (rebaseline && !operators(item, prior)) {
         Object.assign(adopt(entry(item.key), item.value), { told: false });
         log.push({ key: item.key, kind: '-', outcome: 'adopted(rebaseline)' });
         continue;

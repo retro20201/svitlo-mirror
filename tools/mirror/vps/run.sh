@@ -188,7 +188,9 @@ main() {
   # read a change needs before anyone is told. `news-mode` is written by hand; anything but "on"
   # is shadow. The fingerprint is the adapter code and lib/news-observe.mjs, which turns a served
   # file into the masks the ledger keeps: a change of either adopts each region's next read
-  # silently, so our own fix is never announced as the operator's change. lib/news.mjs — settle,
+  # silently, so our own fix is never announced as the operator's change — but for what the old
+  # code was already waiting to confirm, and for tomorrow where the ledger held nothing of it
+  # (lib/news.mjs, «1a»): a deploy in the evening used to swallow both. lib/news.mjs — settle,
   # gaps, caps, texts — is left out, so tuning it never swallows a real change in a rebaseline.
   local mode fp
   mode=$(cat "$STATE/news-mode" 2>/dev/null || echo shadow)

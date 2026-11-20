@@ -472,6 +472,76 @@ test('new adapter code adopts its first read silently, then works as before', ()
   assert.deepEqual(kyiv.read(t + 8 * MIN, next, { fp: 'fp2' }).sent.map((event) => event.kind), ['revised']);
 });
 
+// A deploy at 19:44 on 20 листопада 2026 adopted, with everything else, tomorrow's tables of three regions out in that very
+// cycle, and one at 21:24 a cancellation that was one read short of being told.
+
+test('tomorrow appearing in the first read of new code is the operator\'s, and is told', () => {
+  const kyiv = reader(POLTAVA);
+  const t = at('2026-10-08 19:44');
+  const today = { [TODAY]: day({ 'GPV3.1': dark('18:00-21:00') }) };
+  const both = { ...today, [TOMORROW]: day({ 'GPV3.1': dark('07:00-10:00') }) };
+  kyiv.read(t, poltava(today));
+  const first = kyiv.read(t + 2 * MIN, poltava(both), { fp: 'fp2' });
+  assert.equal(first.sent.length, 0);
+  assert.deepEqual(first.log.map((line) => [line.key.endsWith(`|${TOMORROW}`), line.outcome]).filter(([tomorrow]) => !tomorrow)
+    .map(([, outcome]) => outcome), Array(12).fill('adopted(rebaseline)'), 'today is taken as known');
+  assert.equal(outcomes(first.log).filter((outcome) => outcome === 'held(settle)').length, 12, 'tomorrow waits for its second read');
+  const second = kyiv.read(t + 4 * MIN, poltava(both), { fp: 'fp2' });
+  const alert = second.sent.find((event) => event.queue === 'GPV3.1');
+  assert.deepEqual([alert.kind, alert.day, alert.text.title], ['published', TOMORROW, 'Зʼявився графік на завтра']);
+  assert.equal(second.sent.length, 12);
+  assert.equal(kyiv.read(t + 6 * MIN, poltava(both), { fp: 'fp2' }).sent.length, 0);
+});
+
+test('…but not after a long silence, and not a day already known as a picture', () => {
+  const t = at('2026-10-08 19:44');
+  const today = { [TODAY]: day({ 'GPV3.1': dark('18:00-21:00') }) };
+  const both = { ...today, [TOMORROW]: day({ 'GPV3.1': dark('07:00-10:00') }) };
+  const away = reader(POLTAVA);
+  away.read(t, poltava(today));
+  const back = away.read(t + GAP_MS + 2 * MIN, poltava(both), { fp: 'fp2' });
+  assert.equal(back.sent.length, 0);
+  assert.ok(outcomes(back.log).every((outcome) => outcome === 'adopted(rebaseline)'));
+  assert.equal(away.read(t + GAP_MS + 4 * MIN, poltava(both), { fp: 'fp2' }).sent.length, 0);
+
+  // The picture of tomorrow went out; new code that reads it as a table has made the table, not the operator.
+  const table = buildSnapshot({
+    regionId: 'sumy', title: SUMY.title, queues: queueNames(NATIONAL_QUEUES), source: 'sumy',
+    fact: { [TOMORROW]: day({ 'GPV3.1': dark('07:00-10:00') }) }
+  });
+  const sumy = reader(SUMY);
+  sumy.read(t - 2 * MIN, sumyDay(2594, 'https://cdn4.telesco.pe/file/a.jpg', { dayStart: TODAY }));
+  sumy.read(t, sumyDay(2594, 'https://cdn4.telesco.pe/file/a.jpg'));
+  assert.equal(sumy.read(t + 2 * MIN, sumyDay(2594, 'https://cdn4.telesco.pe/file/a.jpg')).sent.length, 1);
+  const read = sumy.read(t + 4 * MIN, table, { fp: 'fp2' });
+  assert.equal(read.sent.length, 0);
+  assert.ok(outcomes(read.log).every((outcome) => outcome === 'adopted(rebaseline)'));
+  assert.equal(sumy.read(t + 6 * MIN, table, { fp: 'fp2' }).sent.length, 0);
+});
+
+test('a change the old code was waiting to confirm is told on the read it waited for', () => {
+  const t = at('2026-10-08 20:00');
+  const before = poltava({ [TOMORROW]: day({ 'GPV3.1': dark('07:00-10:00') }) });
+  const after = poltava({ [TOMORROW]: day({ 'GPV3.1': dark('07:00-11:00') }) });
+  const kyiv = reader(POLTAVA);
+  kyiv.read(t, before);
+  const waiting = kyiv.read(t + 2 * MIN, after);
+  assert.deepEqual([waiting.sent.length, outcomes(waiting.log)], [0, ['held(settle)']]);
+  const first = kyiv.read(t + 4 * MIN, after, { fp: 'fp2' });
+  assert.deepEqual(first.sent.map((event) => [event.queue, event.kind]), [['GPV3.1', 'revised']]);
+  assert.equal(kyiv.read(t + 6 * MIN, after, { fp: 'fp2' }).sent.length, 0);
+
+  // What the new code reads differently from what was waiting is its own doing.
+  const other = poltava({ [TOMORROW]: day({ 'GPV3.1': dark('07:00-12:00') }) });
+  const changed = reader(POLTAVA);
+  changed.read(t, before);
+  changed.read(t + 2 * MIN, after);
+  const silent = changed.read(t + 4 * MIN, other, { fp: 'fp2' });
+  assert.equal(silent.sent.length, 0);
+  assert.ok(outcomes(silent.log).every((outcome) => outcome === 'adopted(rebaseline)'));
+  assert.equal(changed.read(t + 6 * MIN, other, { fp: 'fp2' }).sent.length, 0);
+});
+
 test('back after a gap: today is adopted, tomorrow is still told', () => {
   assert.ok(GAP_MS >= 30 * MIN);
   const kyiv = reader(POLTAVA);
