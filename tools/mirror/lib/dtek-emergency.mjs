@@ -67,6 +67,36 @@ const ENDED = [
   /повертаютьс\S*\s+(?:до\s+)?графік/iu
 ];
 
+// Before the words of an order, what makes it no order in force: «не діють», «будуть застосовані», «можуть бути застосовані».
+const NOT_NOW = /(?:^|[\s,(«])(?:не|будуть|буде|можуть\s+бути|може\s+бути)\s+$/iu;
+
+/**
+ * ДТЕК's banner over the schedule on its own site — `attention.text` in the file outage-data-ua carries — read for an order in
+ * force. It is the operator's standing word, edited as things change, and it was there when the channel and YASNO said nothing:
+ * «За наказом НЕК Укренерго в м. Дніпро, Кам'янське, Самар, Павлоград, Дніпровський … р-ни діють екстрені відключення. Для решти
+ * області стабілізаційні відключення.» stood from the evening of 19 November 2026 and was edited at 07:48 on the 20th, with
+ * `fact.emergency` empty for Дніпро all that time. Only the plain statement is read: «діють стабілізаційні відключення», «допоможе
+ * уникнути екстрених відключень» and «Тут графіки не діють» for a district with a fault are not an order for the region.
+ *
+ * The warning gets the banner whole while it is short — «Для решти області стабілізаційні відключення» is what the rest of the
+ * oblast needs to read — and only the line of the order when it is not.
+ *
+ * @param {unknown} text
+ * @returns {string|null} the operator's words, when they say an order is in force
+ */
+export function readBanner(text) {
+  if (typeof text !== 'string') return null;
+  const lines = text.split(/\n+/).map((line) => line.replace(/[\u200b\u00a0]/gu, ' ').replace(/\s+/gu, ' ').trim()).filter(Boolean);
+  for (const line of lines) {
+    const said = APPLIED.exec(line);
+    if (!said || NOT_NOW.test(line.slice(0, said.index)) || ENDED.some((end) => end.test(line))) continue;
+    const whole = lines.join(' ');
+    if (whole.length <= 400) return whole;
+    return line.length > 320 ? `${line.slice(0, 317).trimEnd()}…` : line;
+  }
+  return null;
+}
+
 /** Where a post says it is about: the words before the first colon of its first line. */
 function headOf(text) {
   const line = text.split('\n')[0] ?? '';
