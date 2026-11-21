@@ -344,6 +344,16 @@ export function durationHoursBoxes(grid, digits = null) {
 /** NCC of a glyph against each digit's template(s). */
 const scoresFor = (n, T) => Object.fromEntries(Object.entries(T).map(([label, cs]) => [label, Math.max(...cs.map((c) => ncc(n.vec, c)))]));
 
+/** How far the grammar's digit may fall behind what the glyph looks like most. */
+const LOOKS_LIKE = 0.06;
+/**
+ * The same, for the first digit of an hour against a digit that cannot stand first in one. On the 80 transcribed pictures
+ * the reader does exactly what it did without this room — 62 read card for card, 18 refused, none read wrongly — at every
+ * value from 0.06 to 0.15; at 0.2 one more reads, rightly. The picture this is for needed 0.069.
+ */
+export const IMPOSSIBLE_RIVAL = 0.12;
+const HOUR_TENS = ['0', '1', '2'];
+
 /** One two-digit group under a grammar → its candidate values, best first, with scores. */
 function groupCandidates(grid, group, T, kind) {
   const boxes = splitPair(grid, group);
@@ -355,7 +365,17 @@ function groupCandidates(grid, group, T, kind) {
   for (let i = 0; i < 2; i++) {
     const chosen = s[i][ranked[0].v[i]];
     const top = Math.max(...Object.values(s[i]));
-    if (top - chosen > 0.06) return { error: `digit ${i} reads as something else (${chosen.toFixed(3)} vs ${top.toFixed(3)})` };
+    if (top - chosen <= LOOKS_LIKE) continue;
+    // The first digit of an hour is 0, 1 or 2, and what it looks like most may be a digit that cannot stand there: on
+    // 21 листопада 2026 the «2» of one «20:00», thinned by the channel's compression, matched «7» by 0.069 over «2», and
+    // the whole day of Сумщина was served as a picture for hours. A rival that cannot be there is given twice the room —
+    // while the choice is still the best of the three that can. Nothing else is loosened: a wrong first digit moves the
+    // window by ten hours, which the order of the windows and the printed duration both refuse.
+    if (kind === 'hours' && i === 0) {
+      const possible = Math.max(...HOUR_TENS.map((digit) => s[0][digit] ?? -1));
+      if (possible - chosen <= LOOKS_LIKE && top - chosen <= IMPOSSIBLE_RIVAL) continue;
+    }
+    return { error: `digit ${i} reads as something else (${chosen.toFixed(3)} vs ${top.toFixed(3)})` };
   }
   return { ranked: ranked.slice(0, 3) };
 }
