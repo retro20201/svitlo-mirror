@@ -230,3 +230,40 @@ test('«продовжують діяти екстрені відключенн�
   // «тривають роботи» is a repair crew, not an order.
   assert.equal(readEmergency([post(3, '2026-11-08T08:00:00Z', 'Київ: тривають ремонтні роботи на підстанції. Нагадаємо, під час екстрених відключень графіки не діють.')], { now: at('2026-11-08T09:00:00Z'), area: 'city' }).active, false);
 });
+
+// @dtek_ua, 20 November 2026, as written (4870 shortened in the middle).
+const BACK = {
+  order: post(4865, '2026-11-20T05:56:00+00:00', '‼️ Київ: через масовану атаку без світла залишилася частина мешканців Печерського, Солом’янського, Голосіївського, Дніпровського та Дарницького районів.\n\nВ інших районах столиці діють екстрені відключення через пошкодження обладнання та перевантаження мереж.\n\nЕнергетики вже працюють над ліквідацією наслідків атаки.'),
+  stable: post(4869, '2026-11-20T11:40:00+00:00', 'Київ: енергетикам вдалося стабілізувати ситуацію після нічної масованої атаки і повернути світло киянам\n \nНаразі в столиці діють графіки відключень. \n\nДе подивитись графіки?\n\nУ чат-боті, на сайті або в додатку «Київ Цифровий».'),
+  again: post(4870, '2026-11-20T12:29:28+00:00', 'Київ: так наші енергетики з самого ранку повертали світло після чергової масованої атаки ворога\n\nЗавдяки титанічним зусиллям енергетиків ситуацію в столиці вдалося стабілізувати. У Києві знову діють графіки відключень.\n\nДякуємо за підтримку!')
+};
+const dayAndHalf = 36 * 3600 * 1000;
+
+test('«наразі в столиці діють графіки відключень» ends the order of that morning (20 November 2026)', () => {
+  const city = (posts, now) => readEmergency(posts, { now: at(now), area: 'city', maxAgeMs: dayAndHalf });
+  assert.equal(city([BACK.order], '2026-11-20T11:00:00Z').active, true);
+  assert.equal(city([BACK.order, BACK.stable], '2026-11-20T11:45:00Z').active, false);
+  // The banner stood until 19:56 of the next day; the channel had ended it twice by then.
+  assert.equal(city([BACK.order, BACK.stable, BACK.again], '2026-11-21T15:15:00Z').active, false);
+  assert.equal(city([BACK.order, BACK.again], '2026-11-20T12:30:00Z').active, false, '«знову діють графіки відключень» alone');
+  // Київщина's order is not Київ's to end.
+  const oblast = post(1, '2026-11-20T06:00:00+00:00', '‼️Київщина: за командою Укренерго застосовані екстрені відключення');
+  assert.equal(readEmergency([oblast, BACK.stable], { now: at('2026-11-20T12:00:00Z'), area: 'oblast', maxAgeMs: dayAndHalf }).active, true);
+});
+
+test('schedules said to be on next to emergency outages, or schedules of emergency outages, end nothing', () => {
+  const city = (posts) => readEmergency(posts, { now: at('2026-11-20T13:00:00Z'), area: 'city', maxAgeMs: dayAndHalf });
+  const both = post(1, '2026-11-20T12:00:00+00:00', 'Київ: у Печерському та Голосіївському районах діють екстрені відключення\n\nВ решті районів наразі діють графіки відключень.');
+  assert.equal(city([BACK.order, both]).active, true);
+  assert.equal(city([BACK.order, both]).since, both.postedAt, 'it is the order now in force');
+  const partly = post(2, '2026-11-20T12:00:00+00:00', 'Київ: наразі діють графіки відключень, у Печерському районі — екстрені');
+  assert.equal(city([BACK.order, partly]).active, true);
+  const notYet = post(3, '2026-11-20T12:00:00+00:00', 'Київ: графіки відключень наразі не діють');
+  assert.equal(city([BACK.order, notYet]).active, true);
+  // An operator's own channel: «графіки аварійних відключень» are the order itself.
+  const gav = post(4, '2026-11-20T08:00:00+00:00', 'По області застосовані графіки аварійних відключень (ГАВ)');
+  const still = post(5, '2026-11-20T12:00:00+00:00', 'Наразі в області діють графіки аварійних відключень');
+  assert.equal(readEmergency([gav, still], { now: at('2026-11-20T13:00:00Z'), area: 'own' }).active, true);
+  const hourly = post(6, '2026-11-20T12:30:00+00:00', 'В області знову діють графіки погодинних відключень');
+  assert.equal(readEmergency([gav, still, hourly], { now: at('2026-11-20T13:00:00Z'), area: 'own' }).active, false);
+});

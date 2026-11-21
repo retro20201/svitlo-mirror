@@ -51,6 +51,13 @@ const BLACKOUT = /маємо\s+((?:масштабн\S*\s+|аварійн\S*\s+){
 // «… родин знову зі світлом після обстрілів»: the area is back. Only for a post that announces nothing itself — one
 // can say both («170 000 родин знову зі світлом … в частині Бучанського району діють екстрені відключення»).
 const RESTORED = /знову\s+зі\s+світлом/iu;
+// The return to the schedules said as a state, not as a move: «Наразі в столиці діють графіки відключень» and, fifty minutes on,
+// «У Києві знову діють графіки відключень» (@dtek_ua, 20 November 2026, 11:40 and 12:29 UTC). Neither was read, and the banner of
+// that morning's order stood over Київ for thirty hours more, until its day and a half ran out. Like «знову зі світлом» it ends
+// nothing in a post that announces an order itself, nor in one that speaks of emergency outages at all («в решті районів наразі
+// діють графіки» under a list of the districts still without them). «Графіки аварійних відключень» are an order, not a return.
+const SCHEDULES_BACK = /(?:знову|наразі)\s+(?:(?:в|у)\s+\S+\s+)?діють\s+графіки\s+(?:(?:погодинних|стабілізаційних)\s+)?відключен/iu;
+const SPEAKS_OF_EMERGENCY = /екстрен/iu;
 const ENDED = [
   /екстрен\S*\s+відключен\S*\s+скасован/iu,
   /скасован\S*\s+екстрен\S*\s+відключен/iu,
@@ -190,7 +197,7 @@ function* wordsOf(posts, { now, area, maxAgeMs, skip }) {
     if (APPLIED.test(text) || GAV_APPLIED.test(text) || ACCIDENT.some((pattern) => pattern.test(text)) || blackout) {
       const said = blackout ? blackout[1].trim().replace(/\s+/g, ' ') : null;
       yield { post, applied: true, ended, note: districtsOf(text) ?? said ?? (area === 'own' ? addresseeOf(text) : null) };
-    } else if (ended || RESTORED.test(text)) {
+    } else if (ended || RESTORED.test(text) || (SCHEDULES_BACK.test(text) && !SPEAKS_OF_EMERGENCY.test(text))) {
       yield { post, applied: false, ended: true, note: null };
     }
   }
