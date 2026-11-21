@@ -391,8 +391,9 @@ test('past the day\'s five, an outage a change brings near is still said — thr
   assert.deepEqual(sent.map((event) => event.kind), ['revised']);
   // Against the table before it, 18:30–21:00: the total says less, the hours say when.
   assert.equal(sent[0].text.body, 'Далі сьогодні без світла 17:00–19:00 (на 30 хв менше).');
-  // The sixth of the day: in the list, without a sound.
-  assert.equal(sent[0].message.message.apns.payload.aps.sound, undefined);
+  // The sixth of the day, and it rings: an outage nearer than people were told is what a sound is for.
+  assert.equal(sent[0].message.message.apns.payload.aps.sound, 'default');
+  assert.equal(sent[0].message.message.apns.payload.aps['interruption-level'], 'active');
   assert.equal(region.ledger.entries[key].sends, MAX_SENDS + 1);
 
   // Nearer still, four minutes later: one in fifteen minutes, as ever…
@@ -1023,4 +1024,31 @@ test('a day that is neither today nor tomorrow any more is not rendered', () => 
   assert.equal(render(event({ day: TODAY - 86400 }), new Date(at('2026-10-08 20:00'))), null);
   assert.equal(dayLabel(TOMORROW), 'пт, 9 жовтня');
   assert.equal(kyivDayStart(new Date(at('2026-10-08 20:00'))), TODAY);
+});
+
+test('an outage brought near rings by day whatever its number; a lighter change after the third stays quiet, and night stays night', () => {
+  const plan = (...ranges) => poltava({ [TODAY]: day({ 'GPV1.1': dark(...ranges) }) });
+  const key = `poltava|GPV1.1|${TODAY}`;
+  const sound = (event) => event.message.message.apns.payload.aps.sound;
+  const fourth = (t, from, to) => {
+    const region = reader(POLTAVA);
+    region.read(t - 2 * MIN, plan(...from));
+    region.ledger.entries[key].sends = 3;
+    region.read(t, plan(...to));
+    return region.read(t + 2 * MIN, plan(...to)).sent;
+  };
+  const noon = at('2026-10-08 12:21');
+  assert.equal(sound(fourth(noon, ['18:30-21:00'], ['14:00-16:00', '18:30-21:00'])[0]), 'default');
+  assert.equal(sound(fourth(noon, ['18:30-21:00'], ['18:30-20:00'])[0]), undefined);
+  // Darker, but in the evening: not near, so the fourth is quiet as before.
+  assert.equal(sound(fourth(noon, ['18:30-21:00'], ['18:30-22:00'])[0]), undefined);
+  // 23:10: a cut at 00:00 tomorrow is near, and the night is still not rung through.
+  const night = reader(POLTAVA);
+  const t = at('2026-10-08 23:10');
+  const tomorrow = (...ranges) => poltava({ [TODAY]: day(), [TOMORROW]: day({ 'GPV1.1': dark(...ranges) }) });
+  night.read(t - 2 * MIN, tomorrow('06:00-09:00'));
+  night.read(t, tomorrow('00:00-02:00', '06:00-09:00'));
+  const late = night.read(t + 2 * MIN, tomorrow('00:00-02:00', '06:00-09:00')).sent;
+  assert.equal(late.length, 1);
+  assert.equal(sound(late[0]), undefined);
 });

@@ -149,7 +149,11 @@ export const MAX_SENDS = 5;
 export const NEAR_MS = 3 * 3600_000;
 export const MAX_NEAR_SENDS = 3;
 export const MAX_SHEET_SENDS = 3;
-/** Only the first three of a queue-day ring; four and five arrive quietly. */
+/**
+ * Only the first three of a queue-day ring; the rest arrive quietly — but for an outage a change brings near (`near`), which
+ * rings by day whatever its number. On 21 листопада 2026 Полтавщина's twelve queues had five alerts each and one with a sound:
+ * the operator revised the day eight to ten times, the three were gone by morning, and a man wrote that the alerts do not come.
+ */
 export const SOUNDED_SENDS = 3;
 /** A table read off a picture people were just told about is the same news, not a new one. */
 export const PICTURE_HOLD_MS = 3 * 3600_000;
@@ -264,17 +268,18 @@ export function decide({
         if ((mask & window) !== 0n) kind = 'revised';
       }
     }
-    if (target.sends >= MAX_SENDS) {
-      // Past the day's five: only an outage this change puts near, where the table before it had light (`NEAR_MS`).
-      const before = target.base === null ? 0n : bits(target.base);
-      const near = mask & ~before & window & nearMask(day, now, NEAR_MS);
-      if (near === 0n || target.sends >= MAX_SENDS + MAX_NEAR_SENDS) return adopted(key, kind, target, value, 'cap');
+    // An outage this change puts near, where the table before it had light (`NEAR_MS`): the one thing still said past the
+    // day's five, and the one alert that rings whatever its number (see `buildMessage`).
+    const before = target.base === null ? 0n : bits(target.base);
+    const near = (mask & ~before & window & nearMask(day, now, NEAR_MS)) !== 0n;
+    if (target.sends >= MAX_SENDS && (!near || target.sends >= MAX_SENDS + MAX_NEAR_SENDS)) {
+      return adopted(key, kind, target, value, 'cap');
     }
     if (target.lastSentAt != null && at - target.lastSentAt < RATE_GAP_MS) return held(key, kind, 'gap15');
     return {
       key, type: 'queue', region: seen.region, queue, day, kind, mask: value, base: target.base,
       quiet: seen.days[day].state === 'quiet', regionTitle: seen.title, queueName: seen.names[queue] ?? queue,
-      sends: target.sends, ...(calledOff ? { calledOff: true } : {}), ...(underOrder(seen, queue, day) ? { emergency: true } : {})
+      sends: target.sends, ...(near ? { near: true } : {}), ...(calledOff ? { calledOff: true } : {}), ...(underOrder(seen, queue, day) ? { emergency: true } : {})
     };
   };
 
@@ -625,7 +630,7 @@ export function buildMessage(event, text, now = new Date()) {
     `${linked !== null ? `&queue=${encodeURIComponent(linked)}` : ''}&day=${day}`;
   const level = isNight(now) ? 'passive'
     : event.type === 'emergency' ? 'time-sensitive'
-    : (event.sends ?? 0) < SOUNDED_SENDS ? 'active' : 'passive';
+    : event.near || (event.sends ?? 0) < SOUNDED_SENDS ? 'active' : 'passive';
   return {
     message: {
       ...(own !== null && !event.topic ? { condition: ownEmergencyCondition(region, own) } : { topic }),
