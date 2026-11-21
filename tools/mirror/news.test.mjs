@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   encQueue, newsTopic, sheetTopic, emergencyTopic, kyivClock, windowStart,
-  decide, render, buildMessage, recordSent, isNight, dayLabel, BREAKER, GAP_MS
+  decide, render, buildMessage, recordSent, isNight, dayLabel, apartQueues, BREAKER, GAP_MS
 } from './lib/news.mjs';
 import { offMask, sheetKey, observeRegion } from './lib/news-observe.mjs';
 import { buildSnapshot, kyivDayStart, kyivTomorrowStart, queueNames, NATIONAL_QUEUES } from './lib/canonical.mjs';
@@ -374,6 +374,75 @@ test('a cancellation needs three reads over four minutes of a day still publishe
   const { sent } = kyiv.read(t + 7 * MIN, clear);
   assert.deepEqual(sent.map((event) => [event.kind, event.text.title, event.text.body]),
     [['cancelled', 'Оперативні зміни в графіку', 'Далі сьогодні вимкнень не заплановано.']]);
+});
+
+test('a table that clears under an emergency order is not told as good news', () => {
+  // 21 листопада 2026, Дніпро: ДТЕК emptied the day's table for «екстрені відключення», and every queue was told
+  // «Далі сьогодні вимкнень не заплановано» while it sat in the dark.
+  const flagged = (days) => {
+    const snapshot = poltava(days);
+    snapshot.fact.emergency = [TODAY, TOMORROW];
+    return snapshot;
+  };
+  const today = reader(POLTAVA);
+  const t = at('2026-10-08 14:10');
+  today.read(t - 2 * MIN, flagged({ [TODAY]: day({ 'GPV3.1': dark('18:00-20:00') }) }));
+  const clear = flagged({ [TODAY]: day() });
+  today.read(t, clear);
+  today.read(t + 5 * MIN, clear);
+  const told = today.read(t + 7 * MIN, clear).sent.filter((event) => event.type === 'queue');
+  assert.deepEqual(told.map((event) => [event.kind, event.text.title, event.text.body]), [[
+    'cancelled', 'Оперативні зміни в графіку',
+    'За графіком далі сьогодні вимкнень немає, але оператор оголосив аварійні відключення — світло можуть вимикати без графіка.'
+  ]]);
+
+  const ahead = reader(POLTAVA);
+  const evening = at('2026-10-08 21:00');
+  ahead.read(evening, flagged({ [TOMORROW]: day({ 'GPV3.1': dark('07:00-10:00') }) }));
+  const cleared = flagged({ [TOMORROW]: day() });
+  ahead.read(evening + 2 * MIN, cleared);
+  ahead.read(evening + 4 * MIN, cleared);
+  const next = ahead.read(evening + 6 * MIN, cleared).sent.filter((event) => event.type === 'queue');
+  assert.deepEqual(next.map((event) => [event.text.title, event.text.body]), [[
+    'Графік на завтра змінено',
+    'Пт, 9 жовтня: за оновленим графіком вимкнень немає, але оператор попередив про аварійні відключення — світло можуть вимикати без графіка.'
+  ]]);
+});
+
+test('a queue the region\'s order is not about hears of its cleared table as before, and of its own operator\'s order', () => {
+  // ЦЕК's queues live under ДТЕК's «Дніпро»: ДТЕК's flag is not theirs (lib/cek-in-dnipro.mjs).
+  const names = { 'GPV1.1': 'Черга 1.1', 'GPV1001.1': 'ЦЕК 1.1' };
+  const mask = (hours) => offMask(hours);
+  // The field as lib/cek-in-dnipro.mjs leaves it with no order on: the queues named, no day.
+  const served = { fact: { queueEmergency: { queues: ['GPV1001.1'], days: [] } } };
+  assert.deepEqual(apartQueues({ fact: {} }), []);
+  assert.deepEqual(apartQueues({ fact: { queueEmergency: { queues: 'GPV1001.1' } } }), []);
+  const seen = (hours, extra) => ({
+    dnipro: {
+      region: 'dnipro', title: 'Дніпро', names, sheets: {}, emergency: [TODAY], apart: apartQueues(served), ...extra,
+      days: { [TODAY]: { state: 'fact', masks: { 'GPV1.1': mask(hours), 'GPV1001.1': mask(hours) } } }
+    }
+  });
+  const run = (extra) => {
+    let ledger = null;
+    const bodies = {};
+    const t = at('2026-10-08 14:10');
+    const steps = [[t - 2 * MIN, dark('18:00-20:00')], [t, dark()], [t + 5 * MIN, dark()], [t + 7 * MIN, dark()]];
+    for (const [time, hours] of steps) {
+      const now = new Date(time);
+      const result = decide({ ledger, observations: seen(hours, extra), now, fingerprint: 'fp1', freshIds: ['dnipro'] });
+      ledger = result.ledger;
+      for (const event of result.due) {
+        if (event.type === 'queue') bodies[event.queue] = render(event, now).body;
+        recordSent(ledger, event, time);
+      }
+    }
+    return bodies;
+  };
+  const plain = 'Далі сьогодні вимкнень не заплановано.';
+  const warned = 'За графіком далі сьогодні вимкнень немає, але оператор оголосив аварійні відключення — світло можуть вимикати без графіка.';
+  assert.deepEqual(run({}), { 'GPV1.1': warned, 'GPV1001.1': plain });
+  assert.deepEqual(run({ own: { queues: ['GPV1001.1'], days: [TODAY] } }), { 'GPV1.1': warned, 'GPV1001.1': warned });
 });
 
 test('tomorrow cancelled says so; a day withdrawn says nothing', () => {
