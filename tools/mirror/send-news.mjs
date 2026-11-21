@@ -32,7 +32,7 @@ import { accessToken } from './lib/google-auth.mjs';
 import { sendFcm, FCM_SCOPE } from './lib/notify.mjs';
 import { observeRegion } from './lib/news-observe.mjs';
 import {
-  decide, render, buildMessage, emptyLedger, parseKey,
+  decide, render, buildMessage, emptyLedger, parseKey, apartQueues,
   recordSent, recordAdopted, recordFailed, assumeInflightSent, MAX_ATTEMPTS
 } from './lib/news.mjs';
 
@@ -211,7 +211,9 @@ export async function run({
         continue;
       }
       try {
-        observations[id] = observeRegion(region, JSON.parse(await readFile(join(served, `${id}.json`), 'utf8')), now);
+        const snapshot = JSON.parse(await readFile(join(served, `${id}.json`), 'utf8'));
+        const apart = apartQueues(snapshot);
+        observations[id] = { ...observeRegion(region, snapshot, now), ...(apart.length ? { apart } : {}) };
         ids.push(id);
       } catch (error) {
         print(`[news] ${id}: not read (${error.message})`);

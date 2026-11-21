@@ -221,9 +221,15 @@ export function decide({
     return {
       key, type: 'queue', region: seen.region, queue, day, kind, mask: value, base: target.base,
       quiet: seen.days[day].state === 'quiet', regionTitle: seen.title, queueName: seen.names[queue] ?? queue,
-      sends: target.sends
+      sends: target.sends, ...(underOrder(seen, queue, day) ? { emergency: true } : {})
     };
   };
+
+  // The queue's day is under an emergency order: its own operator's where the region's flag is not about it (ЦЕК's queues
+  // under «Дніпро», `apart` — see `apartQueues`), the region's otherwise. Said with a table that cleared — see `render`.
+  const underOrder = (seen, queue, day) => ((seen.apart ?? []).includes(queue)
+    ? (seen.own?.days ?? []).includes(day)
+    : (seen.emergency ?? []).includes(day));
 
   const sheetEvent = (seen, { key, day, value, isRevision }, current) => {
     if (current && current.base === value) {
@@ -448,6 +454,23 @@ function delta(after, before) {
 }
 
 /**
+ * The queues of a served file that the region's emergency flag is not about (`fact.queueEmergency.queues`: ЦЕК's under ДТЕК's
+ * «Дніпро»), named whether or not their own operator has an order on. The caller joins them to the region's observation as
+ * `apart`. Not read in lib/news-observe.mjs: that file is part of the fingerprint, and a field that moves no mask is no
+ * reason for a silent first cycle.
+ */
+export function apartQueues(snapshot) {
+  const queues = snapshot?.fact?.queueEmergency?.queues;
+  return Array.isArray(queues) ? queues.filter((queue) => typeof queue === 'string') : [];
+}
+
+// What a cleared table is followed by where the day is under an emergency order (`event.emergency`): the table is said as it
+// is, and so is the order. Not «оператор прибрав графік»: the region's flag is coarse (a banner may name two districts), and
+// for the rest of the region the clear table is the plain truth.
+const ORDER_ON = 'але оператор оголосив аварійні відключення — світло можуть вимикати без графіка.';
+const ORDER_AHEAD = 'але оператор попередив про аварійні відключення — світло можуть вимикати без графіка.';
+
+/**
  * `{ title, subtitle, body }`, or null when the day is no longer today or tomorrow. The label is
  * settled at send time, not decision time: a change decided at 23:59 and sent at 00:01 is today's.
  */
@@ -487,7 +510,9 @@ export function render(event, now = new Date()) {
 
   if (when === 'today') {
     const title = event.kind === 'published' ? 'Зʼявився графік на сьогодні' : 'Оперативні зміни в графіку';
-    if (!off) return { title, subtitle, body: 'Далі сьогодні вимкнень не заплановано.' };
+    // Under an emergency order a table that cleared is no good news: on 21 листопада 2026 ДТЕК emptied Дніпро's for the day
+    // of «екстрені відключення», and twelve queues sitting in the dark were told «вимкнень не заплановано» — twice.
+    if (!off) return { title, subtitle, body: event.emergency ? `За графіком далі сьогодні вимкнень немає, ${ORDER_ON}` : 'Далі сьогодні вимкнень не заплановано.' };
     const note = event.kind === 'published' ? `разом ${duration(off)}` : before === null ? null : delta(off, before);
     return { title, subtitle, body: `Далі сьогодні без світла ${intervals(mask)}${note ? ` (${note})` : ''}.` };
   }
@@ -499,6 +524,9 @@ export function render(event, now = new Date()) {
     return event.quiet
       ? { title: 'Графік на завтра: без вимкнень', subtitle, body: `${capital(date)}: оператор не прогнозує вимкнень за графіком.` }
       : { title: 'Зʼявився графік на завтра', subtitle, body: `${capital(date)}: вимкнень для вашої черги не заплановано.` };
+  }
+  if (!off && event.emergency) {
+    return { title: 'Графік на завтра змінено', subtitle, body: `${capital(date)}: за оновленим графіком вимкнень немає, ${ORDER_AHEAD}` };
   }
   if (!off) return { title: 'Вимкнення на завтра скасовано', subtitle, body: `${capital(date)}: за оновленим графіком вимкнень не заплановано.` };
   const total = `разом ${duration(off)}${before === null ? '' : `, ${delta(off, before)}`}`;
