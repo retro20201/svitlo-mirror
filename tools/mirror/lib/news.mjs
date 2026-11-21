@@ -16,8 +16,9 @@
  * The baseline is the ledger of what people were told (or what was adopted without telling them),
  * never the previous fetch. Comparing fetch to fetch is what turns an operator's flap — a day that
  * vanishes for ten minutes and comes back as it was — into two alerts; against the ledger it is
- * nothing. Only definite outages count, today only from the next full hour, and a change must be
- * read twice, 90 s apart, before anyone hears of it.
+ * nothing. Only definite outages count, today only from the next full hour (and an outage called
+ * off in the half-hour before it, see `calledOffStart`), and a change must be read twice, 90 s
+ * apart, before anyone hears of it.
  */
 
 import { createHash } from 'node:crypto';
@@ -83,7 +84,32 @@ export function windowStart(day, now = new Date()) {
   return null;
 }
 
+/**
+ * Where an outage called off still matters: `windowStart`, and in the first half of an hour the half-hour before it — the one
+ * not yet begun. Прикарпаттяобленерго moves the start of a window an hour on just after that hour has begun: on 21 листопада
+ * 2026 черга 5.1's 08:30–12:00 became 10:00–12:00 at 09:02, 11:00–12:00 at 10:15 and nothing at 11:03, every change inside
+ * the hour under way and none of them news — a phone that could not reach the server at 10:39 still said «без світла з 10:00»
+ * in a lit home. Only an outage taken out counts there: one put in is the fold `windowStart` leaves out.
+ */
+export function calledOffStart(day, now = new Date()) {
+  const start = windowStart(day, now);
+  if (start === null || day !== kyivDayStart(now)) return start;
+  return kyivClock(now).minute < 30 ? start - 1 : start;
+}
+
+/**
+ * Where that half-hour is not read: Миколаїв's live flag darkens the half-hour under way, the hour's cell rounds a «можливо»
+ * beside it to dark, and the flag dropping would read as the next half-hour's outage called off. Чернігів's folds do the like.
+ */
+const WHOLE_HOUR_ONLY = new Set(['mykolaiv', 'chernihiv']);
+
 const windowMask = (start) => ALL ^ ((1n << BigInt(start)) - 1n);
+
+/** The slots of `day` that begin within `ms` from now: where a new outage is near. */
+function nearMask(day, now, ms) {
+  const count = Math.ceil((now.getTime() + ms - day * 1000) / 1_800_000);
+  return (1n << BigInt(Math.min(48, Math.max(0, count)))) - 1n;
+}
 
 // --- Deciding.
 
@@ -105,6 +131,15 @@ export const GAP_MS = Math.max(30 * 60_000, 3 * (SLOW_TURN_SECONDS + CYCLE_SECON
 /** At most one alert per queue-day in this long; the latest settled state goes out after it. */
 export const RATE_GAP_MS = 15 * 60_000;
 export const MAX_SENDS = 5;
+/**
+ * Past `MAX_SENDS`, one thing is still said: an outage a change puts where the table before it had light, beginning within
+ * `NEAR_MS`. The five are often spent before the day has begun — «графік на завтра» and its evening and night revisions count
+ * toward the day — and on 21 листопада 2026 Київщина's 1.1 had its fifth at 00:57; at 15:21 its evening outage moved from
+ * 18:30 to 16:00, forty minutes ahead, and went out to nobody. `MAX_NEAR_SENDS` of these at most: a source that flaps is not
+ * given the day.
+ */
+export const NEAR_MS = 3 * 3600_000;
+export const MAX_NEAR_SENDS = 3;
 export const MAX_SHEET_SENDS = 3;
 /** Only the first three of a queue-day ring; four and five arrive quietly. */
 export const SOUNDED_SENDS = 3;
@@ -178,12 +213,16 @@ export function decide({
     const window = windowMask(windowStart(day, now));
     const mask = bits(value);
     let kind;
+    // The half-hour not yet begun of the hour under way, when the operator has taken an outage out of it (`calledOffStart`).
+    let calledOff = false;
     if (!current || current.base === null) {
       kind = 'published';
     } else {
       const base = bits(current.base);
+      const sooner = WHOLE_HOUR_ONLY.has(seen.region) ? window : windowMask(calledOffStart(day, now));
+      calledOff = (base & ~mask & sooner & ~window) !== 0n;
       // Nothing that still matters moved: past slots drifting, the half-hour under way.
-      if (((mask ^ base) & window) === 0n) {
+      if (((mask ^ base) & window) === 0n && !calledOff) {
         adopt(current, value);
         return null;
       }
@@ -216,12 +255,17 @@ export function decide({
         if ((mask & window) !== 0n) kind = 'revised';
       }
     }
-    if (target.sends >= MAX_SENDS) return adopted(key, kind, target, value, 'cap');
+    if (target.sends >= MAX_SENDS) {
+      // Past the day's five: only an outage this change puts near, where the table before it had light (`NEAR_MS`).
+      const before = target.base === null ? 0n : bits(target.base);
+      const near = mask & ~before & window & nearMask(day, now, NEAR_MS);
+      if (near === 0n || target.sends >= MAX_SENDS + MAX_NEAR_SENDS) return adopted(key, kind, target, value, 'cap');
+    }
     if (target.lastSentAt != null && at - target.lastSentAt < RATE_GAP_MS) return held(key, kind, 'gap15');
     return {
       key, type: 'queue', region: seen.region, queue, day, kind, mask: value, base: target.base,
       quiet: seen.days[day].state === 'quiet', regionTitle: seen.title, queueName: seen.names[queue] ?? queue,
-      sends: target.sends, ...(underOrder(seen, queue, day) ? { emergency: true } : {})
+      sends: target.sends, ...(calledOff ? { calledOff: true } : {}), ...(underOrder(seen, queue, day) ? { emergency: true } : {})
     };
   };
 
@@ -502,7 +546,9 @@ export function render(event, now = new Date()) {
         };
   }
 
-  const window = windowMask(windowStart(event.day, now));
+  // An outage called off in the half-hour before the next hour is counted from that half-hour: the list reads the same — the
+  // slot is light now — and «на 30 хв менше» says what went.
+  const window = windowMask(event.calledOff ? calledOffStart(event.day, now) : windowStart(event.day, now));
   const mask = bits(event.mask) & window;
   const off = popcount(mask);
   const before = event.base == null ? null : popcount(bits(event.base) & window);

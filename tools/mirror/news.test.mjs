@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  encQueue, newsTopic, sheetTopic, emergencyTopic, kyivClock, windowStart,
-  decide, render, buildMessage, recordSent, isNight, dayLabel, apartQueues, BREAKER, GAP_MS
+  encQueue, newsTopic, sheetTopic, emergencyTopic, kyivClock, windowStart, calledOffStart,
+  decide, render, buildMessage, recordSent, isNight, dayLabel, apartQueues, BREAKER, GAP_MS, MAX_SENDS, MAX_NEAR_SENDS
 } from './lib/news.mjs';
 import { offMask, sheetKey, observeRegion } from './lib/news-observe.mjs';
 import { buildSnapshot, kyivDayStart, kyivTomorrowStart, queueNames, NATIONAL_QUEUES } from './lib/canonical.mjs';
@@ -22,6 +22,7 @@ const KYIV = regionById('kyiv');
 const SUMY = regionById('sumy');
 const VOLYN = regionById('volyn');
 const KHMELNYTSKYI = regionById('khmelnytskyi');
+const MYKOLAIV = regionById('mykolaiv');
 
 /** Kyiv wall clock in October before the 25th (+03:00), as epoch ms. */
 const at = (local) => Date.parse(`${local.replace(' ', 'T')}:00+03:00`);
@@ -57,6 +58,10 @@ function poltava(days = {}, { quiet = [] } = {}) {
   if (quiet.length) snapshot.fact.quiet = quiet;
   return snapshot;
 }
+
+/** A served file of any region that names its queues as the country does. */
+const served = (meta, days = {}) =>
+  buildSnapshot({ regionId: meta.id, title: meta.title, queues: queueNames(NATIONAL_QUEUES), fact: days, source: meta.source });
 
 /** One region read cycle after cycle, every due alert sent and recorded as the `on` mode does. */
 function reader(meta, { fingerprint = 'fp1' } = {}) {
@@ -142,6 +147,13 @@ test('the Kyiv clock is wall clock, h23, across the October change', () => {
   assert.equal(windowStart(TODAY, new Date(at('2026-10-08 14:10'))), 30);
   assert.equal(windowStart(TODAY, new Date(at('2026-10-08 23:40'))), 48);
   assert.equal(windowStart(TODAY - 86400, new Date(at('2026-10-08 14:10'))), null);
+  // An outage called off counts one half-hour earlier, while that half-hour has not begun.
+  assert.equal(calledOffStart(TODAY, new Date(at('2026-10-08 14:10'))), 29);
+  assert.equal(calledOffStart(TODAY, new Date(at('2026-10-08 14:30'))), 30);
+  assert.equal(calledOffStart(TODAY, new Date(at('2026-10-08 23:10'))), 47);
+  assert.equal(calledOffStart(TODAY, new Date(at('2026-10-08 23:40'))), 48);
+  assert.equal(calledOffStart(TOMORROW, new Date(at('2026-10-08 14:10'))), 0);
+  assert.equal(calledOffStart(TODAY - 86400, new Date(at('2026-10-08 14:10'))), null);
 });
 
 test('the long October day reads tomorrow under its own key, and its last half-hour ends at 24:00', () => {
@@ -268,29 +280,131 @@ test('midnight changes nothing, drops yesterday, and a change settling across it
 // --- Today
 
 test('today counts from the next full hour: past slots, the current hour and Миколаїв\'s flag are silent', () => {
-  const kyiv = reader(POLTAVA);
+  const mykolaiv = reader(MYKOLAIV);
   const t = at('2026-10-08 14:10');
   const base = { 'GPV3.1': dark('08:00-10:00', '18:00-20:00') };
-  kyiv.read(t - 2 * MIN, poltava({ [TODAY]: day(base) }));
+  mykolaiv.read(t - 2 * MIN, served(MYKOLAIV, { [TODAY]: day(base) }));
   const quietly = [
     { 'GPV3.1': dark('08:00-11:00', '18:00-20:00') },                    // a past slot drifts
-    { 'GPV3.1': dark('08:00-10:00', '14:00-15:00', '18:00-20:00') },     // the current hour
-    { 'GPV3.1': dark('08:00-10:00', '14:00-14:30', '18:00-20:00') },     // the live flag on…
+    { 'GPV3.1': dark('08:00-10:00', '14:00-15:00', '18:00-20:00') },     // the current hour: the flag beside a «можливо»
+    { 'GPV3.1': dark('08:00-10:00', '14:00-14:30', '18:00-20:00') },     // the live flag alone…
     base                                                                  // …and off again
   ];
   let minute = 0;
   for (const queues of quietly) {
-    for (let i = 0; i < 3; i++) assert.equal(kyiv.read(t + (minute += 2) * MIN, poltava({ [TODAY]: day(queues) })).sent.length, 0);
+    for (let i = 0; i < 3; i++) assert.equal(mykolaiv.read(t + (minute += 2) * MIN, served(MYKOLAIV, { [TODAY]: day(queues) })).sent.length, 0);
   }
-  const later = poltava({ [TODAY]: day({ 'GPV3.1': dark('08:00-10:00', '17:00-20:00') }) });
-  kyiv.read(t + 30 * MIN, later);
-  const { sent } = kyiv.read(t + 32 * MIN, later);
+  const later = served(MYKOLAIV, { [TODAY]: day({ 'GPV3.1': dark('08:00-10:00', '17:00-20:00') }) });
+  mykolaiv.read(t + 30 * MIN, later);
+  const { sent } = mykolaiv.read(t + 32 * MIN, later);
   assert.deepEqual(sent.map((event) => event.kind), ['revised']);
   assert.deepEqual(sent[0].text, {
     title: 'Оперативні зміни в графіку',
-    subtitle: 'Полтавська область · Черга 3.1',
+    subtitle: `${MYKOLAIV.title} · Черга 3.1`,
     body: 'Далі сьогодні без світла 17:00–20:00 (на 1 год більше).'
   });
+});
+
+test('an outage put into the hour under way, or a past slot drifting, is silent wherever it is read', () => {
+  const region = reader(POLTAVA);
+  const t = at('2026-10-08 14:10');
+  const base = { 'GPV3.1': dark('08:00-10:00', '18:00-20:00') };
+  region.read(t - 2 * MIN, poltava({ [TODAY]: day(base) }));
+  let minute = 0;
+  for (const queues of [
+    { 'GPV3.1': dark('08:00-11:00', '18:00-20:00') },
+    { 'GPV3.1': dark('08:00-11:00', '14:00-15:00', '18:00-20:00') },
+    { 'GPV3.1': dark('08:00-11:00', '14:30-15:00', '18:00-20:00') }      // the half-hour under way lit again: still nothing
+  ]) {
+    for (let i = 0; i < 3; i++) assert.equal(region.read(t + (minute += 2) * MIN, poltava({ [TODAY]: day(queues) })).sent.length, 0);
+  }
+});
+
+test('an outage called off for the half-hour not yet begun is news, hour after hour (Прикарпаття, 21 листопада 2026)', () => {
+  // Черга 5.1 that morning: 08:30–12:00 as published, 10:00–12:00 at 09:02, then an hour less at 10:15 and at 11:03 —
+  // each time inside the hour the change was about, and each time said to nobody.
+  const region = reader(POLTAVA);
+  const plan = (...ranges) => poltava({ [TODAY]: day({ 'GPV5.1': dark(...ranges) }) });
+  const body = (sent) => sent.map((event) => event.text.body);
+  const t = at('2026-10-08 09:03');
+  region.read(t - 2 * MIN, plan('09:00-12:00', '19:00-22:30'));
+  assert.equal(region.read(t, plan('10:00-12:00', '19:00-22:30')).sent.length, 0, 'read once');
+  const first = region.read(t + 2 * MIN, plan('10:00-12:00', '19:00-22:30')).sent;
+  assert.deepEqual(first.map((event) => event.kind), ['revised']);
+  assert.deepEqual(body(first), ['Далі сьогодні без світла 10:00–12:00, 19:00–22:30 (на 30 хв менше).']);
+  for (const minute of [20, 40, 60]) assert.equal(region.read(t + minute * MIN, plan('10:00-12:00', '19:00-22:30')).sent.length, 0);
+
+  region.read(t + 72 * MIN, plan('11:00-12:00', '19:00-22:30'));                                     // 10:15
+  assert.deepEqual(body(region.read(t + 74 * MIN, plan('11:00-12:00', '19:00-22:30')).sent),
+    ['Далі сьогодні без світла 11:00–12:00, 19:00–22:30 (на 30 хв менше).']);
+  region.read(t + 100 * MIN, plan('11:00-12:00', '19:00-22:30'));
+
+  region.read(t + 120 * MIN, plan('19:00-22:30'));                                                    // 11:03
+  assert.deepEqual(body(region.read(t + 122 * MIN, plan('19:00-22:30')).sent),
+    ['Далі сьогодні без світла 19:00–22:30 (на 30 хв менше).']);
+});
+
+test('called off with nothing left of the day is «не заплановано», and too late to say once the half-hour has begun', () => {
+  const plan = (...ranges) => poltava({ [TODAY]: day({ 'GPV5.1': dark(...ranges) }) });
+  const t = at('2026-10-08 09:03');
+  const region = reader(POLTAVA);
+  region.read(t - 2 * MIN, plan('09:00-10:00'));
+  // «Nothing any more» is read three times over four minutes, as any cancellation is.
+  assert.equal(region.read(t, plan()).sent.length, 0);
+  assert.equal(region.read(t + 2 * MIN, plan()).sent.length, 0);
+  const { sent } = region.read(t + 4 * MIN, plan());
+  assert.deepEqual(sent.map((event) => event.kind), ['cancelled']);
+  assert.equal(sent[0].text.body, 'Далі сьогодні вимкнень не заплановано.');
+
+  // Seen at 09:27 and again at 09:31: the half-hour is under way, and what is under way is not news.
+  const late = reader(POLTAVA);
+  late.read(t + 22 * MIN, plan('09:00-10:00', '19:00-22:30'));
+  assert.equal(late.read(t + 24 * MIN, plan('19:00-22:30')).sent.length, 0);
+  assert.equal(late.read(t + 28 * MIN, plan('19:00-22:30')).sent.length, 0);
+  assert.equal(late.read(t + 30 * MIN, plan('19:00-22:30')).sent.length, 0);
+});
+
+test('past the day\'s five, an outage a change brings near is still said — three times at most (Київщина 1.1, 21 листопада 2026)', () => {
+  // Its five were spent by 00:57 on «графік на завтра» and the night's revisions; at 15:21 the evening outage moved from
+  // 18:30 to 16:00 and nobody was told.
+  const region = reader(POLTAVA);
+  const plan = (...ranges) => poltava({ [TODAY]: day({ 'GPV1.1': dark(...ranges) }) });
+  const key = `poltava|GPV1.1|${TODAY}`;
+  const t = at('2026-10-08 12:21');
+  region.read(t - 2 * MIN, plan('18:30-22:00'));
+  region.ledger.entries[key].sends = MAX_SENDS;
+
+  // Lighter, or darker but hours away: the cap holds.
+  region.read(t, plan('18:30-20:30'));
+  let last = region.read(t + 2 * MIN, plan('18:30-20:30'));
+  assert.equal(last.sent.length, 0);
+  assert.ok(last.log.some((entry) => entry.key === key && entry.outcome === 'adopted(cap)'));
+  region.read(t + 4 * MIN, plan('18:30-21:00'));
+  last = region.read(t + 6 * MIN, plan('18:30-21:00'));
+  assert.equal(last.sent.length, 0);
+  assert.ok(last.log.some((entry) => entry.key === key && entry.outcome === 'adopted(cap)'));
+  for (const minute of [30, 60, 90, 120, 150]) region.read(t + minute * MIN, plan('18:30-21:00'));
+
+  // 15:21: an outage an hour and a half off, where the table had light.
+  region.read(t + 180 * MIN, plan('17:00-19:00'));
+  const { sent } = region.read(t + 182 * MIN, plan('17:00-19:00'));
+  assert.deepEqual(sent.map((event) => event.kind), ['revised']);
+  // Against the table before it, 18:30–21:00: the total says less, the hours say when.
+  assert.equal(sent[0].text.body, 'Далі сьогодні без світла 17:00–19:00 (на 30 хв менше).');
+  // The sixth of the day: in the list, without a sound.
+  assert.equal(sent[0].message.message.apns.payload.aps.sound, undefined);
+  assert.equal(region.ledger.entries[key].sends, MAX_SENDS + 1);
+
+  // Nearer still, four minutes later: one in fifteen minutes, as ever…
+  region.read(t + 184 * MIN, plan('16:00-19:00'));
+  last = region.read(t + 186 * MIN, plan('16:00-19:00'));
+  assert.equal(last.sent.length, 0);
+  assert.ok(last.log.some((entry) => entry.key === key && entry.outcome === 'held(gap15)'));
+  // …and after three of them, nothing more that day.
+  region.ledger.entries[key].sends = MAX_SENDS + MAX_NEAR_SENDS;
+  last = region.read(t + 198 * MIN, plan('16:00-19:00'));
+  assert.equal(last.sent.length, 0);
+  assert.ok(last.log.some((entry) => entry.key === key && entry.outcome === 'adopted(cap)'));
 });
 
 test('today published the same day is told from the next hour on', () => {
