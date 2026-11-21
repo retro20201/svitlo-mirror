@@ -19,7 +19,9 @@ const asText = (rows) => Object.fromEntries(QUEUES.map((q, i) => [q, rows[i].map
 
 // 3872 and 3882 (9 and 10 November 2026) carry a «4 год. 00 хв.» the reader refused until the duration's number was no longer guessed to be
 // one digit or two from its shape: the thin 4 there is 7 pixels wide and 7 high. Transcribed from the pictures by eye, then compared.
-for (const id of ['2594', '2985', '3516', '3872', '3882']) {
+// 3957 (21 November 2026) has one «20:00» whose «2», thinned by the compression, looks more like a «7» than a «2» — a digit that
+// cannot stand first in an hour. It was refused for that, and the day went out as a picture; transcribed by eye, then compared.
+for (const id of ['2594', '2985', '3516', '3872', '3882', '3957']) {
   test(`picture ${id} reads card for card as transcribed`, () => {
     const result = readSchedulePicture(fixture(`sumy.fixture-${id}.jpg`), MODEL);
     assert.equal(result.error, undefined);
