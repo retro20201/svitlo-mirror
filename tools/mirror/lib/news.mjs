@@ -78,11 +78,19 @@ export function kyivClock(now = new Date()) {
  * nothing, at 23:xx). Anything inside the current hour is left out on purpose — Миколаїв's live
  * flag and Чернігів's folds darken the half-hour under way, and that is no news. Other days: null.
  */
-export function windowStart(day, now = new Date()) {
-  if (day === kyivTomorrowStart(now)) return 0;
-  if (day === kyivDayStart(now)) return 2 * (kyivClock(now).hour + 1);
+export function windowStart(day, now = new Date(), days = daysOf(now)) {
+  if (day === days.tomorrow) return 0;
+  if (day === days.today) return 2 * (kyivClock(now).hour + 1);
   return null;
 }
+
+/**
+ * Today and tomorrow in Kyiv, for whoever asks about many queues at one moment. `kyivDayStart` builds its formatters anew on
+ * every call, and their memory is not the heap's: asked per queue, the tests of this file stood at 500 MB, and at 850 MB with
+ * one more call per queue — on a server of 965 MB that was the cycle's tests killed, and nothing published for 26 minutes
+ * (21 листопада 2026). `decide` asks once.
+ */
+const daysOf = (now) => ({ today: kyivDayStart(now), tomorrow: kyivTomorrowStart(now) });
 
 /**
  * Where an outage called off still matters: `windowStart`, and in the first half of an hour the half-hour before it — the one
@@ -91,9 +99,9 @@ export function windowStart(day, now = new Date()) {
  * the hour under way and none of them news — a phone that could not reach the server at 10:39 still said «без світла з 10:00»
  * in a lit home. Only an outage taken out counts there: one put in is the fold `windowStart` leaves out.
  */
-export function calledOffStart(day, now = new Date()) {
-  const start = windowStart(day, now);
-  if (start === null || day !== kyivDayStart(now)) return start;
+export function calledOffStart(day, now = new Date(), days = daysOf(now)) {
+  const start = windowStart(day, now, days);
+  if (start === null || day !== days.today) return start;
   return kyivClock(now).minute < 30 ? start - 1 : start;
 }
 
@@ -193,6 +201,7 @@ export function decide({
   const at = now.getTime();
   const today = kyivDayStart(now);
   const tomorrow = kyivTomorrowStart(now);
+  const days = { today, tomorrow };
   let due = [];
   const log = [];
   const entry = (key) => (entries[key] ??= newEntry());
@@ -210,7 +219,7 @@ export function decide({
     target.attempts > 0 && (target.attempts >= MAX_ATTEMPTS || at - target.pending.firstSeen > GIVE_UP_MS);
 
   const queueEvent = (seen, { key, queue, day, value }, current) => {
-    const window = windowMask(windowStart(day, now));
+    const window = windowMask(windowStart(day, now, days));
     const mask = bits(value);
     let kind;
     // The half-hour not yet begun of the hour under way, when the operator has taken an outage out of it (`calledOffStart`).
@@ -219,7 +228,7 @@ export function decide({
       kind = 'published';
     } else {
       const base = bits(current.base);
-      const sooner = WHOLE_HOUR_ONLY.has(seen.region) ? window : windowMask(calledOffStart(day, now));
+      const sooner = WHOLE_HOUR_ONLY.has(seen.region) ? window : windowMask(calledOffStart(day, now, days));
       calledOff = (base & ~mask & sooner & ~window) !== 0n;
       // Nothing that still matters moved: past slots drifting, the half-hour under way.
       if (((mask ^ base) & window) === 0n && !calledOff) {
