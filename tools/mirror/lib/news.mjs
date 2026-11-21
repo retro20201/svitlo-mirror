@@ -148,6 +148,13 @@ export const MAX_SENDS = 5;
  */
 export const NEAR_MS = 3 * 3600_000;
 export const MAX_NEAR_SENDS = 3;
+/**
+ * The night's alerts (`isNight`) are quiet, and they no longer use up the day's: on 21 листопада 2026 Полтавщина's 1.1 had
+ * «графік на завтра змінено» at 22:58 and two revisions at 00:51 and 01:33, all three silent — and with its fourth and fifth
+ * gone by 08:43, the five changes of the day after it reached nobody. A queue-day's night alerts count toward neither
+ * `MAX_SENDS` nor `SOUNDED_SENDS`; there are at most this many of them.
+ */
+export const MAX_NIGHT_SENDS = 3;
 export const MAX_SHEET_SENDS = 3;
 /**
  * Only the first three of a queue-day ring; the rest arrive quietly — but for an outage a change brings near (`near`), which
@@ -272,14 +279,16 @@ export function decide({
     // day's five, and the one alert that rings whatever its number (see `buildMessage`).
     const before = target.base === null ? 0n : bits(target.base);
     const near = (mask & ~before & window & nearMask(day, now, NEAR_MS)) !== 0n;
-    if (target.sends >= MAX_SENDS && (!near || target.sends >= MAX_SENDS + MAX_NEAR_SENDS)) {
+    const counted = target.sends - (target.quiet ?? 0);
+    if (isNight(now) ? (target.quiet ?? 0) >= MAX_NIGHT_SENDS
+      : counted >= MAX_SENDS && (!near || counted >= MAX_SENDS + MAX_NEAR_SENDS)) {
       return adopted(key, kind, target, value, 'cap');
     }
     if (target.lastSentAt != null && at - target.lastSentAt < RATE_GAP_MS) return held(key, kind, 'gap15');
     return {
       key, type: 'queue', region: seen.region, queue, day, kind, mask: value, base: target.base,
       quiet: seen.days[day].state === 'quiet', regionTitle: seen.title, queueName: seen.names[queue] ?? queue,
-      sends: target.sends, ...(near ? { near: true } : {}), ...(calledOff ? { calledOff: true } : {}), ...(underOrder(seen, queue, day) ? { emergency: true } : {})
+      sends: target.sends, rung: target.rung ?? target.sends, ...(near ? { near: true } : {}), ...(calledOff ? { calledOff: true } : {}), ...(underOrder(seen, queue, day) ? { emergency: true } : {})
     };
   };
 
@@ -428,9 +437,24 @@ export function decide({
 
 export function recordSent(ledger, event, at) {
   const target = (ledger.entries[event.key] ??= newEntry());
+  const level = levelOf(event, new Date(at));
   Object.assign(target, {
-    base: event.mask, told: true, sends: target.sends + 1, lastSentAt: at, pending: null, inflight: null, attempts: 0
+    base: event.mask, told: true, sends: target.sends + 1, lastSentAt: at, pending: null, inflight: null, attempts: 0,
+    ...counts(target, level)
   });
+}
+
+/**
+ * What a send adds besides `sends`: one to `quiet` at night, one to `rung` when it had a sound. Entries written before these
+ * fields existed take their `sends` as both: as many rang as were sent, none at night — what the old rules assumed.
+ */
+function counts(target, level) {
+  const rung = target.rung ?? target.sends;
+  const quiet = target.quiet ?? 0;
+  return {
+    rung: rung + (level === 'active' || level === 'time-sensitive' ? 1 : 0),
+    quiet: quiet + (level === 'night' ? 1 : 0)
+  };
 }
 
 export function recordAdopted(ledger, event) {
@@ -454,9 +478,11 @@ export function assumeInflightSent(ledger) {
   const keys = [];
   for (const [key, target] of Object.entries(ledger.entries ?? {})) {
     if (!target.inflight) continue;
+    // Whether it rang is not known: by day it is counted as having rung, which can only make the next ones quieter.
+    const night = isNight(new Date(target.inflight.at));
     Object.assign(target, {
       base: target.inflight.mask, told: true, sends: target.sends + 1, lastSentAt: target.inflight.at,
-      pending: null, inflight: null, attempts: 0
+      pending: null, inflight: null, attempts: 0, ...counts(target, night ? 'night' : 'active')
     });
     keys.push(key);
   }
@@ -605,6 +631,16 @@ function collapseId(event) {
     : `n.${createHash('sha1').update(id).digest('hex').slice(0, 24)}`;
 }
 
+/**
+ * How an alert is delivered: 'night' (quiet, see `isNight`), 'time-sensitive' for an emergency, 'active' for the first
+ * `SOUNDED_SENDS` that rang by day and for an outage brought near, 'passive' after.
+ */
+export function levelOf(event, now = new Date()) {
+  if (isNight(now)) return 'night';
+  if (event.type === 'emergency') return 'time-sensitive';
+  return event.near || (event.rung ?? event.sends ?? 0) < SOUNDED_SENDS ? 'active' : 'passive';
+}
+
 /** Kyiv 22:30–07:00: delivered to the list without a sound. */
 export function isNight(now = new Date()) {
   const { hour, minute } = kyivClock(now);
@@ -628,9 +664,7 @@ export function buildMessage(event, text, now = new Date()) {
   const linked = queue ?? own;
   const link = `svitlo://day?region=${encodeURIComponent(region)}` +
     `${linked !== null ? `&queue=${encodeURIComponent(linked)}` : ''}&day=${day}`;
-  const level = isNight(now) ? 'passive'
-    : event.type === 'emergency' ? 'time-sensitive'
-    : event.near || (event.sends ?? 0) < SOUNDED_SENDS ? 'active' : 'passive';
+  const level = levelOf(event, now) === 'night' ? 'passive' : levelOf(event, now);
   return {
     message: {
       ...(own !== null && !event.topic ? { condition: ownEmergencyCondition(region, own) } : { topic }),
