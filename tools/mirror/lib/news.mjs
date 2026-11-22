@@ -138,10 +138,16 @@ const CYCLE_SECONDS = 120;
 export const GAP_MS = Math.max(30 * 60_000, 3 * (SLOW_TURN_SECONDS + CYCLE_SECONDS) * 1000);
 /** At most one alert per queue-day in this long; the latest settled state goes out after it. */
 export const RATE_GAP_MS = 15 * 60_000;
-export const MAX_SENDS = 5;
+/**
+ * A queue-day's alerts by day. It was five, and on a day the operator revises eight to ten times that left people reading the
+ * changes in the app after the fact: Полтавщина's 1.1 on 21 листопада 2026 had nine, and its reader's lock screen said
+ * «графік на завтра» and nothing more. Twelve costs little — a banner replaces the one before it (`collapseId`), only the
+ * first three ring, and `RATE_GAP_MS` still spaces them — and what it guards against is a source that flaps all day.
+ */
+export const MAX_SENDS = 12;
 /**
  * Past `MAX_SENDS`, one thing is still said: an outage a change puts where the table before it had light, beginning within
- * `NEAR_MS`. The five are often spent before the day has begun — «графік на завтра» and its evening and night revisions count
+ * `NEAR_MS`. While the limit was five it was often spent before the day had begun — «графік на завтра» and its evening and night revisions count
  * toward the day — and on 21 листопада 2026 Київщина's 1.1 had its fifth at 00:57; at 15:21 its evening outage moved from
  * 18:30 to 16:00, forty minutes ahead, and went out to nobody. `MAX_NEAR_SENDS` of these at most: a source that flaps is not
  * given the day.
@@ -276,7 +282,7 @@ export function decide({
       }
     }
     // An outage this change puts near, where the table before it had light (`NEAR_MS`): the one thing still said past the
-    // day's five, and the one alert that rings whatever its number (see `buildMessage`).
+    // day's limit, and the one alert that rings whatever its number (see `buildMessage`).
     const before = target.base === null ? 0n : bits(target.base);
     const near = (mask & ~before & window & nearMask(day, now, NEAR_MS)) !== 0n;
     const counted = target.sends - (target.quiet ?? 0);

@@ -437,7 +437,7 @@ test('possible outages coming and going are not news', () => {
 
 // --- Rates and caps
 
-test('one alert per quarter hour, the latest state after it, five a day, sound on three', () => {
+test('one alert per quarter hour, the latest state after it, sound on three, quiet up to the day\'s limit', () => {
   const kyiv = reader(POLTAVA);
   const t = at('2026-10-08 10:00');
   const plan = (...ranges) => poltava({ [TOMORROW]: day({ 'GPV3.1': dark(...ranges), 'GPV1.1': dark('01:00-02:00') }) });
@@ -470,8 +470,18 @@ test('one alert per quarter hour, the latest state after it, five a day, sound o
     assert.equal(quiet.message.message.apns.payload.aps.sound, undefined);
     assert.equal(quiet.message.message.apns.payload.aps['interruption-level'], 'passive');
   }
-  step(100, plan('07:00-18:00'));
-  const { sent, log } = kyiv.read(t + 102 * MIN, plan('07:00-18:00'));
+  // The sixth to the last of the day's: sent, in the list, without a sound.
+  let minute = 100;
+  let hour = 18;
+  for (let n = 6; n <= MAX_SENDS; n++, minute += 20, hour++) {
+    step(minute, plan(`07:00-${hour}:00`));
+    const next = step(minute + 2, plan(`07:00-${hour}:00`));
+    assert.equal(next.length, 1, `alert ${n}`);
+    assert.equal(next[0].message.message.apns.payload.aps.sound, undefined);
+  }
+  // One more change: adopted without a word.
+  step(minute, plan('08:00-24:00'));
+  const { sent, log } = kyiv.read(t + (minute + 2) * MIN, plan('08:00-24:00'));
   assert.equal(sent.length, 0);
   assert.ok(log.some((entry) => entry.key === `poltava|GPV3.1|${TOMORROW}` && entry.outcome === 'adopted(cap)'));
 });
@@ -1095,6 +1105,8 @@ test('the night\'s quiet alerts leave the day its own five, three of them with a
     rang.push(sound(sent[0]) === 'default');
   }
   assert.deepEqual(rang, [true, true, false, false]);
-  // The day's five are spent (the evening's two and these three by day — 22:58 was at night): a lighter change is not sent.
-  assert.equal(step('2026-10-09 12:39', today('15:00-16:30', '21:00-24:00')).length, 0);
+  // And the day goes on being told: the lighter change that was the day's sixth used to reach nobody.
+  const sixth = step('2026-10-09 12:39', today('15:00-16:30', '21:00-24:00'));
+  assert.equal(sixth.length, 1);
+  assert.equal(sound(sixth[0]), undefined);
 });
