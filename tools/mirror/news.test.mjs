@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   encQueue, newsTopic, sheetTopic, emergencyTopic, kyivClock, windowStart, calledOffStart,
-  decide, render, buildMessage, recordSent, isNight, dayLabel, apartQueues, BREAKER, GAP_MS, MAX_SENDS, MAX_NEAR_SENDS
+  decide, render, buildMessage, recordSent, isNight, dayLabel, apartQueues, BREAKER, GAP_MS, MAX_SENDS, MAX_NEAR_SENDS, MAX_NIGHT_SENDS
 } from './lib/news.mjs';
 import { offMask, sheetKey, observeRegion } from './lib/news-observe.mjs';
 import { buildSnapshot, kyivDayStart, kyivTomorrowStart, queueNames, NATIONAL_QUEUES } from './lib/canonical.mjs';
@@ -391,8 +391,9 @@ test('past the day\'s five, an outage a change brings near is still said — thr
   assert.deepEqual(sent.map((event) => event.kind), ['revised']);
   // Against the table before it, 18:30–21:00: the total says less, the hours say when.
   assert.equal(sent[0].text.body, 'Далі сьогодні без світла 17:00–19:00 (на 30 хв менше).');
-  // The sixth of the day: in the list, without a sound.
-  assert.equal(sent[0].message.message.apns.payload.aps.sound, undefined);
+  // The sixth of the day, and it rings: an outage nearer than people were told is what a sound is for.
+  assert.equal(sent[0].message.message.apns.payload.aps.sound, 'default');
+  assert.equal(sent[0].message.message.apns.payload.aps['interruption-level'], 'active');
   assert.equal(region.ledger.entries[key].sends, MAX_SENDS + 1);
 
   // Nearer still, four minutes later: one in fifteen minutes, as ever…
@@ -1023,4 +1024,77 @@ test('a day that is neither today nor tomorrow any more is not rendered', () => 
   assert.equal(render(event({ day: TODAY - 86400 }), new Date(at('2026-10-08 20:00'))), null);
   assert.equal(dayLabel(TOMORROW), 'пт, 9 жовтня');
   assert.equal(kyivDayStart(new Date(at('2026-10-08 20:00'))), TODAY);
+});
+
+test('an outage brought near rings by day whatever its number; a lighter change after the third stays quiet, and night stays night', () => {
+  const plan = (...ranges) => poltava({ [TODAY]: day({ 'GPV1.1': dark(...ranges) }) });
+  const key = `poltava|GPV1.1|${TODAY}`;
+  const sound = (event) => event.message.message.apns.payload.aps.sound;
+  const fourth = (t, from, to) => {
+    const region = reader(POLTAVA);
+    region.read(t - 2 * MIN, plan(...from));
+    region.ledger.entries[key].sends = 3;
+    region.read(t, plan(...to));
+    return region.read(t + 2 * MIN, plan(...to)).sent;
+  };
+  const noon = at('2026-10-08 12:21');
+  assert.equal(sound(fourth(noon, ['18:30-21:00'], ['14:00-16:00', '18:30-21:00'])[0]), 'default');
+  assert.equal(sound(fourth(noon, ['18:30-21:00'], ['18:30-20:00'])[0]), undefined);
+  // Darker, but in the evening: not near, so the fourth is quiet as before.
+  assert.equal(sound(fourth(noon, ['18:30-21:00'], ['18:30-22:00'])[0]), undefined);
+  // 23:10: a cut at 00:00 tomorrow is near, and the night is still not rung through.
+  const night = reader(POLTAVA);
+  const t = at('2026-10-08 23:10');
+  const tomorrow = (...ranges) => poltava({ [TODAY]: day(), [TOMORROW]: day({ 'GPV1.1': dark(...ranges) }) });
+  night.read(t - 2 * MIN, tomorrow('06:00-09:00'));
+  night.read(t, tomorrow('00:00-02:00', '06:00-09:00'));
+  const late = night.read(t + 2 * MIN, tomorrow('00:00-02:00', '06:00-09:00')).sent;
+  assert.equal(late.length, 1);
+  assert.equal(sound(late[0]), undefined);
+});
+
+test('the night\'s quiet alerts leave the day its own five, three of them with a sound (Полтавщина 1.1, 21 листопада 2026)', () => {
+  // As that queue had it: «графік на завтра» in the evening, its change at 22:58, revisions at 00:51 and 01:33 — then the day.
+  const region = reader(POLTAVA);
+  const key = `poltava|GPV1.1|${TOMORROW}`;
+  const days = (...ranges) => poltava({ [TODAY]: day(), [TOMORROW]: day({ 'GPV1.1': dark(...ranges) }) });
+  const sound = (event) => event.message.message.apns.payload.aps.sound;
+  // Read every twenty minutes between the changes, as the server does every two: a region left unread for half an hour
+  // comes back as «away», and today is then adopted without a word.
+  let last = poltava({ [TODAY]: day() });
+  let clock = at('2026-10-08 19:10');
+  region.read(clock, last);
+  const step = (local, snapshot) => {
+    for (clock += 20 * MIN; clock < at(local) - 2 * MIN; clock += 20 * MIN) region.read(clock, last);
+    region.read(at(local) - 2 * MIN, snapshot);
+    last = snapshot;
+    clock = at(local);
+    return region.read(clock, snapshot).sent;
+  };
+  assert.equal(sound(step('2026-10-08 19:17', days('03:00-04:30', '09:00-11:30', '15:00-18:00'))[0]), 'default');
+  assert.equal(sound(step('2026-10-08 22:58', days('02:00-05:30', '09:00-11:30', '15:00-18:00'))[0]), undefined);
+  // Past midnight the day is today.
+  const today = (...ranges) => poltava({ [TOMORROW]: day({ 'GPV1.1': dark(...ranges) }) });
+  assert.equal(sound(step('2026-10-09 00:51', today('03:00-04:30', '09:00-11:30', '15:00-18:00'))[0]), undefined);
+  assert.equal(sound(step('2026-10-09 01:33', today('09:00-11:30', '15:00-18:00', '21:00-23:30'))[0]), undefined);
+  assert.equal(region.ledger.entries[key].quiet, MAX_NIGHT_SENDS);
+  // A fourth at night is not sent at all.
+  assert.equal(step('2026-10-09 02:32', today('09:00-11:30', '15:00-18:00', '21:00-24:00')).length, 0);
+  assert.equal(region.ledger.entries[key].base, offMask(dark('09:00-11:30', '15:00-18:00', '21:00-24:00')), 'adopted');
+
+  // The day: the second and third ring (the evening's «зʼявився» was the first), the fourth and fifth are quiet.
+  const rang = [];
+  for (const [local, ranges] of [
+    ['2026-10-09 08:43', ['10:00-11:30', '15:00-18:00', '21:00-24:00']],
+    ['2026-10-09 09:39', ['10:00-11:00', '15:00-18:00', '21:00-24:00']],
+    ['2026-10-09 10:39', ['15:00-17:30', '21:00-24:00']],
+    ['2026-10-09 11:39', ['15:00-17:00', '21:00-24:00']]
+  ]) {
+    const sent = step(local, today(...ranges));
+    assert.equal(sent.length, 1, local);
+    rang.push(sound(sent[0]) === 'default');
+  }
+  assert.deepEqual(rang, [true, true, false, false]);
+  // The day's five are spent (the evening's two and these three by day — 22:58 was at night): a lighter change is not sent.
+  assert.equal(step('2026-10-09 12:39', today('15:00-16:30', '21:00-24:00')).length, 0);
 });
