@@ -48,6 +48,25 @@ test('an order that is not on now is not read as one', () => {
   assert.equal(readBanner('UPD: застосовані екстрені відключення скасовані о 12:40.'), null);
 });
 
+// The banner over Дніпро's schedule on 23 November 2026, as outage-data-ua carried it all that day.
+const DNIPRO_INTRODUCED = 'У Дніпрі, Дніпровському, Самарівському, Камʼянському та Павлоградському районах введені екстрені відключення. Графіки тут не діють.\nРешта області, за рішенням Укренерго,- у стабілізаційних відключеннях.';
+
+test('«введені екстрені відключення» is an order in force (23 November 2026)', () => {
+  assert.equal(readBanner(DNIPRO_INTRODUCED), DNIPRO_INTRODUCED.replace('\n', ' '));
+  assert.equal(readBanner('О 14:10 введено екстрені відключення в м. Дніпро.'), 'О 14:10 введено екстрені відключення в м. Дніпро.');
+  assert.equal(
+    readBanner('У Дніпрі та Дніпровському районі — екстрені відключення. Графіки там не діють.'),
+    'У Дніпрі та Дніпровському районі — екстрені відключення. Графіки там не діють.',
+    'the order with no verb, as the channel wrote it the same day'
+  );
+});
+
+test('the noun, the future and the reminder under an order introduce nothing', () => {
+  assert.equal(readBanner('У разі введення екстрених відключень графіки не діятимуть.'), null);
+  assert.equal(readBanner('За потреби будуть введені екстрені відключення.'), null);
+  assert.equal(readBanner('Нагадаємо, під час екстрених відключень графіки не діють.'), null);
+});
+
 test('no banner, an empty one and a banner that is not text say nothing', () => {
   for (const text of [undefined, null, '', '   ', 42, { text: DNIPRO }]) assert.equal(readBanner(text), null);
 });

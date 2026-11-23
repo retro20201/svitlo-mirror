@@ -29,7 +29,16 @@ const LOOKBACK_MS = 36 * 3600 * 1000;
 // «тривають екстрені відключення» is the channel saying, a day or two into an order, that it still stands («Київ, Київська область
 // та місто Дніпро: тривають екстрені відключення», 8 November 2026, 08:35 UTC): it renews the order the way the first post made it.
 // Without it the order of 6 November was believed for its thirty-six hours and dropped at 00:26 on the 8th, with the power still off.
-const APPLIED = /(?:(?:застосов|запроваджен)\S*\s+|діють\s+|тривають\s+|продовжу\S*\s+(?:діяти\s+)?)екстрен\S*\s+відключен/iu;
+// «введені екстрені відключення» is the same order in the word ДТЕК's site banner chose on 23 November 2026 («У Дніпрі … районах
+// введені екстрені відключення. Графіки тут не діють.»); «введення екстрених відключень» is the noun, and announces nothing.
+const APPLIED = /(?:(?:застосов|запроваджен)\S*\s+|введен[оі]\s+|діють\s+|тривають\s+|продовжу\S*\s+(?:діяти\s+)?)екстрен\S*\s+відключен/iu;
+// The order said with no verb at all, the districts first: «У Дніпрі, Дніпровському, Самарівському, Кам’янському та Павлоградському
+// районах — екстрені відключення. Графіки там не діють.» (@dtek_ua, 23 November 2026, 12:21 UTC). Neither that post nor the banner
+// was read: the order of the 21st ran out its thirty-six hours at 22:16 on the 22nd and Дніпро stood without a warning through
+// the 23rd, with the operator saying on both pages that the schedules did not hold. The full stop is what tells it from the
+// reminder under every order — «під час екстрених відключень графіки не діють».
+const STATED = /екстрен\S*\s+відключенн\p{L}*\s*[.!‼\ufe0f]+\s*графіки\s+(?:(?:там|тут)\s+)?не\s+діють/iu;
+const DISTRICTS_STATED = /((?:у|в)\s+[^.:\n]*?\s+район\S*)\s*[—–-]\s*екстрен\S*\s+відключенн/iu;
 // The operator's own word that the schedule does not hold, after an attack on its equipment: «через атаку … фіксуються
 // аварійні відключення», «аварія на пошкодженому обстрілами обладнанні, графіки тимчасово не діють в … районах».
 // «тимчасово» or «наразі» is what tells it from the reminder under every order — «під час екстрених відключень графіки
@@ -95,7 +104,7 @@ export function readBanner(text) {
   if (typeof text !== 'string') return null;
   const lines = text.split(/\n+/).map((line) => line.replace(/[\u200b\u00a0]/gu, ' ').replace(/\s+/gu, ' ').trim()).filter(Boolean);
   for (const line of lines) {
-    const said = APPLIED.exec(line);
+    const said = APPLIED.exec(line) ?? STATED.exec(line);
     if (!said || NOT_NOW.test(line.slice(0, said.index)) || ENDED.some((end) => end.test(line))) continue;
     const whole = lines.join(' ');
     if (whole.length <= 400) return whole;
@@ -194,9 +203,10 @@ function* wordsOf(posts, { now, area, maxAgeMs, skip }) {
     if (skip && skip.test(text.slice(0, ADDRESS_HEAD_CHARS))) continue;
     const ended = ENDED.some((pattern) => pattern.test(text));
     const blackout = area === 'own' ? BLACKOUT.exec(text) : null;
-    if (APPLIED.test(text) || GAV_APPLIED.test(text) || ACCIDENT.some((pattern) => pattern.test(text)) || blackout) {
+    if (APPLIED.test(text) || STATED.test(text) || GAV_APPLIED.test(text) || ACCIDENT.some((pattern) => pattern.test(text)) || blackout) {
       const said = blackout ? blackout[1].trim().replace(/\s+/g, ' ') : null;
-      yield { post, applied: true, ended, note: districtsOf(text) ?? said ?? (area === 'own' ? addresseeOf(text) : null) };
+      const stated = DISTRICTS_STATED.exec(text)?.[1].trim().replace(/\s+/g, ' ') ?? null;
+      yield { post, applied: true, ended, note: districtsOf(text) ?? stated ?? said ?? (area === 'own' ? addresseeOf(text) : null) };
     } else if (ended || RESTORED.test(text) || (SCHEDULES_BACK.test(text) && !SPEAKS_OF_EMERGENCY.test(text))) {
       yield { post, applied: false, ended: true, note: null };
     }
