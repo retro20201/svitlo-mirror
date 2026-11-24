@@ -267,3 +267,30 @@ test('schedules said to be on next to emergency outages, or schedules of emergen
   const hourly = post(6, '2026-11-20T12:30:00+00:00', 'В області знову діють графіки погодинних відключень');
   assert.equal(readEmergency([gav, still, hourly], { now: at('2026-11-20T13:00:00Z'), area: 'own' }).active, false);
 });
+
+// @dtek_ua, 23 November 2026, 12:21 UTC — the page's own text of post 4879.
+const DNIPRO_STATED = '‼️ За два дні ворог атакував чотири енергооб’єкти ДТЕК на Дніпропетровщині\n\nПо більшості з них ворог бив уже не раз. Пошкоджено обладнання, на кількох об’єктах були пожежі.\n\nБез світла близько 353 тисяч осель по області. Знеструмлена значна частина Дніпра, Самара та прилеглих районів.\n\nЕнергетики працювали всю ніч і зараз продовжують ремонти. Насамперед повертаємо світло об’єктам критичної інфраструктури. Через пошкодження магістральних мереж поки не можемо повернути світло всім.\n\nУ Дніпрі, Дніпровському, Самарівському, Кам’янському та Павлоградському районах — екстрені відключення. Графіки там не діють. У решті області світло вимикають за графіками за командою Укренерго.\n\nДякуємо за терпіння. Битва за світло триває!';
+const DNIPRO_ORDER_21 = '‼️В частині Дніпропетровщини за командою Укренерго запроваджені екстрені відключення\n\nЕкстрені відключення діють у Дніпрі, а також Дніпровському, Самарівському, Павлоградському та Камʼянському районах.\n\nНагадаємо, під час екстрених відключень графіки не діють.';
+
+test('«районах — екстрені відключення. Графіки там не діють» renews the order for Дніпро (23 November 2026)', () => {
+  const posts = [
+    post(4874, '2026-11-21T08:16:56+00:00', DNIPRO_ORDER_21),
+    post(4879, '2026-11-23T12:21:00+00:00', DNIPRO_STATED)
+  ];
+  const day = 36 * 3600 * 1000;
+  assert.equal(readEmergency(posts.slice(0, 1), { now: at('2026-11-23T10:00:00Z'), area: 'dnipro', maxAgeMs: day }).active, false,
+    'the order of the 21st had run out its day and a half the evening before');
+  assert.deepEqual(readEmergency(posts, { now: at('2026-11-23T14:50:00Z'), area: 'dnipro', maxAgeMs: day }), {
+    active: true,
+    since: '2026-11-23T12:21:00+00:00',
+    note: 'У Дніпрі, Дніпровському, Самарівському, Кам’янському та Павлоградському районах'
+  });
+  for (const area of ['city', 'oblast']) {
+    assert.equal(readEmergency(posts, { now: at('2026-11-23T14:50:00Z'), area, maxAgeMs: day }).active, false, area);
+  }
+});
+
+test('the reminder that schedules do not hold under an order is still no order of its own', () => {
+  const posts = [post(1, '2026-11-23T12:00:00+00:00', 'Дніпропетровщина: що робити, коли зникло світло\n\nНагадаємо, під час екстрених відключень графіки не діють. У разі введення екстрених відключень повідомимо окремо.')];
+  assert.equal(readEmergency(posts, { now: at('2026-11-23T13:00:00Z'), area: 'dnipro' }).active, false);
+});
