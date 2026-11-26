@@ -50,6 +50,11 @@ export const REGIONS = [
     // Укренерго's list stands in when both are silent (lib/ukrenergo-emergency.mjs): on 19 November 2026 it named Дніпропетровська
     // область at 10:39, neither of the two said a word all day, and ДТЕК's bot answered «Екстренні відключення» for an address in Дніпро.
     yasno: { regionId: 3, dsoId: 301 }, emergencyTelegram: { area: 'dnipro', maxAgeHours: 36 }, cekQueues: true,
+    // Since the table of 07:21 on 26 November 2026 ДТЕК runs eighteen queues here, «1.1» … «18.1», in place of «1.1» … «6.2», and
+    // YASNO lists the same eighteen. Its page still names «N.2» for all of them and keeps the template rows of 1.2 … 6.2: someone
+    // on 2.2 was told «відключень не заплановано» from such a row that evening, in a queue no table serves. Without the rows the
+    // app asks for the queue again (as in Київ, sources/dtek.mjs `shape`). ЦЕК's twelve keep both halves.
+    queuePattern: /^GPV(?:\d{1,2}\.1|100\d\.[12])$/,
     emergencyUkrenergo: { oblast: 'Дніпропетровськ' } },
   { id: 'odesa',         title: 'Одеса',               subtitle: 'місто та область', operator: 'ДТЕК Одеські електромережі',              source: 'dtek', site: 'https://www.dtek-oem.com.ua/ua/shutdowns', siteByAddress: true,    status: 'live', emergencyUkrenergo: { oblast: 'Одеськ' } },
 
