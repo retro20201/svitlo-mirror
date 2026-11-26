@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSchedule } from './sources/mykolaiv.mjs';
-import { buildSnapshot, hasSchedule, validate } from './lib/canonical.mjs';
+import { parseSchedule, readTiles, tilesNote, withTiles } from './sources/mykolaiv.mjs';
+import { buildSnapshot, hasSchedule, validate, kyivDayStart } from './lib/canonical.mjs';
+import { carriedParts } from './lib/carried.mjs';
+import { withUkrenergoEmergency } from './lib/ukrenergo-emergency.mjs';
 
 // Миколаївобленерго's `/api/v2/schedule/active` answers `[]` out of season, so the in-season
 // fixtures come from the Wayback Machine's captures of that same URL (15 of them, 29.12.2025 to
@@ -400,4 +402,105 @@ test('a day still being rewritten fails the run instead of going out half-writte
   assert.equal(parse([FEB17], after(120)).fact[KYIV_MIDNIGHT_17_02_2026]['GPV1.1']['20'], 'no');
   // A day outside today and tomorrow is never published, so its age does not matter.
   assert.deepEqual(parse([FEB17], '2026-02-15T12:00:00Z').fact, {});
+});
+
+// ГАВ and СГАВ: the tiles of the operator's page, read for «Аварійні відключення».
+
+/** `/api/outage-queue/by-type/1` and `/by-type/2` as served on 2026-11-26 — ids, names and order verbatim; every tile grey. */
+const tile = (typeId, stamp) => ([id, name]) => ({ id, name, type_id: typeId, enabled: 0, created_at: null, updated_at: stamp, deleted: 0 });
+const GAV = [
+  ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => [n, String(n)]),
+  ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => [28 + n, `${n}(Р)`])
+].map(tile(1, '2026-11-26T04:27:24.000000Z'));
+const SGAV = [[11, '1'], [12, '2'], [13, '3']].map(tile(2, '2026-11-26T04:27:24.000000Z'));
+const red = (list, ...names) => list.map((queue) => (names.includes(queue.name) ? { ...queue, enabled: 1 } : queue));
+
+const NOON_26_11 = new Date('2026-11-26T10:00:00Z');
+const TODAY_26_11 = kyivDayStart(NOON_26_11);
+const quietSnapshot = () => buildSnapshot({
+  regionId: 'mykolaiv', title: 'Миколаївська область', queues: parseSchedule({ timeSeries: TIME_SERIES, queues: GPV_QUEUES, active: [] }).queues,
+  fact: {}, source: 'mykolaiv'
+});
+const MYKOLAIV = { id: 'mykolaiv', emergencyUkrenergo: { oblast: 'Миколаївськ' } };
+
+test('the tiles as served: twenty ГАВ and three СГАВ, none of them on', () => {
+  assert.equal(GAV.length, 20);
+  assert.deepEqual(readTiles({ gav: GAV, sgav: SGAV }), { gav: [], sgav: [] });
+  assert.equal(tilesNote({ gav: [], sgav: [] }), null);
+});
+
+test('a red tile is named as the page prints it, in the page\'s order', () => {
+  assert.deepEqual(readTiles({ gav: red(GAV, '7', '3', '10(Р)'), sgav: SGAV }), { gav: ['3', '7', '10(Р)'], sgav: [] });
+  assert.deepEqual(readTiles({ gav: GAV, sgav: red(SGAV, '2') }), { gav: [], sgav: ['2'] });
+});
+
+test('the note names the queues and where a person finds theirs, and carries no hour', () => {
+  const head = 'на сайті Миколаївобленерго ввімкнено аварійні відключення для';
+  const where = '— свою чергу видно там за адресою (off.energy.mk.ua)';
+  assert.equal(tilesNote({ gav: ['3'], sgav: [] }), `${head} черги ГАВ 3 ${where}`);
+  assert.equal(tilesNote({ gav: ['3', '7'], sgav: [] }), `${head} черг ГАВ 3 і 7 ${where}`);
+  assert.equal(tilesNote({ gav: ['3', '7', '10(Р)'], sgav: ['1'] }), `${head} черг ГАВ 3, 7 і 10(Р) та черги СГАВ 1 ${where}`);
+  assert.equal(tilesNote({ gav: [], sgav: ['1', '2'] }), `${head} черг СГАВ 1 і 2 ${where}`);
+  assert.doesNotMatch(tilesNote({ gav: ['3'], sgav: [] }), /\d\d:\d\d/);
+});
+
+test('a list that is not the tiles is refused, not read as "nothing on"', () => {
+  assert.throws(() => readTiles({ gav: [], sgav: SGAV }), /ГАВ queue list is empty/);
+  assert.throws(() => readTiles({ gav: { message: 'Server Error' }, sgav: SGAV }), /ГАВ queue list is object/);
+  assert.throws(() => readTiles({ gav: GAV, sgav: null }), /СГАВ queue list is object/);
+  // The ГПВ list in the ГАВ's place: another type's rows are not these tiles.
+  assert.throws(() => readTiles({ gav: GPV_QUEUES, sgav: SGAV }), /unexpected ГАВ queue/);
+  assert.throws(() => readTiles({ gav: GAV, sgav: [{ ...SGAV[0], name: ' ' }] }), /unexpected СГАВ queue/);
+  // Only 0 and 1 have ever been served; `true`, "1" or 2 is a flag this cannot read.
+  for (const enabled of [true, '1', 2, null]) {
+    assert.throws(() => readTiles({ gav: [{ ...GAV[0], enabled }, ...GAV.slice(1)], sgav: SGAV }), /has enabled/);
+  }
+});
+
+test('a red tile marks today with the operator\'s note, and Укренерго\'s word is not asked over it', async () => {
+  const tiles = readTiles({ gav: red(GAV, '3', '7'), sgav: SGAV });
+  const marked = withTiles(quietSnapshot(), MYKOLAIV, tiles, NOON_26_11);
+  assert.deepEqual(marked.fact.emergency, [TODAY_26_11]);
+  assert.equal(marked.fact.emergencyNote, tilesNote(tiles));
+  assert.deepEqual(validate(marked), []);
+  assert.equal(carriedParts(marked), null);
+
+  let asked = 0;
+  const after = await withUkrenergoEmergency(marked, MYKOLAIV, {
+    now: NOON_26_11, log: () => {}, read: async () => { asked += 1; return { active: false, since: null, note: null }; }
+  });
+  assert.equal(asked, 0);
+  assert.equal(after.fact.emergencyNote, tilesNote(tiles));
+});
+
+test('with every tile grey the oblast is left to Укренерго, as before the tiles were read', async () => {
+  const snapshot = quietSnapshot();
+  const left = withTiles(snapshot, MYKOLAIV, readTiles({ gav: GAV, sgav: SGAV }), NOON_26_11);
+  assert.equal(left, snapshot);
+
+  // A grey tile ends nothing Укренерго says: its word for the oblast still makes the banner.
+  const word = { active: true, since: '2026-11-26T08:39:00.000Z', note: '«у Миколаївській області застосовуються аварійні відключення» — Укренерго, 10:39' };
+  const warned = await withUkrenergoEmergency(left, MYKOLAIV, { now: NOON_26_11, log: () => {}, read: async () => word });
+  assert.deepEqual(warned.fact.emergency, [TODAY_26_11]);
+  assert.equal(warned.fact.emergencyNote, word.note);
+});
+
+test('tiles that did not answer keep the warning they gave today, and hold nobody else\'s', () => {
+  const note = tilesNote({ gav: ['3'], sgav: [] });
+  const mine = { ...MYKOLAIV, previous: { fact: { emergency: [TODAY_26_11], emergencyNote: note } } };
+  const kept = withTiles(quietSnapshot(), mine, null, NOON_26_11);
+  assert.deepEqual(kept.fact.emergency, [TODAY_26_11]);
+  assert.equal(kept.fact.emergencyNote, note);
+  assert.deepEqual(carriedParts(kept), ['emergency']);
+
+  // Yesterday's warning is over with its day.
+  const stale = { ...MYKOLAIV, previous: { fact: { emergency: [TODAY_26_11 - 86400], emergencyNote: note } } };
+  assert.equal(withTiles(quietSnapshot(), stale, null, NOON_26_11).fact.emergency, undefined);
+
+  // Укренерго's warning is read again each cycle, by its own reader: it is not frozen here.
+  const theirs = { ...MYKOLAIV, previous: { fact: { emergency: [TODAY_26_11], emergencyNote: '«…» — Укренерго, 10:39' } } };
+  const snapshot = quietSnapshot();
+  assert.equal(withTiles(snapshot, theirs, null, NOON_26_11), snapshot);
+  // Nothing served yet.
+  assert.equal(withTiles(snapshot, MYKOLAIV, null, NOON_26_11), snapshot);
 });

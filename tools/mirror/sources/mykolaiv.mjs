@@ -1,5 +1,6 @@
 import { getJSON } from '../lib/http.mjs';
 import { buildSnapshot, hourStateFromHalves, kyivDayStart, queueNames, NATIONAL_QUEUES } from '../lib/canonical.mjs';
+import { markCarried } from '../lib/carried.mjs';
 
 /**
  * АТ «Миколаївобленерго» — the JSON API behind the operator's own page at off.energy.mk.ua.
@@ -9,7 +10,8 @@ import { buildSnapshot, hourStateFromHalves, kyivDayStart, queueNames, NATIONAL_
  * The page loads three queue groups and uses them very differently:
  *  - `/api/outage-queue/by-type/1` — ГАВ 1–10 and 1(Р)–10(Р); `by-type/2` — СГАВ 1–3. Both are
  *    drawn only as tiles that turn red while `enabled === 1`: a live switch with no hours, nothing
- *    a schedule can be built from.
+ *    a schedule can be built from. They are the operator's own word that it is cutting beyond the
+ *    schedule, and are read for «Аварійні відключення» — see `readTiles`.
  *  - `/api/outage-queue/by-type/3` — the ГПВ підчерги 1.1–6.2. This is the only group the hourly
  *    table is built from, crossed with `/api/schedule/time-series` (48 half-hour rows) and
  *    `/api/v2/schedule/active` (the published days). Its own `enabled` is the same kind of live
@@ -250,6 +252,90 @@ export function parseSchedule({ timeSeries, queues, active, now = new Date() }) 
   return { queues: queueNames(NATIONAL_QUEUES), fact };
 }
 
+/**
+ * The ГАВ and СГАВ tiles of the operator's page → the queues it shows as switched off right now.
+ *
+ * ГАВ — графіки аварійних відключень — and СГАВ, the special ones, are cuts beyond the hourly schedule, by queues of their own:
+ * every building is in a ГПВ підчерга and, apart from it, in a ГАВ queue (`/api/addr/dom/<id>/outage-queue` names all of them), and
+ * the page tells a visitor «За вашою адресою відбулося знеструмлення через застосування ГАВ» while that queue's tile is red. A
+ * person asked for exactly this on 25 November 2026: the app showed emergency outages for the oblast only when Укренерго's summary
+ * named it, while the operator's own page says which queues are under them.
+ *
+ * Served on 2026-11-26: twenty type-1 rows, «1»–«10» and «1(Р)»–«10(Р)» (ten until February 2026), and three type-2 rows,
+ * «1»–«3». In the ten archived pairs of these lists (27.01–22.02 and 11–13.11.2026) no tile was on, so how fast the operator
+ * turns one off again is not known. Only a red tile is therefore taken as a word: with every tile grey the oblast is left to
+ * Укренерго's summary, as before this was read (lib/ukrenergo-emergency.mjs), and a grey tile ends nothing that summary says.
+ *
+ * Names are taken as the page prints them. A row that is not a tile of its list, or a flag other than the 0 and 1 the page
+ * compares with, is a list this cannot read — and reading it either way would be guessing whether people have light.
+ *
+ * @param {{ gav: unknown, sgav: unknown }} lists `/api/outage-queue/by-type/1` and `/by-type/2`
+ * @returns {{ gav: string[], sgav: string[] }} the names of the tiles that are on, in the page's order
+ */
+export function readTiles({ gav, sgav }) {
+  const on = (list, typeId, label) => {
+    if (!Array.isArray(list) || list.length === 0) {
+      throw new Error(`mykolaiv: ${label} queue list is ${Array.isArray(list) ? 'empty' : typeof list}, expected its tiles`);
+    }
+    const names = [];
+    for (const queue of list) {
+      const name = typeof queue?.name === 'string' ? queue.name.trim() : '';
+      if (queue?.type_id !== typeId || !name) throw new Error(`mykolaiv: unexpected ${label} queue ${JSON.stringify(queue)}`);
+      if (queue.enabled !== 0 && queue.enabled !== 1) {
+        throw new Error(`mykolaiv: ${label} queue ${name} has enabled ${JSON.stringify(queue.enabled)}, expected 0 or 1`);
+      }
+      if (queue.enabled === 1 && !names.includes(name)) names.push(name);
+    }
+    return names;
+  };
+  return { gav: on(gav, 1, 'ГАВ'), sgav: on(sgav, 2, 'СГАВ') };
+}
+
+/** «3», «3 і 7», «3, 7 і 10(Р)». */
+const listed = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} і ${names.at(-1)}` : names[0]);
+
+/** How every note made here begins: a warning carried over a failed read is told from Укренерго's by it. */
+const NOTE_HEAD = 'на сайті Миколаївобленерго ввімкнено аварійні відключення для';
+
+/**
+ * The banner's second line, after the app's «Оператор повідомив: » and before its full stop. It names the queues, because the
+ * order is not for the whole oblast, and says where a person finds theirs: the app knows the ГПВ підчерга of an address and not
+ * its ГАВ queue. No hour in it — the tiles are read every cycle, and a note that moved with the clock would go out as a change
+ * every two minutes.
+ */
+export function tilesNote({ gav, sgav }) {
+  const parts = [
+    gav.length ? `${gav.length > 1 ? 'черг' : 'черги'} ГАВ ${listed(gav)}` : null,
+    sgav.length ? `${sgav.length > 1 ? 'черг' : 'черги'} СГАВ ${listed(sgav)}` : null
+  ].filter(Boolean);
+  if (!parts.length) return null;
+  return `${NOTE_HEAD} ${parts.join(' та ')} — свою чергу видно там за адресою (off.energy.mk.ua)`;
+}
+
+/**
+ * The region's snapshot with what the tiles say. A red tile marks today, in the operator's own name: lib/ukrenergo-emergency.mjs
+ * then leaves the day as it is. With every tile grey nothing is added and nothing taken away. When the lists could not be read
+ * (`tiles` null), a warning this function gave earlier today stays, marked as carried — it is what phones have, not a second
+ * look; Укренерго's warning is not held here, it is read again each cycle.
+ *
+ * @param {{ gav: string[], sgav: string[] }|null} tiles
+ */
+export function withTiles(snapshot, region, tiles, now = new Date()) {
+  const today = kyivDayStart(now);
+  if (!tiles) {
+    const previous = region.previous?.fact;
+    const mine = (previous?.emergency ?? []).map(Number).includes(today) && String(previous.emergencyNote ?? '').startsWith(NOTE_HEAD);
+    if (!mine) return snapshot;
+    return markCarried(
+      { ...snapshot, fact: { ...snapshot.fact, emergency: [today], emergencyNote: previous.emergencyNote } }, ['emergency']
+    );
+  }
+  const note = tilesNote(tiles);
+  if (!note) return snapshot;
+  console.log(`[emergency] ${region.id}: tiles on — ГАВ ${tiles.gav.join(', ') || '—'}; СГАВ ${tiles.sgav.join(', ') || '—'}`);
+  return { ...snapshot, fact: { ...snapshot.fact, emergency: [today], emergencyNote: note } };
+}
+
 export async function fetchRegion(region) {
   // The page's own order — queues, then slots, then the schedule — one request at a time and a
   // second apart: this is a regional operator's server, and it is busiest exactly when the grid is.
@@ -261,7 +347,7 @@ export async function fetchRegion(region) {
 
   const parsed = parseSchedule({ timeSeries, queues, active });
 
-  return buildSnapshot({
+  const snapshot = buildSnapshot({
     regionId: region.id,
     title: region.title,
     queues: parsed.queues,
@@ -270,4 +356,18 @@ export async function fetchRegion(region) {
     update: null,
     source: 'mykolaiv'
   });
+
+  // The other two lists the page loads on every visit. They come after the schedule and may fail without it failing: the
+  // hours are what the region is read for, and a warning is not worth losing them.
+  let tiles = null;
+  try {
+    await pause(1000);
+    const gav = await getJSON(`${BASE}/api/outage-queue/by-type/1`);
+    await pause(1000);
+    const sgav = await getJSON(`${BASE}/api/outage-queue/by-type/2`);
+    tiles = readTiles({ gav, sgav });
+  } catch (error) {
+    console.log(`[emergency] ${region.id}: tiles not read: ${error.message}`);
+  }
+  return withTiles(snapshot, region, tiles);
 }
