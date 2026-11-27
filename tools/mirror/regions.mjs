@@ -90,6 +90,14 @@ export const REGIONS = [
     // Its channel says «зміни у ГПВ» before its table does (lib/operator-changes.mjs), and «запроваджено аварійні
     // відключення (ГАВ)» when Укренерго orders them (lib/dtek-emergency.mjs, area 'own').
     changesTelegram: { channel: 'ztoe_ua' }, 
+    // From about 25 November 2026 ztoe.com.ua answers this reader — any request whose User-Agent names «svitlo-mirror», the
+    // app's address or «outage schedule mirror» — with a table its visitors do not see, under a fresh «Дата оновлення». On the
+    // 27th queue 1.1 was 10:00–14:00 and 17:00–20:00 on the page and 12:00–16:00 and 20:00–24:00 here; three people wrote that
+    // the app was wrong, and the alerts of the 26th had carried the changes of a table nobody had. A browser's User-Agent, or
+    // any other, gets the real table — and would be walking around what the operator chose to do. So the page is not asked at
+    // all: the region is published without a day table and as unreadable since the 25th, and the app says «Дані оператора
+    // недоступні» with the operator's own site (sources/zhytomyr.mjs `withheld`). Lifted only when the operator agrees.
+    tableWithheld: { since: '2026-11-24T22:00:00.000Z' },
     // Житомиробленерго writes the end of an order itself («Аварійні відключення на Житомирщині скасовано. Повертаємось до графіків»,
     // 2 November 13:12 UTC, and an edit «UPD: … скасовано» on the post), and on 3 November announced it at 12:50 UTC and never
     // cancelled: a person wrote at 07:03 the next morning that the power had been off since 16:00 — the banner had gone at 02:50,
