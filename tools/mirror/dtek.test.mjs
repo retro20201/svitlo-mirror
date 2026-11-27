@@ -44,6 +44,31 @@ test('a region without a pattern keeps its template and every queue', () => {
   assert.equal(Object.keys(snapshot.preset.sch_names).length, 4);
 });
 
+// ДТЕК Дніпро as published at 07:21 on 26 November 2026, cut down: the day table has the new queues «N.1» only, the page still
+// names «N.2» and carries the template row of the old 2.2, and ЦЕК's queues have both halves and no day table of ДТЕК's.
+test('Дніпро: the old queues «N.2» go with their template rows, the eighteen and ЦЕК\'s stay', () => {
+  const dnipro = REGIONS.find((r) => r.id === 'dnipro');
+  const snapshot = shape({
+    regionId: 'dnipro',
+    fact: { data: { 1795644000: { 'GPV2.1': hours({ 11: 'no' }), 'GPV18.1': hours({ 1: 'no' }) } }, update: '26.11.2026 07:21', today: 1795644000 },
+    preset: {
+      sch_names: {
+        'GPV2.1': 'Черга 2.1', 'GPV2.2': 'Черга 2.2', 'GPV18.1': 'Черга 18.1', 'GPV18.2': 'Черга 18.2',
+        'GPV1005.1': 'ЦЕК 5.1', 'GPV1005.2': 'ЦЕК 5.2'
+      },
+      time_zone: timeZone,
+      data: {
+        'GPV2.1': week({ 5: 'maybe' }), 'GPV2.2': week({ 5: 'maybe' }), 'GPV18.1': week({ 9: 'maybe' }),
+        'GPV1005.1': week({ 7: 'maybe' }), 'GPV1005.2': week({ 8: 'maybe' })
+      }
+    }
+  }, dnipro);
+  assert.deepEqual(Object.keys(snapshot.preset.sch_names), ['GPV2.1', 'GPV18.1', 'GPV1005.1', 'GPV1005.2']);
+  assert.deepEqual(Object.keys(snapshot.preset.data), ['GPV2.1', 'GPV18.1', 'GPV1005.1', 'GPV1005.2']);
+  assert.equal(snapshot.fact.data[1795644000]['GPV18.1']['1'], 'no', 'the day table is untouched');
+  assert.deepEqual(validate(snapshot), []);
+});
+
 test('outage-data-ua is read at its newest commit, past the raw cache, and by branch if that fails', async () => {
   const sha = 'c89ea99d615f0123456789abcdef0123456789ab';
   const asked = [];
