@@ -126,6 +126,8 @@ async function main() {
       let snapshot;
       let relayed = null;
       let partial = false;
+      /** Since when the adapter itself says the region has not been read, where it knows (Житомир's withheld table). */
+      let heldSince = null;
       try {
         if (Date.now() - startedAt > CYCLE_BUDGET_MS) {
           notStarted = true;
@@ -151,6 +153,7 @@ async function main() {
           console.warn(`[partial] ${region.id}: ${error.message}; publishing what the adapter could read`);
           snapshot = error.fallback;
           partial = true;
+          heldSince = Number.isFinite(Date.parse(error.since ?? '')) ? error.since : null;
         } else {
           throw error;
         }
@@ -166,7 +169,7 @@ async function main() {
       if (relayed || partial) {
         // Still failing here: kept on the list GitHub reads, so it keeps relaying.
         entry.stale = true;
-        entry.staleSince = staleSince(previousRows.get(region.id));
+        entry.staleSince = heldSince ?? staleSince(previousRows.get(region.id));
       }
       const parts = carriedParts(snapshot);
       if (!relayed && !partial && parts !== true) {

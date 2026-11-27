@@ -130,7 +130,38 @@ export async function withHeldEmergency(error, region, options = {}) {
   return error;
 }
 
+/**
+ * The region with its table withheld (`region.tableWithheld`, regions.mjs): the page is not asked, and what is offered to the
+ * mirror as `error.fallback` is the twelve queues with no day at all — a table known to be someone's invention is worse than
+ * none — and whatever the operator's channel says about an order of Укренерго, which is its own word to everybody. Published
+ * that way the region is marked stale since `error.since`, the day the real table was last had, so the app says «Дані
+ * оператора недоступні» at once and not «вимкнень не заплановано» for the three hours a fresh failure is given.
+ */
+export async function withheld(region, options = {}) {
+  const error = new Error('the table is withheld: the operator answers this reader with one its visitors do not see');
+  error.since = region.tableWithheld?.since;
+  const blank = buildSnapshot({
+    regionId: region.id,
+    title: region.title,
+    queues: queueNames(NATIONAL_QUEUES),
+    fact: {},
+    todayEpoch: kyivDayStart(options.now),
+    source: 'zhytomyr'
+  });
+  let held = blank;
+  if (region.emergencyTelegram) {
+    try {
+      held = await withChannelEmergency(blank, region, { log: (line) => console.log(`[emergency] ${line}`), ...options });
+    } catch {
+      // The channel did not answer: the region goes out with no order on it.
+    }
+  }
+  if (!validate(held).length) error.fallback = held;
+  return error;
+}
+
 export async function fetchRegion(region) {
+  if (region.tableWithheld) throw await withheld(region);
   let html;
   try {
     html = await getText(PAGE);
