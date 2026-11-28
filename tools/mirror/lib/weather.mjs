@@ -30,6 +30,8 @@ export const PLACES = {
   'kyiv-region': [50.1, 30.3],
   dnipro: [48.46, 35.04],
   cek: [48.46, 35.04],
+  // Укрзалізниця's houses lie along the lines of the whole oblast: its place is the oblast's.
+  'uz-kyiv-region': [50.1, 30.3],
   odesa: [46.48, 30.72],
   mykolaiv: [46.98, 31.99],
   lviv: [49.84, 24.03],
