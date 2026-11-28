@@ -30,7 +30,8 @@ const SOURCES = {
   poltava: () => import('./sources/poltava.mjs'),
   vinnytsia: () => import('./sources/vinnytsia.mjs'),
   chernivtsi: () => import('./sources/chernivtsi.mjs'),
-  cek: () => import('./sources/cek.mjs')
+  cek: () => import('./sources/cek.mjs'),
+  uz: () => import('./sources/uz.mjs')
 };
 
 /**

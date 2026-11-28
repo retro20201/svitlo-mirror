@@ -67,6 +67,13 @@ export const REGIONS = [
     // app, and its order is not the twelve queues' (13 November 2026: it put the whole region under the warning).
     emergencyTelegram: { area: 'own', channel: 'cek_info', maxAgeHours: 36, skip: /м\.\s*павлоград/iu } },
 
+  // The houses fed from the railway's own networks (sources/uz.mjs): АТ «Укрзалізниця» publishes their hours a page an oblast,
+  // under Укренерго's twelve queues, and they are not the oblenergo's hours. One oblast to begin with — a trial of how steady the
+  // hand-typed page is (a letter of 28 November 2026 asked for these schedules). Asked every ten minutes, not every cycle.
+  { id: 'uz-kyiv-region', title: 'Київщина (Укрзалізниця)', subtitle: 'споживачі Укрзалізниці', operator: 'АТ «Укрзалізниця»', source: 'uz',
+    site: 'https://www.uz.gov.ua/about/activity/electropostachannia/electro_consumers/temporary_shutdown/grafikiobmezhen/622296/',
+    status: 'seasonal', minIntervalMinutes: 10, uz: { page: 622296 } },
+
   // --- seasonal: the API answers, but out of season it returns queue names with no hours,
   //     so the app must not offer it as a working region until schedules come back
   // Only the 12 ГПВ підчерги (`/api/outage-queue/by-type/3`) carry hours, and they are the national
@@ -197,7 +204,8 @@ export function regionById(id) {
  * declines. A coarse word, for the whole oblast and with no end written: lib/ukrenergo-emergency.mjs says how it is read.
  */
 export function hasEmergencySignal(region) {
-  return Boolean(region?.yasno || region?.emergencyTelegram || region?.emergencySite || region?.emergencyUkrenergo);
+  // Укрзалізниця writes an order on the same page as its hours (sources/uz.mjs).
+  return Boolean(region?.yasno || region?.emergencyTelegram || region?.emergencySite || region?.emergencyUkrenergo || region?.uz);
 }
 
 /** A region's row in `index.json`, before a read adds what it found. */
